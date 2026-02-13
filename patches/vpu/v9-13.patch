@@ -1,0 +1,157 @@
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 53D4143634C;
+	Tue, 20 Jan 2026 22:21:16 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1768947681; cv=none; b=OmDxq1Wd+oC72s9ydXz24CK7QAO6NnRRhVrcOHShpsfj4pmy4oJplgB3DwOnsm63CyQyPd3b7eb+6mBTCJmuilzexe3nJEbYl3eNAGGjFH7Sp0p5zEOX1rKgtTPik3GYcnvYcQhAN7DVte7xjSwVkRfEFiY9pOcGHXDRZhRIbyk=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1768947681; c=relaxed/simple;
+	bh=dRQS0D4482RoRM0Lflt7QhE7KVvV6NB17VYCybkJb1g=;
+	h=From:To:Cc:Subject:Date:Message-ID:In-Reply-To:References:
+	 MIME-Version; b=s9HhZgFao49K+FwbOxfhK8/8bBN2Ilx7v3YxLZiexHSJ4e90MFJWIdWKBlnnXQGJOobWzeAFkg4lRwpRQ6SlANHOzyNc7nqlmZDYMhZ+yS6djJvrk9PEqAIl47R5sLxyHreMBCRTnAC2oUbXa1No4PUAYAR+keKvlJDwq0ozLgQ=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=SAPcN0tK; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="SAPcN0tK"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1768947672;
+	bh=dRQS0D4482RoRM0Lflt7QhE7KVvV6NB17VYCybkJb1g=;
+	h=From:To:Cc:Subject:Date:In-Reply-To:References:From;
+	b=SAPcN0tK1fvnMQfC5ChPbUhSqqD/1ED55a+GOYrM7y/DkyxzocsMhTEzLEfVCKSru
+	 JnKrVs/UYp+ywCrI3RtEW3meG99iflovf59WKqqT4H2tuf97P6p13IA+itVxZAXJdg
+	 jUbfYnsI6wHnbiR6IyUzNVk/IgVv7fPclorQ8CX8EnWuZf7D14HoaFP60Hek7Xj75U
+	 dz69NwGYEh5s4aM9AWVUAHxw+Pqah/Gj/LMjpuEU7TIh7hPHpRaDU3QPHaL2kd3+Gi
+	 Wrljj/Bft3rDoxNDUz7lKNU2VQ7w2GLDL4vxBnkQPn4OVWWV5XNwFk4b9Cr1xaDb2P
+	 fzek867pgJrUA==
+Received: from earth.mtl.collabora.ca (mtl.collabora.ca [66.171.169.34])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: detlev)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 144F617E0DB7;
+	Tue, 20 Jan 2026 23:21:08 +0100 (CET)
+From: Detlev Casanova <detlev.casanova@collabora.com>
+To: linux-kernel@vger.kernel.org
+Cc: Mauro Carvalho Chehab <mchehab@kernel.org>,
+	Detlev Casanova <detlev.casanova@collabora.com>,
+	Ezequiel Garcia <ezequiel@vanguardiasur.com.ar>,
+	Heiko Stuebner <heiko@sntech.de>,
+	Daniel Almeida <daniel.almeida@collabora.com>,
+	Jonathan Corbet <corbet@lwn.net>,
+	Ricardo Ribalda <ribalda@chromium.org>,
+	Hans Verkuil <hverkuil@kernel.org>,
+	Yunke Cao <yunkec@google.com>,
+	Hans de Goede <hansg@kernel.org>,
+	Laurent Pinchart <laurent.pinchart@ideasonboard.com>,
+	Nicolas Dufresne <nicolas.dufresne@collabora.com>,
+	Pavan Bobba <opensource206@gmail.com>,
+	Sakari Ailus <sakari.ailus@linux.intel.com>,
+	James Cowgill <james.cowgill@blaize.com>,
+	linux-media@vger.kernel.org,
+	linux-rockchip@lists.infradead.org,
+	linux-arm-kernel@lists.infradead.org,
+	kernel@collabora.com,
+	Jonas Karlman <jonas@kwiboo.se>,
+	Diederik de Haas <didi.debian@cknow.org>
+Subject: [PATCH v9 13/17] media: rkvdec: Disable multicore support
+Date: Tue, 20 Jan 2026 17:20:13 -0500
+Message-ID: <20260120222018.404741-14-detlev.casanova@collabora.com>
+X-Mailer: git-send-email 2.52.0
+In-Reply-To: <20260120222018.404741-1-detlev.casanova@collabora.com>
+References: <20260120222018.404741-1-detlev.casanova@collabora.com>
+Precedence: bulk
+X-Mailing-List: linux-media@vger.kernel.org
+List-Id: <linux-media.vger.kernel.org>
+List-Subscribe: <mailto:linux-media+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-media+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+
+Similarly to what is done in Hantro, avoid exposing equal video codecs to
+userspace. Equal video codecs allow scheduling work between the cores.
+For that kernel support is required, which does not yet exist.
+Until that is implemented, avoid exposing each core separately to
+userspace so that multicore can be added in the future without breaking
+userspace ABI.
+
+This currently applies only to RK3588 which has 2 equal VDPU381 decoders,
+but will be applied for all SoC supported by rkvdec that has multiple DTS
+nodes with the same compatible.
+
+Reviewed-by: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+Signed-off-by: Detlev Casanova <detlev.casanova@collabora.com>
+---
+ .../media/platform/rockchip/rkvdec/rkvdec.c   | 47 +++++++++++++++++++
+ 1 file changed, 47 insertions(+)
+
+diff --git a/drivers/media/platform/rockchip/rkvdec/rkvdec.c b/drivers/media/platform/rockchip/rkvdec/rkvdec.c
+index ce96a0470d4d9..af2eced900269 100644
+--- a/drivers/media/platform/rockchip/rkvdec/rkvdec.c
++++ b/drivers/media/platform/rockchip/rkvdec/rkvdec.c
+@@ -1269,6 +1269,49 @@ static void rkvdec_watchdog_func(struct work_struct *work)
+ 	}
+ }
+ 
++/*
++ * Some SoCs, like RK3588 have multiple identical VDPU cores, but the
++ * kernel is currently missing support for multi-core handling. Exposing
++ * separate devices for each core to userspace is bad, since that does
++ * not allow scheduling tasks properly (and creates ABI). With this workaround
++ * the driver will only probe for the first core and early exit for the other
++ * cores. Once the driver gains multi-core support, the same technique
++ * for detecting the first core can be used to cluster all cores together.
++ */
++static int rkvdec_disable_multicore(struct rkvdec_dev *rkvdec)
++{
++	struct device_node *node = NULL;
++	const char *compatible;
++	bool is_first_core;
++	int ret;
++
++	/* Intentionally ignores the fallback strings */
++	ret = of_property_read_string(rkvdec->dev->of_node, "compatible", &compatible);
++	if (ret)
++		return ret;
++
++	/* The first compatible and available node found is considered the main core */
++	do {
++		node = of_find_compatible_node(node, NULL, compatible);
++		if (of_device_is_available(node))
++			break;
++	} while (node);
++
++	if (!node)
++		return -EINVAL;
++
++	is_first_core = (rkvdec->dev->of_node == node);
++
++	of_node_put(node);
++
++	if (!is_first_core) {
++		dev_info(rkvdec->dev, "missing multi-core support, ignoring this instance\n");
++		return -ENODEV;
++	}
++
++	return 0;
++}
++
+ static const struct rkvdec_variant_ops rk3399_variant_ops = {
+ 	.irq_handler = rk3399_irq_handler,
+ };
+@@ -1332,6 +1375,10 @@ static int rkvdec_probe(struct platform_device *pdev)
+ 	mutex_init(&rkvdec->vdev_lock);
+ 	INIT_DELAYED_WORK(&rkvdec->watchdog_work, rkvdec_watchdog_func);
+ 
++	ret = rkvdec_disable_multicore(rkvdec);
++	if (ret)
++		return ret;
++
+ 	ret = devm_clk_bulk_get_all_enabled(&pdev->dev, &rkvdec->clocks);
+ 	if (ret < 0)
+ 		return ret;
+-- 
+2.52.0
+
