@@ -1,0 +1,27 @@
+# Cross-compilation environment per kernel Linux aarch64
+# Su Apple Silicon gira NATIVAMENTE senza emulazione
+FROM --platform=linux/arm64 ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    bc \
+    flex \
+    bison \
+    libssl-dev \
+    libelf-dev \
+    python3 \
+    device-tree-compiler \
+    git \
+    kmod \
+    cpio \
+    rsync \
+    u-boot-tools \
+    lz4 \
+    zstd \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+RUN gcc --version && echo "Architecture: $(uname -m)"
+CMD ["/bin/bash"]

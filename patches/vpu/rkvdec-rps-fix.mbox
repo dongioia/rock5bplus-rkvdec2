@@ -1,0 +1,113 @@
+From patchwork Fri Jan 23 19:22:44 2026
+Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+X-Patchwork-Submitter: Detlev Casanova <detlev.casanova@collabora.com>
+X-Patchwork-Id: 14397006
+Received: from bali.collaboradmins.com (bali.collaboradmins.com
+ [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 3C36D2882CE;
+	Fri, 23 Jan 2026 19:22:53 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org;
+ arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1769196174; cv=none;
+ b=E1zQGQkm2ULREI7Y6VcfZDaHorBJzCk2+NmMkixHZyQBNKvypQO+qcDPLIAWO5PNR2/3Q2wOHMICFfxaAGpHxe/8KkEPZHXGBnsyK6qeLHXKCIYz9vZVuyvhlMESW8/7fYjBnnDHK+lQji3macltH0aiVAhm5vjAWUjh659ecN8=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1769196174; c=relaxed/simple;
+	bh=1PbDexk1JuVcGk7jA6Ea3tQNMA3I+IYYxLlRzW49kJ8=;
+	h=From:To:Cc:Subject:Date:Message-ID:MIME-Version;
+ b=fe4NsIPpsmFdttuvdSNenBpPFHv2ddizj03Cng5iL5KdMD5ut2IIlTrPQJpnI2uLDE2RrIuHawShCFnjQOY91gTFWTbWaPCcXofmPbKhdZcTNh+0AAwZDEbt5GTqZ72ZVaMvjhNUKaeOk6bNe5LapA5flVWTQbFhjpIcwgg+obs=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org;
+ dmarc=pass (p=none dis=none) header.from=collabora.com;
+ spf=pass smtp.mailfrom=collabora.com;
+ dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com
+ header.b=fdxXgHvZ; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org;
+ dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+ spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com
+ header.b="fdxXgHvZ"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1769196171;
+	bh=1PbDexk1JuVcGk7jA6Ea3tQNMA3I+IYYxLlRzW49kJ8=;
+	h=From:To:Cc:Subject:Date:From;
+	b=fdxXgHvZkztUfQLUEUTdVo6attL054X8ci55E684kb0E0O3j6etbExS4KOkUNMxs5
+	 X7A1l/S43Rgacm4E52XjaHhdq7dbYmXBsxAVPkQrQkqkanTLySImEB7QuyZN01yFbZ
+	 HfEzJxQVHfxddj177sRbwJrYPdSFYJpSJxPDu5MGvp32I770N2Fw64ro+7NJbcq7Ua
+	 ddMCk9pjAr5PI6rvW19UzTvOPQ8LGPR5gX4gvG5dc44/fUbKX2q74vasGtf/Fjqmkq
+	 takK/PPddRHzYgB2TSwBJW3TUZOPZDxWX2e2623SC3DMQXmXqSNQCO2RcdLCP2P1uk
+	 iouOzNHpMy7Bw==
+Received: from trenzalore (modemcable014.2-22-96.mc.videotron.ca [96.22.2.14])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest
+ SHA256)
+	(No client certificate requested)
+	(Authenticated sender: detlev)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id A6B0617E0A49;
+	Fri, 23 Jan 2026 20:22:49 +0100 (CET)
+From: Detlev Casanova <detlev.casanova@collabora.com>
+To: linux-kernel@vger.kernel.org
+Cc: Detlev Casanova <detlev.casanova@collabora.com>,
+	Ezequiel Garcia <ezequiel@vanguardiasur.com.ar>,
+	Mauro Carvalho Chehab <mchehab@kernel.org>,
+	Heiko Stuebner <heiko@sntech.de>,
+	linux-media@vger.kernel.org,
+	linux-rockchip@lists.infradead.org,
+	linux-arm-kernel@lists.infradead.org,
+	kernel@collabora.com,
+	Nicolas Dufresne <nicolas.dufresne@collabora.com>,
+	Christian Hewitt <christianshewitt@gmail.com>,
+	Jonas Karlman <jonas@kwiboo.se>
+Subject: [PATCH] media: rkvdec: Improve handling missing short/long term RPS
+Date: Fri, 23 Jan 2026 14:22:44 -0500
+Message-ID: <20260123192244.1441637-1-detlev.casanova@collabora.com>
+X-Mailer: git-send-email 2.52.0
+Precedence: bulk
+X-Mailing-List: linux-media@vger.kernel.org
+List-Id: <linux-media.vger.kernel.org>
+List-Subscribe: <mailto:linux-media+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-media+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+
+The values of ext_sps_st_rps and ext_sps_lt_rps in struct rkvdec_hevc_run
+are not initialized when the respective controls are not set by userspace.
+
+When this is the case, set them to NULL so the rkvdec_hevc_run_preamble
+function that parses controls does not access garbage data which leads to
+a panic on unaccessible memory.
+
+Fixes: c9a59dc2acc7 ("media: rkvdec: Add HEVC support for the VDPU381 variant")
+Reported-by: Christian Hewitt <christianshewitt@gmail.com>
+Suggested-by: Jonas Karlman <jonas@kwiboo.se>
+Signed-off-by: Detlev Casanova <detlev.casanova@collabora.com>
+Tested-by: Christian Hewitt <christianshewitt@gmail.com>
+Reviewed-by: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+---
+ drivers/media/platform/rockchip/rkvdec/rkvdec-hevc-common.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/media/platform/rockchip/rkvdec/rkvdec-hevc-common.c b/drivers/media/platform/rockchip/rkvdec/rkvdec-hevc-common.c
+index 28267ee30190..3119f3bc9f98 100644
+--- a/drivers/media/platform/rockchip/rkvdec/rkvdec-hevc-common.c
++++ b/drivers/media/platform/rockchip/rkvdec/rkvdec-hevc-common.c
+@@ -500,11 +500,15 @@ void rkvdec_hevc_run_preamble(struct rkvdec_ctx *ctx,
+ 		ctrl = v4l2_ctrl_find(&ctx->ctrl_hdl,
+ 				      V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS);
+ 		run->ext_sps_st_rps = ctrl ? ctrl->p_cur.p : NULL;
++	} else {
++		run->ext_sps_st_rps = NULL;
+ 	}
+ 	if (ctx->has_sps_lt_rps) {
+ 		ctrl = v4l2_ctrl_find(&ctx->ctrl_hdl,
+ 				      V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS);
+ 		run->ext_sps_lt_rps = ctrl ? ctrl->p_cur.p : NULL;
++	} else {
++		run->ext_sps_lt_rps = NULL;
+ 	}
+ 
+ 	rkvdec_run_preamble(ctx, &run->base);

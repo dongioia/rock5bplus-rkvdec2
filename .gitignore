@@ -1,0 +1,35 @@
+# Kernel source tree (too large, clone separately)
+src/
+
+# Build staging area
+staging/
+
+# Python virtualenv
+.venv/
+
+# macOS
+.DS_Store
+
+# Logs (generated)
+logs/build/
+logs/uart/
+logs/test/
+logs/search/
+
+# AI agent setup (local only)
+.claude/
+CLAUDE.md
+Config_di_Partenza.md
+avvio_ambiente.sh
+rock5b.sh
+log_avvio.txt
+scripts/perplexity_search.py
+scripts/github_monitor.py
+scripts/ghmon.sh
+scripts/run_python.sh
+scripts/search.sh
+
+# Sensitive
+*.key
+*.pem
+.env
