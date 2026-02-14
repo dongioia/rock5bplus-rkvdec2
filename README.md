@@ -1,6 +1,6 @@
-# Rock 5B+ Mainline Kernel — Full Hardware Video Decode
+# Rock 5B+ Mainline Kernel — Full Hardware Support
 
-Patches, configs, and tools to enable **RKVDEC2/VDPU381 hardware video decoding** (H.264 4K, HEVC 4K, VP9 4K) on the **Radxa Rock 5B+** with mainline Linux kernel.
+Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, and more.
 
 ## What This Provides
 
@@ -12,6 +12,9 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 | **HEVC 4K decode** | Working | RKVDEC2, ~68 fps @ 4K |
 | **VP9 4K decode** | Working | RKVDEC2, ~69 fps @ 4K (community patch) |
 | **H.264 1080p decode** | Working | Hantro VPU121 (upstream) |
+| **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling patch (Collabora) |
+| **HDMI audio** | Working | LPCM, AC-3, E-AC-3, TrueHD via PipeWire |
+| **Analog audio (3.5mm)** | Working | ES8316 codec, jack detect fix |
 | **WiFi RTL8852BE** | Working | rtw89 driver, WiFi 6 |
 | **GPU Panthor** | Working | Mali-G610, Vulkan |
 | **Dual HDMI output** | Working | Upstream DW HDMI QP |
@@ -53,6 +56,28 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 
 - **Source**: [upstream DTS v3 patch](https://lore.kernel.org/all/20251020212009.8852-2-detlev.casanova@collabora.com/) (2025-10-20)
 - Adds 3 named register regions (function, link, cache), IOMMU nodes (`vdec0_mmu`, `vdec1_mmu`), SRAM pools inside `system_sram2`
+
+### HDMI 2.0 / 4K@60Hz (4 patches)
+
+| File | Author | Description |
+|------|--------|-------------|
+| `patches/display/0001-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge: Add ->detect_ctx hook` |
+| `patches/display/0002-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge-connector: Switch to ->detect_ctx` |
+| `patches/display/0003-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw-hdmi-qp: SCDC scrambling support` — **manually adapted** for 6.19-rc8 (see [docs/hdmi-4k60-setup.md](docs/hdmi-4k60-setup.md)) |
+| `patches/display/0004-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw_hdmi_qp: HPD events fix` |
+
+- **Source**: [v3 series on drm-misc](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (2026-01-19)
+- Patches 1, 2, 4 applied cleanly via `git am`; patch 3 required manual adaptation (struct differences between `drm-misc-next` and 6.19-rc8, removed `no_hpd` field reference)
+- Enables 3840x2160@60Hz (594 MHz TMDS), 1920x1080@120Hz, and all HDMI 2.0 modes
+- Tested by: Maud Spierings (v1), Diederik de Haas (v1), this project (v3 on 6.19-rc8)
+
+### Audio Setup (PipeWire/WirePlumber configuration)
+
+No kernel patches needed — audio hardware works out of the box. Configuration fixes for PipeWire/WirePlumber device naming and jack detection:
+
+- **WirePlumber rules**: `~/.config/wireplumber/wireplumber.conf.d/51-hdmi-rename.conf` — renames HDMI devices from generic "Audio interno" to "HDMI 0" / "HDMI 1"
+- **UCM fix**: Remove `JackControl` from `/usr/share/alsa/ucm2/Rockchip/rk3588-es8316/HiFi.conf` — makes analog output always visible regardless of jack detection
+- See [docs/audio-setup.md](docs/audio-setup.md) for details
 
 ### VP9 Support (community, experimental)
 
@@ -178,8 +203,8 @@ CONFIG_NLS_ASCII=y                    # Required for UEFI/FAT
 - **VP9**: Community patch, Profile 0 only, experimental
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
-- **HDMI audio**: Works only if monitor supports audio output
 - **WiFi**: Needs `wireless-regdb` package and regulatory domain set
+- **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
 
 ## Credits and Acknowledgments
 
@@ -203,7 +228,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 - **[Sebastian Reichel](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Sebastian+Reichel)** ([Collabora](https://www.collabora.com/)) — Upstream maintainer for Rockchip device trees, authored the Rock 5B+ DTS (`rk3588-rock-5b-plus.dts`), dual HDMI support, and many other RK3588 enablement patches.
 
-- **[Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea)** ([Collabora](https://www.collabora.com/)) — Author of the DW HDMI QP bridge driver (`dw-hdmi-qp.c`), HDMI audio support, and HDMI output enablement for RK3588.
+- **[Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea)** ([Collabora](https://www.collabora.com/)) — Author of the DW HDMI QP bridge driver (`dw-hdmi-qp.c`), HDMI audio support, HDMI output enablement for RK3588, and the [HDMI 2.0 SCDC scrambling series](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) enabling 4K@60Hz output.
 
 - **[Heiko Stuebner](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Heiko+Stuebner)** — Rockchip platform maintainer in the Linux kernel, responsible for the overall RK3588 mainline integration.
 
