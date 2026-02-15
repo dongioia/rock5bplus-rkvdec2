@@ -196,6 +196,75 @@ gpu-context=auto
 | Speed | **2.27x** realtime | 1.47x realtime |
 | CPU time | **~4s** (1 core) | ~43s (all cores) |
 
+## Browser Setup
+
+### Why Ungoogled Chromium over Firefox/LibreWolf
+
+No browser on ARM64 currently supports hardware video decode via V4L2 stateless API (the method used by RKVDEC2 on mainline kernels). However, Chromium and Firefox differ significantly in GPU acceleration:
+
+| Feature | Ungoogled Chromium (Flatpak) | Firefox / LibreWolf |
+|---------|:---:|:---:|
+| GPU compositing | Full (ANGLE + Panfrost GLES 3.1) | Partial (WebRender, less optimized on ARM) |
+| GPU rasterization | All pages | Limited |
+| WebGL | Hardware accelerated | Hardware accelerated |
+| WebGPU | Hardware accelerated | Not supported |
+| Zero-copy compositing | Supported | Not supported |
+| Video decode | Software (V4L2 stateless not supported) | Software (V4L2 stateless not supported) |
+| Wayland | Native (Ozone) | Native |
+| Flatpak (bundled libs) | Available, always up to date | Available |
+
+Chromium's ANGLE backend maps well to Panfrost's OpenGL ES 3.1, providing full hardware-accelerated page rendering, compositing, and WebGL/WebGPU. Firefox's WebRender is less optimized for ARM Mali GPUs. Neither browser supports hardware video decode on mainline RK3588 — use `mpv` + `yt-dlp` for that (see below).
+
+**Note on Vulkan**: Forcing `--use-angle=vulkan` in the Flatpak sandbox falls back to llvmpipe (software Vulkan) since PanVK is not exposed inside the sandbox. The OpenGL ES path via Panfrost is the correct one and provides real hardware acceleration.
+
+### Install
+
+```bash
+# Install Flatpak and add Flathub
+sudo pacman -S flatpak
+sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+sudo flatpak update --appstream
+
+# Install Ungoogled Chromium
+sudo flatpak install -y flathub io.github.ungoogled_software.ungoogled_chromium
+```
+
+### Desktop entry with GPU flags
+
+```bash
+mkdir -p ~/.local/share/applications
+cat > ~/.local/share/applications/ungoogled-chromium-gpu.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Ungoogled Chromium
+Comment=Web Browser with GPU acceleration
+Exec=flatpak run io.github.ungoogled_software.ungoogled_chromium --enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist
+Icon=io.github.ungoogled_software.ungoogled_chromium
+Categories=Network;WebBrowser;
+StartupNotify=true
+EOF
+update-desktop-database ~/.local/share/applications/
+```
+
+### Verify GPU acceleration
+
+Open `chrome://gpu` — you should see:
+- **GL_RENDERER**: `ANGLE (Mesa, Mali-G610 (Panfrost), OpenGL ES 3.1 Mesa ...)`
+- **Canvas, Compositing, Rasterization, WebGL, WebGPU**: Hardware accelerated
+
+### YouTube with hardware decode (bypasses browser)
+
+Since no browser supports V4L2 stateless decode, use `mpv` + `yt-dlp` for hardware-accelerated YouTube playback:
+
+```bash
+# Add to ~/.bashrc
+alias yt='mpv --ytdl-format="bestvideo[height<=2160]+bestaudio/best"'
+alias yt1080='mpv --ytdl-format="bestvideo[height<=1080]+bestaudio/best"'
+alias yta='mpv --no-video --ytdl-format="bestaudio/best"'
+```
+
+Usage: `yt https://youtube.com/watch?v=...` — plays up to 4K with RKVDEC2 hardware decode.
+
 ## Kernel Config Highlights
 
 Key options enabled in `configs/current_rkvdec2.config`:
@@ -218,6 +287,7 @@ CONFIG_NLS_ASCII=m                    # Required for UEFI/FAT
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
+- **Browser video decode**: No browser supports V4L2 stateless API — video plays in software. Use `yt-dlp` + `mpv` for hardware-accelerated playback
 - **HDMI reboot delay**: SCDC i2c nack warnings during shutdown are harmless but slow the reboot on some TVs
 
 ## Credits and Acknowledgments
