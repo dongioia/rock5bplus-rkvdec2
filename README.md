@@ -126,7 +126,7 @@ git apply ../../patches/vpu/vp9-vdpu381-adapted.patch
 cp ../../patches/vpu/rkvdec-vdpu381-vp9.{c,h} drivers/media/platform/rockchip/rkvdec/
 
 # 3. Configure
-cp ../../configs/saved.config .config
+cp ../../configs/current_rkvdec2.config .config
 make ARCH=arm64 olddefconfig
 
 # 4. Build (via Docker on macOS)
@@ -197,7 +197,7 @@ gpu-context=auto
 
 ## Kernel Config Highlights
 
-Key options enabled in `configs/saved.config`:
+Key options enabled in `configs/current_rkvdec2.config`:
 
 ```
 CONFIG_VIDEO_ROCKCHIP_VDEC=m         # RKVDEC2 driver
@@ -216,8 +216,8 @@ CONFIG_NLS_ASCII=m                    # Required for UEFI/FAT
 - **NPU**: Only quantized INT8 models via TFLite; no ONNX or PyTorch direct support yet
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
-- **WiFi**: Needs `wireless-regdb` package and regulatory domain set
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
+- **HDMI reboot delay**: SCDC i2c nack warnings during shutdown are harmless but slow the reboot on some TVs
 
 ## Credits and Acknowledgments
 
