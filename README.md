@@ -94,7 +94,7 @@ No kernel patches needed — audio hardware works out of the box. Configuration 
 | File | Author(s) | Description |
 |------|-----------|-------------|
 | `patches/vpu/dvab-sarma-vp9-vdpu381.patch` | [dvab-sarma](https://github.com/dvab-sarma) (Venkata Atchuta Bheemeswara Sarma Darbha) | Original VP9 VDPU381 decoder patch |
-| `patches/vpu/vp9-vdpu381-adapted.patch` | Adapted by Sav from dvab-sarma's work | Adaptation of VP9 code to fit the v9 driver framework |
+| `patches/vpu/vp9-vdpu381-adapted.patch` | Adapted from dvab-sarma's work | Adaptation of VP9 code to fit the v9 driver framework |
 | `patches/vpu/rkvdec-vdpu381-vp9.c` | [dvab-sarma](https://github.com/dvab-sarma), [Boris Brezillon](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Boris+Brezillon) ([Collabora](https://www.collabora.com/)), [Andrzej Pietrasiewicz](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Andrzej+Pietrasiewicz) ([Collabora](https://www.collabora.com/)) | VP9 decoder backend source |
 | `patches/vpu/rkvdec-vdpu381-vp9.h` | [dvab-sarma](https://github.com/dvab-sarma) | VP9 decoder header |
 
@@ -148,19 +148,20 @@ scripts/build.sh dtbs 12  # Build device trees only
 
 ```bash
 BOARD=<your-board-ip>
-KVER=6.19.0-rc8-g76db5f9a31f9-dirty
+USER=<your-board-user>
+KVER=<kernel-version>
 
 # Copy kernel and DTB
-scp src/linux/arch/arm64/boot/Image sav@$BOARD:/tmp/
-scp src/linux/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-plus.dtb sav@$BOARD:/tmp/
-ssh sav@$BOARD "sudo cp /tmp/Image /boot/Image-$KVER && sudo cp /tmp/rk3588-rock-5b-plus.dtb /boot/dtbs/$KVER/rockchip/"
+scp src/linux/arch/arm64/boot/Image $USER@$BOARD:/tmp/
+scp src/linux/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-plus.dtb $USER@$BOARD:/tmp/
+ssh $USER@$BOARD "sudo cp /tmp/Image /boot/vmlinuz-linux-custom && sudo cp /tmp/rk3588-rock-5b-plus.dtb /boot/dtbs/rockchip/"
 
-# Copy modules
-rsync -av staging/lib/modules/$KVER/ sav@$BOARD:/tmp/modules/
-ssh sav@$BOARD "sudo rsync -a /tmp/modules/ /lib/modules/$KVER/ && sudo depmod $KVER"
+# Copy modules (NEVER extract at / on Arch — destroys /lib symlink)
+rsync -av staging/lib/modules/$KVER/ $USER@$BOARD:/tmp/modules/
+ssh $USER@$BOARD "sudo rsync -a /tmp/modules/ /usr/lib/modules/$KVER/ && sudo depmod $KVER"
 
-# Update GRUB
-ssh sav@$BOARD "sudo grub-mkconfig -o /boot/grub/grub.cfg"
+# Regenerate initramfs and update GRUB
+ssh $USER@$BOARD "sudo mkinitcpio -k $KVER -g /boot/initramfs-linux-custom.img && sudo grub-mkconfig -o /boot/grub/grub.cfg"
 ```
 
 ## FFmpeg with v4l2-request
