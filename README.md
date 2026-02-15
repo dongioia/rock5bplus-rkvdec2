@@ -1,6 +1,6 @@
 # Rock 5B+ Mainline Kernel — Full Hardware Support
 
-Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, and more.
+Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, **NPU acceleration**, and more.
 
 ## What This Provides
 
@@ -15,6 +15,7 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 | **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling patch (Collabora) |
 | **HDMI audio** | Working | LPCM, AC-3, E-AC-3, TrueHD via PipeWire |
 | **Analog audio (3.5mm)** | Working | ES8316 codec, jack detect fix |
+| **NPU (3 cores)** | Working | Rocket driver + Mesa Teflon, 3.8x speedup |
 | **WiFi RTL8852BE** | Working | rtw89 driver, WiFi 6 |
 | **GPU Panthor** | Working | Mali-G610, Vulkan |
 | **Dual HDMI output** | Working | Upstream DW HDMI QP |
@@ -70,6 +71,15 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 - Patches 1, 2, 4 applied cleanly via `git am`; patch 3 required manual adaptation (struct differences between `drm-misc-next` and 6.19-rc8, removed `no_hpd` field reference)
 - Enables 3840x2160@60Hz (594 MHz TMDS), 1920x1080@120Hz, and all HDMI 2.0 modes
 - Tested by: Maud Spierings (v1), Diederik de Haas (v1), this project (v3 on 6.19-rc8)
+
+### NPU / Rocket Driver (kernel config)
+
+No patches needed — the Rocket driver is included in kernel 6.18+. Just enable the config options:
+
+- `CONFIG_DRM_ACCEL=y` — DRM accelerator subsystem (rebuilds `drm.ko`)
+- `CONFIG_DRM_ACCEL_ROCKET=m` — Rocket NPU driver
+
+Requires full kernel rebuild (not just the module). See [docs/npu-setup.md](docs/npu-setup.md) for userspace setup with Mesa Teflon and TFLite.
 
 ### Audio Setup (PipeWire/WirePlumber configuration)
 
@@ -193,14 +203,17 @@ Key options enabled in `configs/saved.config`:
 CONFIG_VIDEO_ROCKCHIP_VDEC=m         # RKVDEC2 driver
 CONFIG_VIDEO_HANTRO=m                 # Hantro VPU121
 CONFIG_DRM_ROCKCHIP=m                 # Display (Panthor, HDMI)
+CONFIG_DRM_ACCEL=y                    # DRM accelerator subsystem
+CONFIG_DRM_ACCEL_ROCKET=m             # NPU Rocket driver (3 cores, 6 TOPS)
 CONFIG_RTW89_8852BE=m                 # WiFi RTL8852BE
 CONFIG_ZRAM=m                         # Compressed swap
-CONFIG_NLS_ASCII=y                    # Required for UEFI/FAT
+CONFIG_NLS_ASCII=m                    # Required for UEFI/FAT
 ```
 
 ## Known Limitations
 
 - **VP9**: Community patch, Profile 0 only, experimental
+- **NPU**: Only quantized INT8 models via TFLite; no ONNX or PyTorch direct support yet
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
 - **WiFi**: Needs `wireless-regdb` package and regulatory domain set
