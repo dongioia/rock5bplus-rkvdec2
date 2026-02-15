@@ -280,6 +280,31 @@ CONFIG_ZRAM=m                         # Compressed swap
 CONFIG_NLS_ASCII=m                    # Required for UEFI/FAT
 ```
 
+## Customization
+
+### Custom Boot Logo
+
+The default Tux penguin is replaced with a custom 80x80 224-color logo compiled into the kernel. To use your own:
+
+```bash
+# Convert any image to 80x80 PPM with max 224 colors
+magick your-image.png -resize 80x80 -background white -flatten -colors 224 -compress none PPM:logo.ppm
+
+# Replace in kernel source and rebuild
+cp logo.ppm src/linux/drivers/video/logo/logo_linux_clut224.ppm
+scripts/build.sh Image 12
+```
+
+### Custom fastfetch Logo
+
+```bash
+# Copy your image to the board
+scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
+
+# The config in ~/.config/fastfetch/config.jsonc uses chafa rendering
+# IMPORTANT: the "modules" array must be present, or no system info is displayed
+```
+
 ## Known Limitations
 
 - **VP9**: Community patch, Profile 0 only, experimental
