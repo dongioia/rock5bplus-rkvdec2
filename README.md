@@ -2,25 +2,59 @@
 
 Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, **NPU acceleration**, and more.
 
+> **Note**: The RKVDEC2/VDPU381 driver has been [merged upstream in Linux 7.0](https://lore.kernel.org/linux-media/) (media updates GIT PULL, 2026-02-11). These patches remain useful for running on the 6.19 stable series. When upgrading to 7.0+, the VPU patches can be dropped — but beware of the [HDMI 2.1 FRL regression](https://lore.kernel.org/linux-rockchip/) affecting Rock 5B in linux-next.
+
+## Changelog
+
+### 2026-02-17 — Linux 6.19.1 stable
+
+Rebased all patches onto **Linux 6.19.1 stable** (from 6.19-rc8). Added 10 new patches for AV1 bug fixes, VOP2 display stability, RKVDEC stack safety, VPU power domain regulators, and HDMI InfoFrame support.
+
+**New patches:**
+- AV1 CDEF computation fix ([Benjamin Gaignard](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Benjamin+Gaignard), Collabora)
+- AV1 tx mode bit mapping fix (Benjamin Gaignard, Collabora)
+- AV1 tile info buffer size fix (Benjamin Gaignard, Collabora)
+- VOP2 `mode_valid` callback ([Andy Yan](https://lore.kernel.org/linux-rockchip/?q=Andy+Yan), Rockchip)
+- VOP2 `drm_err_ratelimited` log fix ([Hsieh Hung-En](https://lore.kernel.org/linux-rockchip/?q=Hsieh+Hung-En))
+- RKVDEC stack fix for VDPU383 H.264 ([Arnd Bergmann](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Arnd+Bergmann))
+- RKVDEC stack fix for VP9 count table (Arnd Bergmann)
+- Power domain `need_regulator` fix for rkvdec0/1 and venc0/1 ([Shawn Lin](https://lore.kernel.org/linux-rockchip/?q=Shawn+Lin), Rockchip)
+- DTS power domain labels and `domain-supply` references (adapted from Shawn Lin)
+- HDMI VSI & SPD InfoFrame support (adapted from [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) v2, Collabora)
+
+**Carried forward from 6.19-rc8** (applied cleanly to 6.19.1):
+- RKVDEC2/VDPU381 v9 — 17 patches (Detlev Casanova, Collabora)
+- RPS fix (Detlev Casanova, Collabora)
+- DTS nodes for rkvdec2 (Detlev Casanova, Collabora)
+- HDMI 2.0 SCDC scrambling v3 — 4 patches (Cristian Ciocaltea, Collabora)
+- VP9 VDPU381 support (dvab-sarma, community)
+- Custom boot logo
+
+### 2026-02-13 — Linux 6.19-rc8
+
+Initial release with RKVDEC2/VDPU381 v9 driver, HDMI 2.0 scrambling, VP9 community patch, NPU config, audio setup, and browser guide.
+
 ## What This Provides
 
-Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
+Tested and working on **Linux 6.19.1 stable** with **BredOS** (Arch Linux ARM):
 
 | Feature | Status | Details |
 |---------|--------|---------|
 | **H.264 4K decode** | Working | RKVDEC2, ~70 fps @ 4K |
 | **HEVC 4K decode** | Working | RKVDEC2, ~68 fps @ 4K |
 | **VP9 4K decode** | Working | RKVDEC2, ~69 fps @ 4K (community patch) |
+| **AV1 decode** | Working | Hantro VPU121 (with bug fixes) |
 | **H.264 1080p decode** | Working | Hantro VPU121 (upstream) |
-| **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling patch (Collabora) |
+| **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling + VSI/SPD InfoFrames |
 | **HDMI audio** | Working | LPCM, AC-3, E-AC-3, TrueHD via PipeWire |
 | **Analog audio (3.5mm)** | Working | ES8316 codec, jack detect fix |
 | **NPU (3 cores)** | Working | Rocket driver + Mesa Teflon, 3.8x speedup |
 | **WiFi RTL8852BE** | Working | rtw89 driver, WiFi 6 |
-| **GPU Panthor** | Working | Mali-G610, Vulkan |
+| **GPU Panthor** | Working | Mali-G610 MP4, Vulkan 1.4 (PanVK) |
 | **Dual HDMI output** | Working | Upstream DW HDMI QP |
 | **Ethernet 2.5GbE** | Working | RTL8125B via PCIe |
 | **Bluetooth** | Working | RTL8852BU |
+| **HDMI-RX** | Working | Capture via `/dev/video0` |
 
 ## Hardware
 
@@ -40,6 +74,8 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 
 - **Source**: [v9 series on linux-media](https://lore.kernel.org/linux-media/20260120222018.404741-1-detlev.casanova@collabora.com/) (2026-01-20)
 - Individual patches extracted and reordered from the mbox (email threading does not preserve patch order)
+- **Upstream status**: merged in Linux 7.0 ([media updates GIT PULL](https://lore.kernel.org/linux-media/), 2026-02-11)
+- **Adaptation**: applied cleanly on both 6.19-rc8 and 6.19.1 via `git am`
 
 ### RPS Fix (1 patch)
 
@@ -48,6 +84,7 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 | `patches/vpu/rkvdec-rps-fix.mbox` | [Detlev Casanova](https://gitlab.collabora.com/detlev.casanova) ([Collabora](https://www.collabora.com/)) | Reference Picture Set fix, applies on top of v9 |
 
 - **Source**: [linux-media mailing list](https://lore.kernel.org/linux-media/) (2026-01-23)
+- **Adaptation**: applied cleanly via `git am`
 
 ### DTS Nodes for RKVDEC2
 
@@ -57,6 +94,30 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 
 - **Source**: [upstream DTS v3 patch](https://lore.kernel.org/all/20251020212009.8852-2-detlev.casanova@collabora.com/) (2025-10-20)
 - Adds 3 named register regions (function, link, cache), IOMMU nodes (`vdec0_mmu`, `vdec1_mmu`), SRAM pools inside `system_sram2`
+- **Adaptation**: applied cleanly via `git apply`
+
+### RKVDEC Stack Fixes (2 patches)
+
+| File | Author | Description |
+|------|--------|-------------|
+| `patches/vpu/rkvdec-stack-fix-1.mbox` | [Arnd Bergmann](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Arnd+Bergmann) | `noinline_for_stack` for VDPU383 H.264 `set_field_order_cnt` and new `set_dec_params` helper |
+| `patches/vpu/rkvdec-stack-fix-2.mbox` | [Arnd Bergmann](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Arnd+Bergmann) | `noinline_for_stack` for VP9 `rkvdec_init_v4l2_vp9_count_tbl` |
+
+- **Source**: [linux-media mailing list](https://lore.kernel.org/linux-media/) (2026-01)
+- Prevents kernel stack overflow on functions with large local variables by marking them `noinline_for_stack`, which forces the compiler to allocate separate stack frames
+- Patch 1 also refactors the H.264 DPB flag iteration into a dedicated `set_dec_params()` function
+- **Adaptation**: applied cleanly via `git am` on top of the v9 series
+
+### VPU Power Domain Fix (2 patches)
+
+| File | Author | Description |
+|------|--------|-------------|
+| (applied directly) | [Shawn Lin](https://lore.kernel.org/linux-rockchip/?q=Shawn+Lin) ([Rockchip](https://www.rock-chips.com/)) | Set `need_regulator=true` for `RK3588_PD_RKVDEC0`, `RK3588_PD_RKVDEC1`, `RK3588_PD_VENC0`, `RK3588_PD_VENC1` in `pm-domains.c` |
+| (applied directly) | Adapted from [Shawn Lin](https://lore.kernel.org/linux-rockchip/?q=Shawn+Lin) ([Rockchip](https://www.rock-chips.com/)) | Add `pd_rkvdec0`/`pd_rkvdec1`/`pd_venc0`/`pd_venc1` labels to `rk3588-base.dtsi` and `domain-supply = <&vdd_vdenc_s0>` references in `rk3588-rock-5b-plus.dts` |
+
+- **Source**: [linux-rockchip mailing list](https://lore.kernel.org/linux-rockchip/) (2026-02)
+- The `pm-domains.c` change is a single-line-per-domain fix: changing the last parameter of `DOMAIN_RK3588()` from `false` to `true` enables regulator supply management for VPU power domains
+- **Adaptation**: the DTS portion was adapted for Rock 5B+ specifically — the original patch targets `rk3588-evb1-v10.dts`; we added the same `domain-supply` properties to `rk3588-rock-5b-plus.dts` and created the necessary `pd_*` labels in `rk3588-base.dtsi` to make the references work
 
 ### HDMI 2.0 / 4K@60Hz (4 patches)
 
@@ -64,13 +125,60 @@ Tested and working on **Linux 6.19-rc8** with **BredOS** (Arch Linux ARM):
 |------|--------|-------------|
 | `patches/display/0001-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge: Add ->detect_ctx hook` |
 | `patches/display/0002-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge-connector: Switch to ->detect_ctx` |
-| `patches/display/0003-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw-hdmi-qp: SCDC scrambling support` — **manually adapted** for 6.19-rc8 (see [docs/hdmi-4k60-setup.md](docs/hdmi-4k60-setup.md)) |
+| `patches/display/0003-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw-hdmi-qp: SCDC scrambling support` — **manually adapted** (see below) |
 | `patches/display/0004-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw_hdmi_qp: HPD events fix` |
 
 - **Source**: [v3 series on drm-misc](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (2026-01-19)
-- Patches 1, 2, 4 applied cleanly via `git am`; patch 3 required manual adaptation (struct differences between `drm-misc-next` and 6.19-rc8, removed `no_hpd` field reference)
 - Enables 3840x2160@60Hz (594 MHz TMDS), 1920x1080@120Hz, and all HDMI 2.0 modes
-- Tested by: Maud Spierings (v1), Diederik de Haas (v1), this project (v3 on 6.19-rc8)
+- Tested by: Maud Spierings (v1), Diederik de Haas (v1), this project (v3 on 6.19-rc8 and 6.19.1)
+- **Adaptation**: patches 1, 2, 4 applied cleanly via `git am`; patch 3 required manual adaptation — the v3 series targets `drm-misc-next` where `struct drm_connector` has a `no_hpd` field not present in 6.19.x stable; the reference was removed and the `drm_bridge_helper_reset_crtc()` call was adjusted for the stable API. See [docs/hdmi-4k60-setup.md](docs/hdmi-4k60-setup.md)
+
+### HDMI VSI & SPD InfoFrames (adapted from v2 series)
+
+| File | Author | Description |
+|------|--------|-------------|
+| (applied directly) | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | Vendor-Specific and Source Product Description InfoFrame support for DW HDMI QP |
+
+- **Source**: [v2 series on linux-rockchip](https://lore.kernel.org/linux-rockchip/20260129-dw-hdmi-qp-iframe-v2-0-0157ad05232c@collabora.com/) (2026-01-29)
+- Adds `dw_hdmi_qp_write_pkt()` and `dw_hdmi_qp_write_infoframe_data()` helpers, VSI/SPD configuration callbacks, and new register definitions (`PKTSCHED_VSI_FIELDRATE`, `PKTSCHED_VSI_TX_EN`, `PKTSCHED_SPDI_TX_EN`)
+- **Adaptation**: the original v2 series (5 patches) also reworks AVI, DRM, and Audio InfoFrame handlers with a unified `dw_hdmi_qp_write_infoframe()` helper; since those reworks depend on `drm-misc-next` API changes not present in 6.19.x, only the VSI and SPD patches (1 and 2) were adapted, using the existing infoframe infrastructure in our tree
+
+### AV1 Bug Fixes (3 patches)
+
+| File | Author | Description |
+|------|--------|-------------|
+| (applied directly) | [Benjamin Gaignard](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Benjamin+Gaignard) ([Collabora](https://www.collabora.com/)) | Fix CDEF enable computation — if all CDEF parameters are zero, `av1_enable_cdef` must be unset even when `V4L2_AV1_SEQUENCE_FLAG_ENABLE_CDEF` is set |
+| (applied directly) | [Benjamin Gaignard](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Benjamin+Gaignard) ([Collabora](https://www.collabora.com/)) | Fix tx mode bit mapping — adds a mapping function between AV1 spec tx modes (4x4, largest, select) and hardware tx modes (4x4, 8x8, 16x16, 32x32, select) |
+| (applied directly) | [Benjamin Gaignard](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Benjamin+Gaignard) ([Collabora](https://www.collabora.com/)) | Fix tile info buffer size — allocate `AV1_MAX_TILES * 16` bytes (4 fields x 4 bytes each) instead of `AV1_MAX_TILES` to avoid writing into non-allocated memory |
+
+- **Source**: [linux-media mailing list](https://lore.kernel.org/linux-media/) (2025-12 and 2026-01)
+- Fixes: `727a400686a2c` ("media: verisilicon: Add Rockchip AV1 decoder")
+- Reported-by: Jianfeng Liu (CDEF fix, via [GStreamer issue #4786](https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/4786))
+- **Adaptation**: applied cleanly via `git am` — these patches target `drivers/media/platform/verisilicon/` which is unchanged between 6.19-rc8 and 6.19.1
+
+### VOP2 Display Fixes (2 patches)
+
+| File | Author | Description |
+|------|--------|-------------|
+| (applied directly) | [Andy Yan](https://lore.kernel.org/linux-rockchip/?q=Andy+Yan) ([Rockchip](https://www.rock-chips.com/)) | Add `mode_valid` callback to VOP2 CRTC — filters modes exceeding `vp->data->max_output.width` |
+| (applied directly) | [Hsieh Hung-En](https://lore.kernel.org/linux-rockchip/?q=Hsieh+Hung-En) | Replace `DRM_DEV_ERROR` with `drm_err_ratelimited` in VOP2 timeout handlers |
+
+- **Source**: [linux-rockchip mailing list](https://lore.kernel.org/linux-rockchip/) (2026-01)
+- The mode_valid callback prevents the display pipeline from attempting unsupported resolutions. The ratelimited logging prevents dmesg flooding during transient display timeouts (e.g., port_mux or layer config)
+- **Adaptation**: both patches applied cleanly to `rockchip_drm_vop2.c` and `rockchip_vop2_reg.c`; no modifications needed
+
+### VP9 Support (community, experimental)
+
+| File | Author(s) | Description |
+|------|-----------|-------------|
+| `patches/vpu/dvab-sarma-vp9-vdpu381.patch` | [dvab-sarma](https://github.com/dvab-sarma) (Venkata Atchuta Bheemeswara Sarma Darbha) | Original VP9 VDPU381 decoder patch |
+| `patches/vpu/vp9-vdpu381-adapted.patch` | Adapted from dvab-sarma's work | Adaptation of VP9 code to fit the v9 driver framework |
+| `patches/vpu/rkvdec-vdpu381-vp9.c` | [dvab-sarma](https://github.com/dvab-sarma), [Boris Brezillon](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Boris+Brezillon) ([Collabora](https://www.collabora.com/)), [Andrzej Pietrasiewicz](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Andrzej+Pietrasiewicz) ([Collabora](https://www.collabora.com/)) | VP9 decoder backend source |
+| `patches/vpu/rkvdec-vdpu381-vp9.h` | [dvab-sarma](https://github.com/dvab-sarma) | VP9 decoder header |
+
+- **Source**: [dvab-sarma/android_kernel_rk_opi](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing) (branch `android-16.0-hwaccel-testing`)
+- VP9 Profile 0 only, up to 4K@30fps, experimental/not production-ready
+- The original VP9 backend builds on the rkvdec H.264 backend architecture by Boris Brezillon and Andrzej Pietrasiewicz (Collabora)
 
 ### NPU / Rocket Driver (kernel config)
 
@@ -89,19 +197,6 @@ No kernel patches needed — audio hardware works out of the box. Configuration 
 - **UCM fix**: Remove `JackControl` from `/usr/share/alsa/ucm2/Rockchip/rk3588-es8316/HiFi.conf` — makes analog output always visible regardless of jack detection
 - See [docs/audio-setup.md](docs/audio-setup.md) for details
 
-### VP9 Support (community, experimental)
-
-| File | Author(s) | Description |
-|------|-----------|-------------|
-| `patches/vpu/dvab-sarma-vp9-vdpu381.patch` | [dvab-sarma](https://github.com/dvab-sarma) (Venkata Atchuta Bheemeswara Sarma Darbha) | Original VP9 VDPU381 decoder patch |
-| `patches/vpu/vp9-vdpu381-adapted.patch` | Adapted from dvab-sarma's work | Adaptation of VP9 code to fit the v9 driver framework |
-| `patches/vpu/rkvdec-vdpu381-vp9.c` | [dvab-sarma](https://github.com/dvab-sarma), [Boris Brezillon](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Boris+Brezillon) ([Collabora](https://www.collabora.com/)), [Andrzej Pietrasiewicz](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Andrzej+Pietrasiewicz) ([Collabora](https://www.collabora.com/)) | VP9 decoder backend source |
-| `patches/vpu/rkvdec-vdpu381-vp9.h` | [dvab-sarma](https://github.com/dvab-sarma) | VP9 decoder header |
-
-- **Source**: [dvab-sarma/android_kernel_rk_opi](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing) (branch `android-16.0-hwaccel-testing`)
-- VP9 Profile 0 only, up to 4K@30fps, experimental/not production-ready
-- The original VP9 backend builds on the rkvdec H.264 backend architecture by Boris Brezillon and Andrzej Pietrasiewicz (Collabora)
-
 ## Build
 
 ### Prerequisites
@@ -112,9 +207,9 @@ No kernel patches needed — audio hardware works out of the box. Configuration 
 ### Quick Build
 
 ```bash
-# 1. Clone kernel source
-git clone --depth=1 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git src/linux
-# (or use the specific tag/commit you need)
+# 1. Clone kernel source (6.19.1 stable)
+git clone --depth=1 --branch v6.19.1 \
+  https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git src/linux
 
 # 2. Apply patches
 cd src/linux
@@ -311,9 +406,9 @@ scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
 - **NPU**: Only quantized INT8 models via TFLite; no ONNX or PyTorch direct support yet
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
+- **GPU max clock**: 850 MHz (firmware PVTM limit; OPP table lists 900/1000 MHz but the voltage regulator cannot supply enough)
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
 - **Browser video decode**: No browser supports V4L2 stateless API — video plays in software. Use `yt-dlp` + `mpv` for hardware-accelerated playback
-- **HDMI reboot delay**: SCDC i2c nack warnings during shutdown are harmless but slow the reboot on some TVs
 
 ## Credits and Acknowledgments
 
@@ -321,13 +416,31 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 ### RKVDEC2/VDPU381 Driver
 
-- **[Detlev Casanova](https://gitlab.collabora.com/detlev.casanova)** ([Collabora](https://www.collabora.com/)) — Author of the RKVDEC2/VDPU381 driver patch series (v1 through v9), which adds H.264 and HEVC hardware decoding support for RK3588. The v9 series used in this project was posted on [2026-01-20 to linux-media](https://lore.kernel.org/linux-media/20260120222018.404741-1-detlev.casanova@collabora.com/). Detlev also authored the [DTS nodes](https://lore.kernel.org/all/20251020212009.8852-2-detlev.casanova@collabora.com/) and the [RPS fix](https://lore.kernel.org/linux-media/) used here.
+- **[Detlev Casanova](https://gitlab.collabora.com/detlev.casanova)** ([Collabora](https://www.collabora.com/)) — Author of the RKVDEC2/VDPU381 driver patch series (v1 through v9), which adds H.264 and HEVC hardware decoding support for RK3588. The v9 series used in this project was posted on [2026-01-20 to linux-media](https://lore.kernel.org/linux-media/20260120222018.404741-1-detlev.casanova@collabora.com/). Detlev also authored the [DTS nodes](https://lore.kernel.org/all/20251020212009.8852-2-detlev.casanova@collabora.com/) and the [RPS fix](https://lore.kernel.org/linux-media/) used here. The driver has been [merged upstream in Linux 7.0](https://lore.kernel.org/linux-media/).
 
-- **[Hans Verkuil](https://git.linuxtv.org/)** — Linux media subsystem maintainer who reviewed and committed the preparatory patches into `media.git/next`.
+- **[Hans Verkuil](https://git.linuxtv.org/)** — Linux media subsystem maintainer who reviewed and committed the RKVDEC2 patches into `media.git/next`.
+
+### AV1 Bug Fixes
+
+- **[Benjamin Gaignard](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Benjamin+Gaignard)** ([Collabora](https://www.collabora.com/)) — Author of the Rockchip AV1 decoder (Hantro VPU121) and the three bug fix patches for CDEF computation, tx mode bit mapping, and tile info buffer sizing.
+
+### RKVDEC Stack Fixes
+
+- **[Arnd Bergmann](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Arnd+Bergmann)** — Author of the `noinline_for_stack` fixes for VDPU383 H.264 and VP9 decoder functions, preventing kernel stack overflow.
 
 ### VP9 Hardware Decode
 
 - **[dvab-sarma](https://github.com/dvab-sarma)** — Community developer who created the VP9 VDPU381 decoder implementation in the [android_kernel_rk_opi](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing) repository. The VP9 code in this project is adapted from their work to fit the v9 driver framework.
+
+### VOP2 Display Fixes
+
+- **[Andy Yan](https://lore.kernel.org/linux-rockchip/?q=Andy+Yan)** ([Rockchip](https://www.rock-chips.com/)) — Author of the VOP2 `mode_valid` callback that filters unsupported display resolutions.
+
+- **[Hsieh Hung-En](https://lore.kernel.org/linux-rockchip/?q=Hsieh+Hung-En)** — Author of the VOP2 `drm_err_ratelimited` fix that prevents log flooding during display timeouts.
+
+### VPU Power Domain Fix
+
+- **[Shawn Lin](https://lore.kernel.org/linux-rockchip/?q=Shawn+Lin)** ([Rockchip](https://www.rock-chips.com/)) — Author of the power domain regulator fix for RKVDEC and VENC domains, ensuring proper power supply management for video codec operation.
 
 ### FFmpeg v4l2-request
 
@@ -337,7 +450,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 - **[Sebastian Reichel](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Sebastian+Reichel)** ([Collabora](https://www.collabora.com/)) — Upstream maintainer for Rockchip device trees, authored the Rock 5B+ DTS (`rk3588-rock-5b-plus.dts`), dual HDMI support, and many other RK3588 enablement patches.
 
-- **[Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea)** ([Collabora](https://www.collabora.com/)) — Author of the DW HDMI QP bridge driver (`dw-hdmi-qp.c`), HDMI audio support, HDMI output enablement for RK3588, and the [HDMI 2.0 SCDC scrambling series](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) enabling 4K@60Hz output.
+- **[Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea)** ([Collabora](https://www.collabora.com/)) — Author of the DW HDMI QP bridge driver (`dw-hdmi-qp.c`), HDMI audio support, HDMI output enablement for RK3588, the [HDMI 2.0 SCDC scrambling series](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) enabling 4K@60Hz output, and the [HDMI VSI & SPD InfoFrame series](https://lore.kernel.org/linux-rockchip/20260129-dw-hdmi-qp-iframe-v2-0-0157ad05232c@collabora.com/).
 
 - **[Heiko Stuebner](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Heiko+Stuebner)** — Rockchip platform maintainer in the Linux kernel, responsible for the overall RK3588 mainline integration.
 
@@ -357,6 +470,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 - RKVDEC2 v9 patches: [lore.kernel.org](https://lore.kernel.org/linux-media/20260120222018.404741-1-detlev.casanova@collabora.com/)
 - DTS nodes: [lore.kernel.org](https://lore.kernel.org/all/20251020212009.8852-2-detlev.casanova@collabora.com/)
+- HDMI VSI/SPD InfoFrames v2: [lore.kernel.org](https://lore.kernel.org/linux-rockchip/20260129-dw-hdmi-qp-iframe-v2-0-0157ad05232c@collabora.com/)
 - VP9 community code: [github.com/dvab-sarma](https://github.com/dvab-sarma/android_kernel_rk_opi)
 - FFmpeg v4l2-request: [github.com/Kwiboo/FFmpeg](https://github.com/Kwiboo/FFmpeg)
 - Collabora RK3588 status: [gitlab.collabora.com](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/notes-for-rockchip-3588/-/blob/main/mainline-status.md)
