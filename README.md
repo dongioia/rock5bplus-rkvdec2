@@ -261,7 +261,16 @@ ssh $USER@$BOARD "sudo mkinitcpio -k $KVER -g /boot/initramfs-linux-custom.img &
 
 ## FFmpeg with v4l2-request
 
-Stock FFmpeg doesn't support v4l2-request. Use [Kwiboo's fork](https://github.com/Kwiboo/FFmpeg):
+Stock FFmpeg doesn't support v4l2-request. On **BredOS**, install the pre-built package from the BredOS repository:
+
+```bash
+sudo pacman -S ffmpeg-v4l2-requests
+```
+
+This package ([source](https://github.com/BredOS/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests)) is based on [Kwiboo's FFmpeg v4l2-request-n8.0.1](https://github.com/Kwiboo/FFmpeg/tree/v4l2-request-n8.0.1) branch. It replaces the stock `ffmpeg` package and supports V4L2 stateless hardware decoding for H.264, HEVC, VP9, AV1, VP8, and MPEG-2.
+
+<details>
+<summary>Manual build (other distros or custom needs)</summary>
 
 ```bash
 git clone -b v4l2-request-n8.0.1 https://github.com/Kwiboo/FFmpeg.git
@@ -273,6 +282,8 @@ cd FFmpeg
 make -j$(nproc) && sudo make install
 sudo ldconfig
 ```
+
+</details>
 
 ### mpv Configuration
 
@@ -445,6 +456,8 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 ### FFmpeg v4l2-request
 
 - **[Jonas Karlman (Kwiboo)](https://github.com/Kwiboo)** — Author and maintainer of the [FFmpeg v4l2-request patches](https://github.com/Kwiboo/FFmpeg), which enable V4L2 stateless hardware decoding in FFmpeg. Essential for using RKVDEC2 with mpv and other FFmpeg-based players.
+
+- **[NoDiskNoFun](https://github.com/BredOS/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests)** — Packaged `ffmpeg-v4l2-requests` for the BredOS repository, making V4L2-request FFmpeg available as a simple `pacman -S` install for BredOS users.
 
 ### Rockchip Mainline Enablement
 
