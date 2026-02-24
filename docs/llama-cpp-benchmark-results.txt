@@ -1,0 +1,58 @@
+llama.cpp Benchmark Results on Rock 5B+ (RK3588)
+=================================================
+Date: 2026-02-16
+Model: Gemma 3 270M Q8_0 (271.81 MiB, 268.10M params)
+Board: Radxa Rock 5B+ (4x A76 @ 2.4GHz + 4x A55 @ 1.8GHz, 24GB LPDDR5)
+GPU: Mali-G610 MP4 — PanVK 1.4.328, Mesa 25.3.5
+llama.cpp: commit d5dfc33 (ggml 0.9.7)
+
+CPU-only build (no Vulkan backend)
+----------------------------------
+| Test  | 4 threads (A76 only) | 8 threads (A76+A55) |
+|-------|---------------------:|--------------------:|
+| pp512 |        660.48 tok/s  |       487.98 tok/s  |
+| tg128 |         64.00 tok/s  |        48.95 tok/s  |
+
+Vulkan build (Vulkan backend loaded, 4 threads)
+------------------------------------------------
+| Test  | ngl=0 (CPU) | ngl=1  | ngl=3 (max) | ngl=4+ |
+|-------|------------:|-------:|------------:|-------:|
+| pp512 |  43.91 t/s  | 43.91  |   44.45     | CRASH  |
+| tg128 |   4.83 t/s  |  7.53  |    7.40     |  OOM   |
+
+ngl=4 and above: vk::OutOfDeviceMemoryError (abort/core dump)
+
+Findings
+--------
+1. Vulkan on PanVK is NOT usable for LLM inference:
+   - OutOfDeviceMemoryError crash with 4+ layers offloaded
+   - Even with 1-3 layers, performance is worse than pure CPU
+
+2. Loading the Vulkan backend severely degrades CPU performance:
+   - Prompt processing: 660 -> 44 tok/s (15x slowdown)
+   - Text generation: 64 -> 4.8 tok/s (13x slowdown)
+   - Likely caused by Vulkan backend initialization/scheduling overhead
+
+3. 4 threads (A76 only) outperforms 8 threads (A76+A55):
+   - The slower A55 cores drag down overall throughput
+   - pp512: 660 vs 488 tok/s, tg128: 64 vs 49 tok/s
+
+4. Pure CPU is fast for small models:
+   - 64 tok/s text generation on 270M Q8_0 is excellent
+   - For larger models (1-3B), expect 10-20 tok/s — still usable
+
+5. The 270M model is too small for coherent output:
+   - Produces repetitive, nonsensical text
+   - Need 1B+ parameters for acceptable quality
+
+6. GPU devfreq flood when Vulkan compute is active:
+   - Hundreds of "Couldn't update frequency transition information" messages
+   - Workaround: pin GPU to fixed frequency via userspace governor
+
+Recommendation
+--------------
+Use the CPU-only build with -t 4 for LLM inference on Rock 5B+.
+The Vulkan path via PanVK is not mature for GPU compute workloads.
+
+Next steps: test with a 1-3B model (e.g. Qwen2.5-1.5B, Gemma 2B)
+to evaluate practical usability for real tasks.

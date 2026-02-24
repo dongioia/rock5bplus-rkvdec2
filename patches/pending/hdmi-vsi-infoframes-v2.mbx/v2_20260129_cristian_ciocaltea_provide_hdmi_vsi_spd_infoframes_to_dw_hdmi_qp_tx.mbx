@@ -1,0 +1,530 @@
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH v2 1/5] drm/bridge: dw-hdmi-qp: Provide HDMI Vendor
+ Specific InfoFrame
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Thu, 29 Jan 2026 14:13:32 +0200
+Message-Id: <20260129-dw-hdmi-qp-iframe-v2-1-0157ad05232c@collabora.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Since commit b626b1a1c9cc ("drm/bridge: refactor HDMI InfoFrame
+callbacks"), the following warning is generated:
+
+  [   13.654149] rockchip-drm display-subsystem: [drm] HDMI VSI not supported
+
+Add the missing support for sending HDMI Vendor-Specific Infoframes.
+
+Additionally, introduce dw_hdmi_qp_write_{pkt|infoframe}() helpers, as a
+prerequisite to rework all dw_hdmi_qp_bridge_write_*_infoframe()
+callbacks and get rid of some boilerplate code.
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Reviewed-by: Daniel Stone <daniels@collabora.com>
+Reviewed-by: Maxime Ripard <mripard@kernel.org>
+---
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c | 39 +++++++++++++++++++++++++---
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h |  2 ++
+ 2 files changed, 38 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+index 036316e2b60d..93aae1d8027d 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+@@ -11,6 +11,7 @@
+ #include <linux/export.h>
+ #include <linux/i2c.h>
+ #include <linux/irq.h>
++#include <linux/minmax.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
+ #include <linux/of.h>
+@@ -969,9 +970,9 @@ static int dw_hdmi_qp_bridge_clear_avi_infoframe(struct drm_bridge *bridge)
+ 
+ static int dw_hdmi_qp_bridge_clear_hdmi_infoframe(struct drm_bridge *bridge)
+ {
+-	/* FIXME: add support for this InfoFrame */
++	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+ 
+-	drm_warn_once(bridge->encoder->dev, "HDMI VSI not supported\n");
++	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_VSI_TX_EN, PKTSCHED_PKT_EN);
+ 
+ 	return 0;
+ }
+@@ -998,6 +999,32 @@ static int dw_hdmi_qp_bridge_clear_audio_infoframe(struct drm_bridge *bridge)
+ 	return 0;
+ }
+ 
++static void dw_hdmi_qp_write_pkt(struct dw_hdmi_qp *hdmi, const u8 *buffer,
++				 size_t start, size_t len, unsigned int reg)
++{
++	u32 val = 0;
++	size_t i;
++
++	for (i = start; i < start + len; i++)
++		val |= buffer[i] << ((i % 4) * BITS_PER_BYTE);
++
++	dw_hdmi_qp_write(hdmi, val, reg);
++}
++
++static void dw_hdmi_qp_write_infoframe(struct dw_hdmi_qp *hdmi, const u8 *buffer,
++				       size_t len, unsigned int reg)
++{
++	size_t i;
++
++	/* InfoFrame packet header */
++	dw_hdmi_qp_write_pkt(hdmi, buffer, 1, 2, reg);
++
++	/* InfoFrame packet body */
++	for (i = 0; i < len - 3; i += 4)
++		dw_hdmi_qp_write_pkt(hdmi, buffer + 3, i, min(len - i - 3, 4),
++				     reg + i + 4);
++}
++
+ static int dw_hdmi_qp_bridge_write_avi_infoframe(struct drm_bridge *bridge,
+ 						 const u8 *buffer, size_t len)
+ {
+@@ -1011,9 +1038,15 @@ static int dw_hdmi_qp_bridge_write_avi_infoframe(struct drm_bridge *bridge,
+ static int dw_hdmi_qp_bridge_write_hdmi_infoframe(struct drm_bridge *bridge,
+ 						  const u8 *buffer, size_t len)
+ {
++	struct dw_hdmi_qp *hdmi = bridge->driver_private;
++
+ 	dw_hdmi_qp_bridge_clear_hdmi_infoframe(bridge);
+ 
+-	/* FIXME: add support for the HDMI VSI */
++	dw_hdmi_qp_write_infoframe(hdmi, buffer, len, PKT_VSI_CONTENTS0);
++
++	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_VSI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
++	dw_hdmi_qp_mod(hdmi, PKTSCHED_VSI_TX_EN, PKTSCHED_VSI_TX_EN,
++		       PKTSCHED_PKT_EN);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h
+index 91a15f82e32a..53688eae8dba 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h
+@@ -198,6 +198,7 @@
+ #define PKTSCHED_PRQUEUE2_CONFIG2			0xa94
+ #define PKTSCHED_PKT_CONFIG0				0xa98
+ #define PKTSCHED_PKT_CONFIG1				0xa9c
++#define PKTSCHED_VSI_FIELDRATE				BIT(14)
+ #define PKTSCHED_DRMI_FIELDRATE				BIT(13)
+ #define PKTSCHED_AVI_FIELDRATE				BIT(12)
+ #define PKTSCHED_PKT_CONFIG2				0xaa0
+@@ -206,6 +207,7 @@
+ #define PKTSCHED_DRMI_TX_EN				BIT(17)
+ #define PKTSCHED_AUDI_TX_EN				BIT(15)
+ #define PKTSCHED_AVI_TX_EN				BIT(13)
++#define PKTSCHED_VSI_TX_EN				BIT(12)
+ #define PKTSCHED_EMP_CVTEM_TX_EN			BIT(10)
+ #define PKTSCHED_AMD_TX_EN				BIT(8)
+ #define PKTSCHED_GCP_TX_EN				BIT(3)
+
+-- 
+2.52.0
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH v2 2/5] drm/bridge: dw-hdmi-qp: Provide SPD InfoFrame
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Thu, 29 Jan 2026 14:13:33 +0200
+Message-Id: <20260129-dw-hdmi-qp-iframe-v2-2-0157ad05232c@collabora.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+The hardware is capable of sending Source Product Description (SPD)
+InfoFrames, hence enable the missing support.
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Reviewed-by: Daniel Stone <daniels@collabora.com>
+Reviewed-by: Maxime Ripard <mripard@kernel.org>
+---
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c | 29 +++++++++++++++++++++++++++-
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h |  1 +
+ 2 files changed, 29 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+index 93aae1d8027d..c006939a0f87 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+@@ -986,6 +986,15 @@ static int dw_hdmi_qp_bridge_clear_hdr_drm_infoframe(struct drm_bridge *bridge)
+ 	return 0;
+ }
+ 
++static int dw_hdmi_qp_bridge_clear_spd_infoframe(struct drm_bridge *bridge)
++{
++	struct dw_hdmi_qp *hdmi = bridge->driver_private;
++
++	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_SPDI_TX_EN, PKTSCHED_PKT_EN);
++
++	return 0;
++}
++
+ static int dw_hdmi_qp_bridge_clear_audio_infoframe(struct drm_bridge *bridge)
+ {
+ 	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+@@ -1061,6 +1070,21 @@ static int dw_hdmi_qp_bridge_write_hdr_drm_infoframe(struct drm_bridge *bridge,
+ 	return dw_hdmi_qp_config_drm_infoframe(hdmi, buffer, len);
+ }
+ 
++static int dw_hdmi_qp_bridge_write_spd_infoframe(struct drm_bridge *bridge,
++						 const u8 *buffer, size_t len)
++{
++	struct dw_hdmi_qp *hdmi = bridge->driver_private;
++
++	dw_hdmi_qp_bridge_clear_spd_infoframe(bridge);
++
++	dw_hdmi_qp_write_infoframe(hdmi, buffer, len, PKT_SPDI_CONTENTS0);
++
++	dw_hdmi_qp_mod(hdmi, PKTSCHED_SPDI_TX_EN, PKTSCHED_SPDI_TX_EN,
++		       PKTSCHED_PKT_EN);
++
++	return 0;
++}
++
+ static int dw_hdmi_qp_bridge_write_audio_infoframe(struct drm_bridge *bridge,
+ 						   const u8 *buffer, size_t len)
+ {
+@@ -1259,6 +1283,8 @@ static const struct drm_bridge_funcs dw_hdmi_qp_bridge_funcs = {
+ 	.hdmi_write_hdmi_infoframe = dw_hdmi_qp_bridge_write_hdmi_infoframe,
+ 	.hdmi_clear_hdr_drm_infoframe = dw_hdmi_qp_bridge_clear_hdr_drm_infoframe,
+ 	.hdmi_write_hdr_drm_infoframe = dw_hdmi_qp_bridge_write_hdr_drm_infoframe,
++	.hdmi_clear_spd_infoframe = dw_hdmi_qp_bridge_clear_spd_infoframe,
++	.hdmi_write_spd_infoframe = dw_hdmi_qp_bridge_write_spd_infoframe,
+ 	.hdmi_clear_audio_infoframe = dw_hdmi_qp_bridge_clear_audio_infoframe,
+ 	.hdmi_write_audio_infoframe = dw_hdmi_qp_bridge_write_audio_infoframe,
+ 	.hdmi_audio_startup = dw_hdmi_qp_audio_enable,
+@@ -1375,7 +1401,8 @@ struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
+ 			   DRM_BRIDGE_OP_EDID |
+ 			   DRM_BRIDGE_OP_HDMI |
+ 			   DRM_BRIDGE_OP_HDMI_AUDIO |
+-			   DRM_BRIDGE_OP_HDMI_HDR_DRM_INFOFRAME;
++			   DRM_BRIDGE_OP_HDMI_HDR_DRM_INFOFRAME |
++			   DRM_BRIDGE_OP_HDMI_SPD_INFOFRAME;
+ 	if (!hdmi->no_hpd)
+ 		hdmi->bridge.ops |= DRM_BRIDGE_OP_HPD;
+ 	hdmi->bridge.of_node = pdev->dev.of_node;
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h
+index 53688eae8dba..c07847e8d7dd 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h
+@@ -206,6 +206,7 @@
+ #define PKTSCHED_PKT_EN					0xaa8
+ #define PKTSCHED_DRMI_TX_EN				BIT(17)
+ #define PKTSCHED_AUDI_TX_EN				BIT(15)
++#define PKTSCHED_SPDI_TX_EN				BIT(14)
+ #define PKTSCHED_AVI_TX_EN				BIT(13)
+ #define PKTSCHED_VSI_TX_EN				BIT(12)
+ #define PKTSCHED_EMP_CVTEM_TX_EN			BIT(10)
+
+-- 
+2.52.0
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH v2 3/5] drm/bridge: dw-hdmi-qp: Rework AVI InfoFrame
+ handler
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Thu, 29 Jan 2026 14:13:34 +0200
+Message-Id: <20260129-dw-hdmi-qp-iframe-v2-3-0157ad05232c@collabora.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Make use of the recently introduced dw_hdmi_qp_write_infoframe() helper
+to simplify the writing of the Auxiliary Video InfoFrame (AVI) packet
+header and body registers.
+
+Moreover, since now having dedicated callbacks per InfoFrame type, move
+the implementation to dw_hdmi_qp_bridge_write_avi_infoframe() and drop
+dw_hdmi_qp_config_avi_infoframe().
+
+While at it, also discard the superfluous infoframe size verification.
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Reviewed-by: Daniel Stone <daniels@collabora.com>
+Reviewed-by: Maxime Ripard <mripard@kernel.org>
+---
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c | 45 +++++-----------------------
+ 1 file changed, 7 insertions(+), 38 deletions(-)
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+index c006939a0f87..abfe5641158f 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+@@ -748,43 +748,6 @@ static struct i2c_adapter *dw_hdmi_qp_i2c_adapter(struct dw_hdmi_qp *hdmi)
+ 	return adap;
+ }
+ 
+-static int dw_hdmi_qp_config_avi_infoframe(struct dw_hdmi_qp *hdmi,
+-					   const u8 *buffer, size_t len)
+-{
+-	u32 val, i, j;
+-
+-	if (len != HDMI_INFOFRAME_SIZE(AVI)) {
+-		dev_err(hdmi->dev, "failed to configure avi infoframe\n");
+-		return -EINVAL;
+-	}
+-
+-	/*
+-	 * DW HDMI QP IP uses a different byte format from standard AVI info
+-	 * frames, though generally the bits are in the correct bytes.
+-	 */
+-	val = buffer[1] << 8 | buffer[2] << 16;
+-	dw_hdmi_qp_write(hdmi, val, PKT_AVI_CONTENTS0);
+-
+-	for (i = 0; i < 4; i++) {
+-		for (j = 0; j < 4; j++) {
+-			if (i * 4 + j >= 14)
+-				break;
+-			if (!j)
+-				val = buffer[i * 4 + j + 3];
+-			val |= buffer[i * 4 + j + 3] << (8 * j);
+-		}
+-
+-		dw_hdmi_qp_write(hdmi, val, PKT_AVI_CONTENTS1 + i * 4);
+-	}
+-
+-	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_AVI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
+-
+-	dw_hdmi_qp_mod(hdmi, PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN,
+-		       PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN, PKTSCHED_PKT_EN);
+-
+-	return 0;
+-}
+-
+ static int dw_hdmi_qp_config_drm_infoframe(struct dw_hdmi_qp *hdmi,
+ 					   const u8 *buffer, size_t len)
+ {
+@@ -1041,7 +1004,13 @@ static int dw_hdmi_qp_bridge_write_avi_infoframe(struct drm_bridge *bridge,
+ 
+ 	dw_hdmi_qp_bridge_clear_avi_infoframe(bridge);
+ 
+-	return dw_hdmi_qp_config_avi_infoframe(hdmi, buffer, len);
++	dw_hdmi_qp_write_infoframe(hdmi, buffer, len, PKT_AVI_CONTENTS0);
++
++	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_AVI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
++	dw_hdmi_qp_mod(hdmi, PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN,
++		       PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN, PKTSCHED_PKT_EN);
++
++	return 0;
+ }
+ 
+ static int dw_hdmi_qp_bridge_write_hdmi_infoframe(struct drm_bridge *bridge,
+
+-- 
+2.52.0
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH v2 4/5] drm/bridge: dw-hdmi-qp: Rework DRM InfoFrame
+ handler
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Thu, 29 Jan 2026 14:13:35 +0200
+Message-Id: <20260129-dw-hdmi-qp-iframe-v2-4-0157ad05232c@collabora.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Make use of the recently introduced dw_hdmi_qp_write_infoframe() helper
+to simplify the writing of the Dynamic Range and Mastering (DRM)
+InfoFrame packet header and body registers.
+
+Moreover, since now having dedicated callbacks per InfoFrame type, move
+the implementation to dw_hdmi_qp_bridge_write_hdr_drm_infoframe() and
+drop dw_hdmi_qp_config_drm_infoframe().
+
+While at it, also discard the unnecessary infoframe size verification,
+as well as the redundant disabling of the packet transmission (already
+done by the explicit call to the clear callback).
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Reviewed-by: Daniel Stone <daniels@collabora.com>
+Reviewed-by: Maxime Ripard <mripard@kernel.org>
+---
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c | 40 +++++-----------------------
+ 1 file changed, 7 insertions(+), 33 deletions(-)
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+index abfe5641158f..33c990e198e9 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+@@ -748,38 +748,6 @@ static struct i2c_adapter *dw_hdmi_qp_i2c_adapter(struct dw_hdmi_qp *hdmi)
+ 	return adap;
+ }
+ 
+-static int dw_hdmi_qp_config_drm_infoframe(struct dw_hdmi_qp *hdmi,
+-					   const u8 *buffer, size_t len)
+-{
+-	u32 val, i;
+-
+-	if (len != HDMI_INFOFRAME_SIZE(DRM)) {
+-		dev_err(hdmi->dev, "failed to configure drm infoframe\n");
+-		return -EINVAL;
+-	}
+-
+-	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_DRMI_TX_EN, PKTSCHED_PKT_EN);
+-
+-	val = buffer[1] << 8 | buffer[2] << 16;
+-	dw_hdmi_qp_write(hdmi, val, PKT_DRMI_CONTENTS0);
+-
+-	for (i = 0; i <= buffer[2]; i++) {
+-		if (i % 4 == 0)
+-			val = buffer[3 + i];
+-		val |= buffer[3 + i] << ((i % 4) * 8);
+-
+-		if ((i % 4 == 3) || i == buffer[2])
+-			dw_hdmi_qp_write(hdmi, val,
+-					 PKT_DRMI_CONTENTS1 + ((i / 4) * 4));
+-	}
+-
+-	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_DRMI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
+-	dw_hdmi_qp_mod(hdmi, PKTSCHED_DRMI_TX_EN, PKTSCHED_DRMI_TX_EN,
+-		       PKTSCHED_PKT_EN);
+-
+-	return 0;
+-}
+-
+ /*
+  * Static values documented in the TRM
+  * Different values are only used for debug purposes
+@@ -1036,7 +1004,13 @@ static int dw_hdmi_qp_bridge_write_hdr_drm_infoframe(struct drm_bridge *bridge,
+ 
+ 	dw_hdmi_qp_bridge_clear_hdr_drm_infoframe(bridge);
+ 
+-	return dw_hdmi_qp_config_drm_infoframe(hdmi, buffer, len);
++	dw_hdmi_qp_write_infoframe(hdmi, buffer, len, PKT_DRMI_CONTENTS0);
++
++	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_DRMI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
++	dw_hdmi_qp_mod(hdmi, PKTSCHED_DRMI_TX_EN, PKTSCHED_DRMI_TX_EN,
++		       PKTSCHED_PKT_EN);
++
++	return 0;
+ }
+ 
+ static int dw_hdmi_qp_bridge_write_spd_infoframe(struct drm_bridge *bridge,
+
+-- 
+2.52.0
+
+From git@z Thu Jan  1 00:00:00 1970
+Subject: [PATCH v2 5/5] drm/bridge: dw-hdmi-qp: Rework Audio InfoFrame
+ handler
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Thu, 29 Jan 2026 14:13:36 +0200
+Message-Id: <20260129-dw-hdmi-qp-iframe-v2-5-0157ad05232c@collabora.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+Make use of the recently introduced dw_hdmi_qp_write_infoframe() helper
+to simplify the writing of the Audio InfoFrame packet header and body
+registers.
+
+Additionally, discard the redundant static values identifying the frame
+version and length.
+
+Moreover, since now having dedicated callbacks per InfoFrame type, move
+the implementation to dw_hdmi_qp_bridge_write_audio_infoframe() and
+drop dw_hdmi_qp_config_audio_infoframe().
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Reviewed-by: Daniel Stone <daniels@collabora.com>
+Reviewed-by: Maxime Ripard <mripard@kernel.org>
+---
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c | 71 ++++++++++------------------
+ 1 file changed, 25 insertions(+), 46 deletions(-)
+
+diff --git a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+index 33c990e198e9..464ace1221d0 100644
+--- a/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
++++ b/drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c
+@@ -748,51 +748,6 @@ static struct i2c_adapter *dw_hdmi_qp_i2c_adapter(struct dw_hdmi_qp *hdmi)
+ 	return adap;
+ }
+ 
+-/*
+- * Static values documented in the TRM
+- * Different values are only used for debug purposes
+- */
+-#define DW_HDMI_QP_AUDIO_INFOFRAME_HB1	0x1
+-#define DW_HDMI_QP_AUDIO_INFOFRAME_HB2	0xa
+-
+-static int dw_hdmi_qp_config_audio_infoframe(struct dw_hdmi_qp *hdmi,
+-					     const u8 *buffer, size_t len)
+-{
+-	/*
+-	 * AUDI_CONTENTS0: { RSV, HB2, HB1, RSV }
+-	 * AUDI_CONTENTS1: { PB3, PB2, PB1, PB0 }
+-	 * AUDI_CONTENTS2: { PB7, PB6, PB5, PB4 }
+-	 *
+-	 * PB0: CheckSum
+-	 * PB1: | CT3    | CT2  | CT1  | CT0  | F13  | CC2 | CC1 | CC0 |
+-	 * PB2: | F27    | F26  | F25  | SF2  | SF1  | SF0 | SS1 | SS0 |
+-	 * PB3: | F37    | F36  | F35  | F34  | F33  | F32 | F31 | F30 |
+-	 * PB4: | CA7    | CA6  | CA5  | CA4  | CA3  | CA2 | CA1 | CA0 |
+-	 * PB5: | DM_INH | LSV3 | LSV2 | LSV1 | LSV0 | F52 | F51 | F50 |
+-	 * PB6~PB10: Reserved
+-	 *
+-	 * AUDI_CONTENTS0 default value defined by HDMI specification,
+-	 * and shall only be changed for debug purposes.
+-	 */
+-	u32 header_bytes = (DW_HDMI_QP_AUDIO_INFOFRAME_HB1 << 8) |
+-			  (DW_HDMI_QP_AUDIO_INFOFRAME_HB2 << 16);
+-
+-	regmap_bulk_write(hdmi->regm, PKT_AUDI_CONTENTS0, &header_bytes, 1);
+-	regmap_bulk_write(hdmi->regm, PKT_AUDI_CONTENTS1, &buffer[3], 1);
+-	regmap_bulk_write(hdmi->regm, PKT_AUDI_CONTENTS2, &buffer[4], 1);
+-
+-	/* Enable ACR, AUDI, AMD */
+-	dw_hdmi_qp_mod(hdmi,
+-		       PKTSCHED_ACR_TX_EN | PKTSCHED_AUDI_TX_EN | PKTSCHED_AMD_TX_EN,
+-		       PKTSCHED_ACR_TX_EN | PKTSCHED_AUDI_TX_EN | PKTSCHED_AMD_TX_EN,
+-		       PKTSCHED_PKT_EN);
+-
+-	/* Enable AUDS */
+-	dw_hdmi_qp_mod(hdmi, PKTSCHED_AUDS_TX_EN, PKTSCHED_AUDS_TX_EN, PKTSCHED_PKT_EN);
+-
+-	return 0;
+-}
+-
+ static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
+ 					    struct drm_atomic_state *state)
+ {
+@@ -1035,7 +990,31 @@ static int dw_hdmi_qp_bridge_write_audio_infoframe(struct drm_bridge *bridge,
+ 
+ 	dw_hdmi_qp_bridge_clear_audio_infoframe(bridge);
+ 
+-	return dw_hdmi_qp_config_audio_infoframe(hdmi, buffer, len);
++	/*
++	 * AUDI_CONTENTS0: { RSV, HB2, HB1, RSV }
++	 * AUDI_CONTENTS1: { PB3, PB2, PB1, PB0 }
++	 * AUDI_CONTENTS2: { PB7, PB6, PB5, PB4 }
++	 *
++	 * PB0: CheckSum
++	 * PB1: | CT3    | CT2  | CT1  | CT0  | F13  | CC2 | CC1 | CC0 |
++	 * PB2: | F27    | F26  | F25  | SF2  | SF1  | SF0 | SS1 | SS0 |
++	 * PB3: | F37    | F36  | F35  | F34  | F33  | F32 | F31 | F30 |
++	 * PB4: | CA7    | CA6  | CA5  | CA4  | CA3  | CA2 | CA1 | CA0 |
++	 * PB5: | DM_INH | LSV3 | LSV2 | LSV1 | LSV0 | F52 | F51 | F50 |
++	 * PB6~PB10: Reserved
++	 */
++	dw_hdmi_qp_write_infoframe(hdmi, buffer, len, PKT_AUDI_CONTENTS0);
++
++	/* Enable ACR, AUDI, AMD */
++	dw_hdmi_qp_mod(hdmi,
++		       PKTSCHED_ACR_TX_EN | PKTSCHED_AUDI_TX_EN | PKTSCHED_AMD_TX_EN,
++		       PKTSCHED_ACR_TX_EN | PKTSCHED_AUDI_TX_EN | PKTSCHED_AMD_TX_EN,
++		       PKTSCHED_PKT_EN);
++
++	/* Enable AUDS */
++	dw_hdmi_qp_mod(hdmi, PKTSCHED_AUDS_TX_EN, PKTSCHED_AUDS_TX_EN, PKTSCHED_PKT_EN);
++
++	return 0;
+ }
+ 
+ #ifdef CONFIG_DRM_DW_HDMI_QP_CEC
+
+-- 
+2.52.0
+

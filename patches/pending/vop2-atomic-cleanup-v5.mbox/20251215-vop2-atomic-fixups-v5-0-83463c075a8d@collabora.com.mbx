@@ -1,0 +1,1261 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 43FC12EBDEB
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:10:37 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807839; cv=pass; b=n+Y5Jyzu+X8Hb9hfXqB5bfyenN03rddoGEG3NGdmhRNyw25vSJe+xx3UaO2WyeDgL4WzYjcneP/W7WxrD9iQSfmLNdiM7Ym0RXHkGswn/X9JlQw0y46HK14fn1wpsDZ9mlm/+Pfko2uowfSpiVh/JMztcZ2mLFg+jqcftvj9S74=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807839; c=relaxed/simple;
+	bh=akIy8o9nI7UgqA2oorlEs4mF9NUUA0Fyvq+TYBKH1ws=;
+	h=From:Subject:Date:Message-Id:MIME-Version:Content-Type:To:Cc; b=rxJh1r99kAIY3tZbJR1avfwdgbbiFmwfGYXQTKR+69cHJz12PWiBkXNMZH5Fzm4Xp4Gblm2sFq72ug/rjUUpHExAx6jG5+yLWXgPTB1CSOAamGNUkh6FcSBaYkhc430Gh0lG1a8yYXRIPeJdIE2kwEkzpoQvkax1vR0bPaCwpbQ=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=elwnEnMv; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="elwnEnMv"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807798; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=U3j+KSwEDnsAZ3iJ9Ct2fsoDFC8pJpo974PQdZPUMdU22Vd1XnMQLUNHQ0tq3opTKd5R7MjiRd8e9Awk1veEei2BuX1KfH/ufYV03Z4bz7pWblQhBKCvIbzwNgoe2l5qqLdh5phae5tWclkXg5tOVhJP52/ZJtJSMLCt/zCfI00=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807798; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:MIME-Version:Message-ID:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=BrGq34DSgZzEGAjhyTFeF9OFKrRHfm7+y6zzR9S4rh4=; 
+	b=OEH8DH9qirfT9gIjUbd0c/RFC3Ua5uzF7O8tnuwayVpwIFn63DbOYN3w3wxPUl8Rl+GqapAHQJhxu+fbJK4m7L/SjDF9mQoYPwXYhkJammnKlVV/Ncm19EPmXKx2iuDw2bUE7we8MSLCiO6O+MSmEUab7YGTumkmdQ2+YHelLzM=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807798;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Subject:Subject:Date:Date:Message-Id:Message-Id:MIME-Version:Content-Type:Content-Transfer-Encoding:To:To:Cc:Cc:Reply-To;
+	bh=BrGq34DSgZzEGAjhyTFeF9OFKrRHfm7+y6zzR9S4rh4=;
+	b=elwnEnMvKSYWqv7eRBmCYrwf+lN6oeH+ccFZA5jhFKVXGL9TSxPIo1OhiJB9Q5ML
+	sdcS3xhZJYDQlWCHZnwlCX7ajbuc8a/qNG3Ac42j+XybN2G16YdqBWfJN0WscMZrjZH
+	MPZptSioWi66oNx/W+3vRlG8NJN50w1Uh44KP4qs=
+Received: by mx.zohomail.com with SMTPS id 1765807791521712.4981457029588;
+	Mon, 15 Dec 2025 06:09:51 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Subject: [PATCH v5 0/8] drm/rockchip: No more post-atomic_check fixups
+Date: Mon, 15 Dec 2025 15:09:16 +0100
+Message-Id: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+X-B4-Tracking: v=1; b=H4sIAIwWQGkC/33OSw7CIBAG4Ks0rB0z0FJbV97DuAA6KImVCpVoT
+ O8u1o0xjct/Ht/Mk0UKjiLbFk8WKLno/CUHuSqYOanLkcB1OTOBQnKBNSQ/CFCj750B6+63IQK
+ aEgnbBm0jWV4cAuXOjO4Pnxzoesv2+CkyrSKB8X3vxm2R6jVvIRjO3sMnF0cfHvNDSczT/24nA
+ QgbqyuptdWku53x57PSPqh1PjCTqfxm2kWmzAxuTNVYtNziIlN9MZwvMlVmZCeROiVqbZtfZpq
+ mFxDOEXxzAQAA
+X-Change-ID: 20251206-vop2-atomic-fixups-0c30e0980f85
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+I'm taking over this series to get it across the finish line. Original
+cover letter from Daniel Stone on v1:
+
+> Hi,
+> This series is a pretty small and consistent one for VOP2. The atomic
+> uAPI very clearly specifies that drivers should either do what userspace
+> requested (on a successful commit), or fail atomic_check if it is not
+> for any reason possible to do what userspace requested.
+> 
+> VOP2 is unfortunately littered with a bunch of cases where it will apply
+> fixups after atomic_check - doing something different to what userspace
+> requested, e.g. clipping or aligning regions - or throw error messages
+> into the log when userspace does request a condition which can't be met.
+> 
+> Doing something different to what was requested is bad because it
+> results in unexpected visual output which can look like artifacts.
+> Throwing errors into the log is bad because generic userspace will
+> reasonably attempt to try any configuration it can. For example,
+> throwing an error message on a plane not being aligned to a 16 pixel
+> boundary can result in 15 frames' worth of error output in the log when
+> a window is being animated across a screen.
+> 
+> This series removes all post-check fixups - failing the check if the
+> configuration cannot be applied - and also demotes all messages about
+> unsupported configurations to DEBUG_KMS.
+> 
+> Cheers,
+> Daniel
+
+---
+Changes in v5:
+- Reword message in "Switch impossible format conditional to WARN_ON" to
+  remove the reference to "staggering on", as it previously didn't do
+  that either.
+- Return from atomic_update if any of the WARN_ON conditionals came
+  true.
+- Link to v4: https://lore.kernel.org/r/20251211-vop2-atomic-fixups-v4-0-5d50eda26bf8@collabora.com
+
+Changes in v4:
+- s/64-byte/64-pixel/
+- Link to v3: https://lore.kernel.org/r/20251209-vop2-atomic-fixups-v3-0-07c48f0f1f0d@collabora.com
+
+Changes in v3:
+- Change the AFBC source rectangle debug message to talk about 4-pixel
+  alignment instead of 4-byte alignment.
+- Fix another eSmart->Esmart casing case in a debug message
+- Link to v2: https://lore.kernel.org/r/20251206-vop2-atomic-fixups-v2-0-7fb45bbfbebd@collabora.com
+
+Changes in v2:
+- Dropped patches [1, 5] as they were already applied.
+- Changed the patch subject to use prefix "drm/rockchip: vop2:" for the
+  remaining ones.
+- Fixed a checkpatch nag about commenting style in "Switch impossible
+  pos conditional to WARN_ON".
+- Reworded "eSmart" to "Esmart" for consistency, and to avoid drawing
+  Tim Apple's ire.
+- Make the hopefully impossible WARN_ON format conditional in
+  vop2_plane_atomic_check still bubble the error up to userspace,
+  instead of continuing on.
+- Use dest_w instead of dsp_w in patch "Enforce scaling workaround
+  in plane_check", to avoid a compiler error.
+- Only reject non-multiple-of-4-pixel-wide framebuffers on
+  RK3566/RK3568, as the other SoCs have no such limitation. (Thank you
+  to Andy Yan for doing the research to confirm this!)
+- Consequently also only WARN_ON if this condition is violated in
+  atomic_update on those SoCs.
+- Link to v1: https://lore.kernel.org/dri-devel/20251015110042.41273-1-daniels@collabora.com/
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Cc: Daniel Stone <daniels@collabora.com>
+To: Chaoyi Chen <chaoyi.chen@rock-chips.com>
+To: Sandy Huang <hjc@rock-chips.com>
+To: Heiko Stübner <heiko@sntech.de>
+To: Andy Yan <andy.yan@rock-chips.com>
+To: Maarten Lankhorst <maarten.lankhorst@linux.intel.com>
+To: Maxime Ripard <mripard@kernel.org>
+To: Thomas Zimmermann <tzimmermann@suse.de>
+To: David Airlie <airlied@gmail.com>
+To: Simona Vetter <simona@ffwll.ch>
+Cc: dri-devel@lists.freedesktop.org
+Cc: linux-arm-kernel@lists.infradead.org
+Cc: linux-rockchip@lists.infradead.org
+Cc: linux-kernel@vger.kernel.org
+Cc: kernel@collabora.com
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+
+---
+Daniel Stone (8):
+      drm/rockchip: vop2: Switch impossible format conditional to WARN_ON
+      drm/rockchip: vop2: Switch impossible pos conditional to WARN_ON
+      drm/rockchip: vop2: Fix Esmart test condition
+      drm/rockchip: vop2: Enforce scaling workaround in plane_check
+      drm/rockchip: vop2: Enforce AFBC source alignment in plane_check
+      drm/rockchip: vop2: Enforce AFBC transform stride align in plane_check
+      drm/rockchip: vop2: Use drm_is_afbc helper function
+      drm/rockchip: vop2: Simplify format_mod_supported
+
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 137 ++++++++++++---------------
+ 1 file changed, 62 insertions(+), 75 deletions(-)
+---
+base-commit: 3e7f562e20ee87a25e104ef4fce557d39d62fa85
+change-id: 20251206-vop2-atomic-fixups-0c30e0980f85
+
+Best regards,
+-- 
+Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id E66243090EB
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:11:12 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807875; cv=pass; b=RviJTmqLcuuFDOvl4y6p1Hmcx1plMoShxQyb2NXmLUqITPKX0PbL6vwyjivpltO2/cK4ArWTaq+QvjKR0uJvOBAJkPGfb9r1Wz4wAPZpwuuEcNFNkm0ZKBwferXGP1ZvYTqH3JH4R2NU0j57O/PeGNh4gCxpkFGa49Z4eDHFt9Y=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807875; c=relaxed/simple;
+	bh=AVLPpvEA7cmHX25HYyaDQgaH/vg71yIqGxlVBxhlKUA=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=R921f1oHko1R6fa7/GxZ2F2fw8b3ZX79Txb+a2W6954/R55UO77LgDZLvk5Mn0EE1TTbaqcdoUNXpDSEnj1eq7WjmVraV62zz3Z+40WBabCClLUO3MyMPs3xW2BCtZTunPRH1M3EIVQINr+3mbrlDlSvl3KeLgoTwwaJIxaRgt8=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=eze5GKjG; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="eze5GKjG"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807831; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=EWBb5+vZkQvT57mH3YfWYiIYc0rRIT1RBdfiCHFkWJQjnl3HPFO/2N64vZPSEIsu+D6zkyMr2277UFGTftRJmmYwHaBWatJX7ZuM1y9RSQjLazKhL48YEwsAvpKobOUkAMLT1pB6GXEW/oPxN0LucUBCYYp3F+SAwYQsVxqZPwo=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807831; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=BgEZADjjBlqDB4JCYXAp+UjxRKt+xRWWF/jQ8tJdXSw=; 
+	b=gQqNt6Hl6M5Pzkl6m4sGbf/4IxO90If0joXiFqp5CqALYASXQ0HVZuXLhgCXWUzQsP0pItp4eP6ncG1HDCmxdrGrTtkmvOPXqg5YauAXOgdtxUgt7LKFOCK+S0okOj/ERG8mceXdLiHkH1qTxw++8+mtvwBUzQ42+3fb1JMafOg=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807831;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=BgEZADjjBlqDB4JCYXAp+UjxRKt+xRWWF/jQ8tJdXSw=;
+	b=eze5GKjG7Xq+CEXazt6Ix5KgfSonShjggk/CsqSmwEyJc96RF/2waCo3gHmA6Xez
+	xWTKoch42cThvCBv8+BJZo1nfA8uTfm6gJud+VwXL553LX3ZvjzecrFd6YnCZxMrpUx
+	mAxNVSiR05rlFv9cd1dK4HmanGNdgo4wW5I1XDdw=
+Received: by mx.zohomail.com with SMTPS id 176580782694767.8370869926157;
+	Mon, 15 Dec 2025 06:10:26 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:18 +0100
+Subject: [PATCH v5 2/8] drm/rockchip: vop2: Switch impossible pos
+ conditional to WARN_ON
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-2-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+We already clip the plane to the display bounds in atomic_check, and
+ensure that it is sufficiently sized. Instead of trying to catch this
+and adjust for it in atomic_update, just assert that atomic_check has
+done its job.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 28 ++++++++--------------------
+ 1 file changed, 8 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 20b49209ddcd..1cad5a8ece61 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1214,28 +1214,16 @@ static void vop2_plane_atomic_update(struct drm_plane *plane,
+ 	src_w = drm_rect_width(src) >> 16;
+ 	src_h = drm_rect_height(src) >> 16;
+ 	dsp_w = drm_rect_width(dest);
+-
+-	if (dest->x1 + dsp_w > adjusted_mode->hdisplay) {
+-		drm_dbg_kms(vop2->drm,
+-			    "vp%d %s dest->x1[%d] + dsp_w[%d] exceed mode hdisplay[%d]\n",
+-			    vp->id, win->data->name, dest->x1, dsp_w, adjusted_mode->hdisplay);
+-		dsp_w = adjusted_mode->hdisplay - dest->x1;
+-		if (dsp_w < 4)
+-			dsp_w = 4;
+-		src_w = dsp_w * src_w / drm_rect_width(dest);
+-	}
+-
+ 	dsp_h = drm_rect_height(dest);
+ 
+-	if (dest->y1 + dsp_h > adjusted_mode->vdisplay) {
+-		drm_dbg_kms(vop2->drm,
+-			    "vp%d %s dest->y1[%d] + dsp_h[%d] exceed mode vdisplay[%d]\n",
+-			    vp->id, win->data->name, dest->y1, dsp_h, adjusted_mode->vdisplay);
+-		dsp_h = adjusted_mode->vdisplay - dest->y1;
+-		if (dsp_h < 4)
+-			dsp_h = 4;
+-		src_h = dsp_h * src_h / drm_rect_height(dest);
+-	}
++	/* drm_atomic_helper_check_plane_state calls drm_rect_clip_scaled for
++	 * us, which keeps our planes bounded within the CRTC active area
++	 */
++	if (WARN_ON(dest->x1 + dsp_w > adjusted_mode->hdisplay) ||
++	    WARN_ON(dest->y1 + dsp_h > adjusted_mode->vdisplay) ||
++	    WARN_ON(dsp_w < 4) || WARN_ON(dsp_h < 4) ||
++	    WARN_ON(src_w < 4) || WARN_ON(src_h < 4))
++		return;
+ 
+ 	/*
+ 	 * This is workaround solution for IC design:
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 87727288520
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:11:29 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807890; cv=pass; b=Kjr8ykLvlps7Vmcu2F0LXS31nqdD8Jub09/PRC/j2KpJDNnd4rlHFmVVrEyb/NWDIWt/QLGLxVft/nPMe14/5YFoDm47WL13I8DfuRq834O9smTfMzJ7g2+FZE/wLj0wG6rjrTwDQDQ01hOhYcuIzjg83sNaOYB0QzIuTA7ccYo=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807890; c=relaxed/simple;
+	bh=8zWnr0LsoPMzX03kbGA7t/+8KZ5yzRGtyNDnJ05fqQM=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=bqxGYYGLq+rLD7RunCkC89yZtd5PUaDxhhOxZ7H4kQqlhIvvjlKnfk3FKslGssL2yPBxYjHYxP9LwkIzXj90lnXiQ7SjXfGMcYfL8aR8RrRNuC7kKtx5m8W2H23rX2eTbCRE0+UWQFPgZnTnKnitl6EIRPYMzbCUBTnne4QfFh0=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=NTcacj74; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="NTcacj74"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807847; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=UczrbwgmUdNO9UuEYS5N5C8J3Uco3gEo6nc1RMnMRq6aD2mKX8/gm1vFiB0oerIvw3XoYGKldrhi2ktz+0Mtq+o8PSoAOUJu3sTyUivpxY7w3PhR+HVxim6Z7zie9DkzUkE3ozjrGG9AycHz0beuogILP9Jq+cpjyAV36gi1MPo=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807847; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=uqZt7TdA/v61Mkt3xHXvqa8xhHfjq2/EVqevRSGE6OY=; 
+	b=deqX/C+NZ8mIs1n5eDJQbM0qTJ7g3OVxBJoVmK1paQCws5lHhsGFnRx5AP2PPocLF6QyGVwDPGbIlAT1nBD8SHqXBW80iedqBFahe2P5H9i/eBQpXZyar61YySn7w3UCD0kWy+OHeHuLB6sOyDsrMWyfEMo+/X0wh9fQemVxlMA=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807847;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=uqZt7TdA/v61Mkt3xHXvqa8xhHfjq2/EVqevRSGE6OY=;
+	b=NTcacj749npKhwlgnsWrx8YBBvnh7FdjoIp8pVrEc0/9CD9OrvwUh7l46JC0CygW
+	tEo/W/d9BkmRYZDGFvKSQLh0AowMSuOGx1LJ9UlD8sfnhA2/5rZ9r+BxApcSTQAzlX5
+	NZnBz42OX+UoCx94F3+Rb0aOZpwohCU0VzO2++9I=
+Received: by mx.zohomail.com with SMTPS id 1765807842799306.71265837415365;
+	Mon, 15 Dec 2025 06:10:42 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:19 +0100
+Subject: [PATCH v5 3/8] drm/rockchip: vop2: Fix Esmart test condition
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-3-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+If we want to find out if a window is Esmart or not, test for not being
+a cluster window, rather than AFBDC presence.
+
+No functional effect as only cluster windows support AFBC decode.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 10 ++++------
+ 1 file changed, 4 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 1cad5a8ece61..fbcc655cb583 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1229,12 +1229,10 @@ static void vop2_plane_atomic_update(struct drm_plane *plane,
+ 	 * This is workaround solution for IC design:
+ 	 * esmart can't support scale down when src_w % 16 == 1.
+ 	 */
+-	if (!(win->data->feature & WIN_FEATURE_AFBDC)) {
+-		if (src_w > dsp_w && (src_w & 0xf) == 1) {
+-			drm_dbg_kms(vop2->drm, "vp%d %s act_w[%d] MODE 16 == 1\n",
+-				    vp->id, win->data->name, src_w);
+-			src_w -= 1;
+-		}
++	if (!vop2_cluster_window(win) && src_w > dsp_w && (src_w & 1)) {
++		drm_dbg_kms(vop2->drm, "vp%d %s act_w[%d] MODE 16 == 1\n",
++			    vp->id, win->data->name, src_w);
++		src_w -= 1;
+ 	}
+ 
+ 	if (afbc_en && src_w % 4) {
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 24E2D309DCB
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:10:58 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807860; cv=pass; b=YKr/59+lEsaThrU27u+qLkqPBJLxNbru7NEwB6lqAdTZ5MnOjhm1K7t3ANSBbfkRE1DkG7yLARdiMNm5Ag25f0YVlO/u4YOXtnDFgNzwVv5eb4emNG4JiQUQermx7KaMdPSriMnl+Uw/nOaL9GDGGVt1Av0NGIeLbEemI8EWaE4=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807860; c=relaxed/simple;
+	bh=cWCyCdTD3JDQsGL6zKVxpFutgdlbhZhHAiNZDhDkM80=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=T4Jx3slvzq3sVTRnqxqdY0/oEArR8akSgM3PxNKYrzm59oAQ7yr/noSC+p3S63Z9sqPc19fivem06ulwf9OOD0BRE1tmB2NkJHUWt3Lk3wqPO2kq7Qs0vgzNRbTIyYOvV7a4C2ucnfvXp8igjoyxLXtlNkOM4bx5C71CAeiBgWw=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=SMOlJD0w; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="SMOlJD0w"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807815; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=R3o+hGXvUapVQ5VCm+yS9PfOLszeIb8BZ4GiZaYOA/q/MfTNlEsF4a0xAaPIU7LmUCJkaTbRNvw/2behwM8dEFsnr9CbdCI7cEcZHZAaI9qBnvEhdFBCHOwYgoZmzPLcalwCQp+PztuQzEYUGEMCqEo7gQSrXUCTYKLyUTbNg88=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807815; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=xa75FA/RqA1hTGcKPQBo5+mpgZRoAUQ+aXrfjGdq9w8=; 
+	b=WyXpkNBlhQA1E/6JHBrrqxeodpPkHQdRCNidMT5mV8HNGVoLjePPjHP4U10cmXRB24zek0Sri8dPN0nQwKY8V8FwnTaxJItyTZIJpZEUmBUiPBTEMQtqEFwEtPrOJ7rrrbo0vME2xsmp1tRtALHLJfO13sYs5aKpN6qFZLJIMr4=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807815;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=xa75FA/RqA1hTGcKPQBo5+mpgZRoAUQ+aXrfjGdq9w8=;
+	b=SMOlJD0wpctpy2O7koRqm0IocKl1oGKAFyXSZD/kDNKz+if9gljK5t2+zcP2ah2i
+	Njp9Vbfkl09u/E6SUx0xAiRJLeQ+6NlCOk+hJttPcNujWawCMxGstg53Y/QO0HD0P0a
+	vr/6oPeMDuVHbAz+VPtl3hXBM7Yr23ryhBoZzS3Q=
+Received: by mx.zohomail.com with SMTPS id 1765807811261322.6235762524807;
+	Mon, 15 Dec 2025 06:10:11 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:17 +0100
+Subject: [PATCH v5 1/8] drm/rockchip: vop2: Switch impossible format
+ conditional to WARN_ON
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-1-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+We should never be able to create a framebuffer with an unsupported
+format, so throw a warning if this ever happens.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 498df0ce4680..20b49209ddcd 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1030,7 +1030,8 @@ static int vop2_plane_atomic_check(struct drm_plane *plane,
+ 		return 0;
+ 
+ 	format = vop2_convert_format(fb->format->format);
+-	if (format < 0)
++	/* We shouldn't be able to create a fb for an unsupported format */
++	if (WARN_ON(format < 0))
+ 		return format;
+ 
+ 	/* Co-ordinates have now been clipped */
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from gloria.sntech.de (gloria.sntech.de [185.11.138.130])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 789A83148B2
+	for <linux-kernel@vger.kernel.org>; Thu,  8 Jan 2026 19:04:51 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=185.11.138.130
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1767899093; cv=none; b=sdhkHIVrC5usMagxGJr37DTljvoYDZGzlt8ZczsKFx5+L+RliR9GODrKNJ3C+aqlb7Me3HG3mQuud5HRwXlmTRREFy9jTN3U2XdVTFdb0On5V9Q2ibqlCcgqV3VV7S9mV9OZyWMM2N4ZvYui5AM6ISS+iPGlMBiHjzIlLeyLDR0=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1767899093; c=relaxed/simple;
+	bh=WHQFwD6qbO7Mv5nPoq4UYTYAzc+3lAav4xYmTtnNT1g=;
+	h=From:To:Cc:Subject:Date:Message-ID:In-Reply-To:References:
+	 MIME-Version:Content-Type; b=cBE7ah63u8SM3QoLkcfvgGS+YT7LaxV+rON8AHuAV7bhBB0BrFDnK5xDfyKqzVocAC4qwi0TkOovj3yQB32KqcaM3+KWCIRXpqfNrd9uRetTbGQamSwx6SNlkGmcGUjivBwSkXodfUJCBeFw0R/1D2pTNyJORP+6OnbwDTuG5MU=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de; spf=pass smtp.mailfrom=sntech.de; dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b=zO5tlMjc; arc=none smtp.client-ip=185.11.138.130
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=sntech.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b="zO5tlMjc"
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; d=sntech.de;
+	s=gloria202408; h=Content-Transfer-Encoding:Content-Type:MIME-Version:
+	References:In-Reply-To:Message-ID:Date:Subject:Cc:To:From:Reply-To;
+	bh=+7r+KOhk72oCIseNLwLS7ExpfzV3F/ZLl5NOg862qTg=; b=zO5tlMjczGyTg0YSiQbS5bt1au
+	2jmpmWf5Bp/oN9GoydHgaDg0QTWmkUfgrVCV4zTAYcaEtx6ogrGb9ErpB32FM+bacHalQnUXqRbah
+	jn0D2wjN3KuWG+0GEfgUtHfeDUSWWUV037qYLYJXWmZERmjUXY2oo4fMyxv6Eb3e1qfauz59SaNmP
+	LJ0CXicMCAeQ1VKhvVYujcCkIBBdUxJcfBa7CvWqBAD+hWrHqrIcXNAmkYiVBRys0LFLLcCEyCzXC
+	liYhqVadFMqIv2M6W1F+LUB3STjT+nUve34TeXvg47fMEDzUoRtOQtVa3WfRX7MdIpKUJO1q1y5KD
+	acUCol9g==;
+Received: from [192.76.154.238] (helo=phil.dip.tu-dresden.de)
+	by gloria.sntech.de with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.94.2)
+	(envelope-from <heiko@sntech.de>)
+	id 1vdvJI-001XT5-So; Thu, 08 Jan 2026 20:04:41 +0100
+From: Heiko Stuebner <heiko@sntech.de>
+To: Sandy Huang <hjc@rock-chips.com>,
+	Andy Yan <andy.yan@rock-chips.com>,
+	Maarten Lankhorst <maarten.lankhorst@linux.intel.com>,
+	Maxime Ripard <mripard@kernel.org>,
+	Thomas Zimmermann <tzimmermann@suse.de>,
+	David Airlie <airlied@gmail.com>,
+	Simona Vetter <simona@ffwll.ch>,
+	Chaoyi Chen <chaoyi.chen@rock-chips.com>,
+	Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Cc: Heiko Stuebner <heiko@sntech.de>,
+	David Laight <david.laight.linux@gmail.com>,
+	dri-devel@lists.freedesktop.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org,
+	linux-kernel@vger.kernel.org,
+	Daniel Stone <daniels@collabora.com>,
+	kernel@collabora.com
+Subject: Re: [PATCH v5 0/8] drm/rockchip: No more post-atomic_check fixups
+Date: Thu,  8 Jan 2026 20:04:37 +0100
+Message-ID: <176789904481.3303270.4157084512307461486.b4-ty@sntech.de>
+X-Mailer: git-send-email 2.47.2
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+
+On Mon, 15 Dec 2025 15:09:16 +0100, Nicolas Frattaroli wrote:
+> I'm taking over this series to get it across the finish line. Original
+> cover letter from Daniel Stone on v1:
+> 
+> > Hi,
+> > This series is a pretty small and consistent one for VOP2. The atomic
+> > uAPI very clearly specifies that drivers should either do what userspace
+> > requested (on a successful commit), or fail atomic_check if it is not
+> > for any reason possible to do what userspace requested.
+> >
+> > VOP2 is unfortunately littered with a bunch of cases where it will apply
+> > fixups after atomic_check - doing something different to what userspace
+> > requested, e.g. clipping or aligning regions - or throw error messages
+> > into the log when userspace does request a condition which can't be met.
+> >
+> > Doing something different to what was requested is bad because it
+> > results in unexpected visual output which can look like artifacts.
+> > Throwing errors into the log is bad because generic userspace will
+> > reasonably attempt to try any configuration it can. For example,
+> > throwing an error message on a plane not being aligned to a 16 pixel
+> > boundary can result in 15 frames' worth of error output in the log when
+> > a window is being animated across a screen.
+> >
+> > This series removes all post-check fixups - failing the check if the
+> > configuration cannot be applied - and also demotes all messages about
+> > unsupported configurations to DEBUG_KMS.
+> >
+> > Cheers,
+> > Daniel
+> 
+> [...]
+
+Applied, thanks!
+
+[1/8] drm/rockchip: vop2: Switch impossible format conditional to WARN_ON
+      commit: 78de5d28d7207f816565fa43ec44e6735c319ddf
+[2/8] drm/rockchip: vop2: Switch impossible pos conditional to WARN_ON
+      commit: 2f4e3f2bef45d1eb4d8204c5f204cf274e8a6ca6
+[3/8] drm/rockchip: vop2: Fix Esmart test condition
+      commit: f403945d240417761d404cb1ce8fa2c1ec02daf5
+[4/8] drm/rockchip: vop2: Enforce scaling workaround in plane_check
+      commit: dfb673c71fc0039a6495731d0c0fcefa8a97541d
+[5/8] drm/rockchip: vop2: Enforce AFBC source alignment in plane_check
+      commit: 8cdd4d858d7aaeb583ae2b4e5a0378936b18f0f0
+[6/8] drm/rockchip: vop2: Enforce AFBC transform stride align in plane_check
+      commit: 081676de4a22341a877ce81c4d5364737d167859
+[7/8] drm/rockchip: vop2: Use drm_is_afbc helper function
+      commit: c8c85c0a7fc2a545749da1ab8dc866de025c2314
+[8/8] drm/rockchip: vop2: Simplify format_mod_supported
+      commit: 28c2490458ca935b2d793ec0e6c22265855255a2
+
+Best regards,
+-- 
+Heiko Stuebner <heiko@sntech.de>
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id D59083328FA
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:12:56 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807978; cv=pass; b=OPRJzjtY62FXaZ059M0MDSg7pNb1lAfHAQiQv+1sY/i5X4VojrTChJON5fTOkZVfnfVTSVVlrDcd+V8E31rc3u5NBxnqwJ6n/6fJlK0shrjJIpH2kKBcLEGuLXZjLuHvlRYrh9vwW10BRpsEYKMAsglcba1YwQqSbQoxKkVWCoM=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807978; c=relaxed/simple;
+	bh=3sO7Mcj5CIoJxaPBxyb7708hSWdXMN1EeSAT/ily49U=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=iMbzbNA3xDvRxFkjYYvLCZL4uQ7WzQjFwQuIcdW6UbiXMqxxkXxnWIqajp4jaro0TkLHK6YHXAeAiXuqboJZvs3CxEGVSZrgyEvRQk0CZ7yWFP8lO0wb5ZfTgESHrrAuXrsXXZLscl4Oxi7TAgF4CXp95QCYdwcWuU6ZrD0wR/4=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=jOIq6HiD; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="jOIq6HiD"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807930; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=lZ8rFTdi8PmRu+tQO4v+O0xTqoaSQ5nX2ukgNBUgnpyhoezI3uS+dsp8CoozRDgHdDDaUGcRdDeA91/OrPXL8+XRVRdwcvO6eVJVUDuTuIaVR0XU9XVGgAk+yYtcKU+sEig7SF66so6asE08Cd4oNWkGh9kHXHW5o9Q8UOzZx8s=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807930; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=BrCltiwnJeJBxnCzg3Wzx1kxB2QTTch2UaqTtqQ6q/I=; 
+	b=heM+3J9JMnuPyDuF1y/G3JzsOcw6MZBRIVfPFAB5/gjJg4mCugQGvOLxgz/xbKUFgHNVYkWbtndeHjZbf/6Mu3esIJqwwn2zgAXt3a2vt3zZB1W5CjZXEJNY2a3Q+FKNmdjD29c782wZLCjHNqrqZPIKqlMhaoE3VJ++WEgj1e4=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807930;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=BrCltiwnJeJBxnCzg3Wzx1kxB2QTTch2UaqTtqQ6q/I=;
+	b=jOIq6HiDjqQ5IHAZXt/4jCuh0XQxPka8HHLJ5oGn3m0UZZTVstqXXEBPkI3EDQnq
+	mMz8IasfLT+h7wjJwuquHYF9TACbep3QXiZJSEFSGdCEAZRQV7bGo1IK7K9RI883KK4
+	iCc1CAVs0b2B7HtEI2HcZ8nxQfFz8M28s7F46ygg=
+Received: by mx.zohomail.com with SMTPS id 1765807924696668.2202797637121;
+	Mon, 15 Dec 2025 06:12:04 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:24 +0100
+Subject: [PATCH v5 8/8] drm/rockchip: vop2: Simplify format_mod_supported
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-8-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+Make it a little less convoluted, and just directly check if the
+combination of plane + format + modifier is supported.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 56 +++++++++++-----------------
+ 1 file changed, 22 insertions(+), 34 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 707b48c7e9d8..a0099e4dd4ea 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -367,59 +367,47 @@ static bool is_yuv_output(u32 bus_format)
+ 	}
+ }
+ 
+-static bool rockchip_afbc(struct drm_plane *plane, u64 modifier)
+-{
+-	int i;
+-
+-	if (modifier == DRM_FORMAT_MOD_LINEAR)
+-		return false;
+-
+-	for (i = 0 ; i < plane->modifier_count; i++)
+-		if (plane->modifiers[i] == modifier)
+-			return true;
+-
+-	return false;
+-}
+-
+ static bool rockchip_vop2_mod_supported(struct drm_plane *plane, u32 format,
+ 					u64 modifier)
+ {
+ 	struct vop2_win *win = to_vop2_win(plane);
+ 	struct vop2 *vop2 = win->vop2;
++	int i;
+ 
++	/* No support for implicit modifiers */
+ 	if (modifier == DRM_FORMAT_MOD_INVALID)
+ 		return false;
+ 
+-	if (vop2->version == VOP_VERSION_RK3568) {
+-		if (vop2_cluster_window(win)) {
+-			if (modifier == DRM_FORMAT_MOD_LINEAR) {
+-				drm_dbg_kms(vop2->drm,
+-					    "Cluster window only supports format with afbc\n");
+-				return false;
+-			}
+-		}
++	/* The cluster window on 3568 is AFBC-only */
++	if (vop2->version == VOP_VERSION_RK3568 && vop2_cluster_window(win) &&
++	    !drm_is_afbc(modifier)) {
++		drm_dbg_kms(vop2->drm,
++			    "Cluster window only supports format with afbc\n");
++		return false;
+ 	}
+ 
+-	if (format == DRM_FORMAT_XRGB2101010 || format == DRM_FORMAT_XBGR2101010) {
+-		if (vop2->version == VOP_VERSION_RK3588) {
+-			if (!rockchip_afbc(plane, modifier)) {
+-				drm_dbg_kms(vop2->drm, "Only support 32 bpp format with afbc\n");
+-				return false;
+-			}
+-		}
++	/* 10bpc formats on 3588 are AFBC-only */
++	if (vop2->version == VOP_VERSION_RK3588 && !drm_is_afbc(modifier) &&
++	    (format == DRM_FORMAT_XRGB2101010 || format == DRM_FORMAT_XBGR2101010)) {
++		drm_dbg_kms(vop2->drm, "Only support 10bpc format with afbc\n");
++		return false;
+ 	}
+ 
++	/* Linear is otherwise supported everywhere */
+ 	if (modifier == DRM_FORMAT_MOD_LINEAR)
+ 		return true;
+ 
+-	if (!rockchip_afbc(plane, modifier)) {
+-		drm_dbg_kms(vop2->drm, "Unsupported format modifier 0x%llx\n",
+-			    modifier);
+-
++	/* Not all format+modifier combinations are allowable */
++	if (vop2_convert_afbc_format(format) == VOP2_AFBC_FMT_INVALID)
+ 		return false;
++
++	/* Different windows have different format/modifier support */
++	for (i = 0; i < plane->modifier_count; i++) {
++		if (plane->modifiers[i] == modifier)
++			return true;
+ 	}
+ 
+-	return vop2_convert_afbc_format(format) >= 0;
++	return false;
+ }
+ 
+ /*
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 1186C30FC3C
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:12:19 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807940; cv=pass; b=oGRGq3Tzid9W/J/yBpxbO5oGJ4hnSzhuJuXmnwK3UXefZ4j8+mlV1SpA7UQr1M99mRmBE4ipAnZlSUWzdzX8WSY25BFIrI5pLrn6Q0W3lQHetAj19Gn/hzRdkC0GUREiW604fTaRV7mbjjWGwwggZ9IWFiWSRu3hcueSz50yuaA=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807940; c=relaxed/simple;
+	bh=VdqVB3tbEwR/bgNs63lmoi7S7vF77ueZGoX/xj73XZU=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=aXbyDwVJ0CZTSCWpJx5bZ6zoFiGOV3Tscekm1o+el28zQ6EKBEP7psII/aRQMT5GG3D5PqOExX02hb3nwm/StaoKFI6dg6D3x5NiH3RSFe38omTbzTUEgbz313yjt/32a08JrbtrO21ob1+w9LUA8mB/8RVX2LuWqgr+Smo8TVo=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=AhgZgkRM; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="AhgZgkRM"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807894; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=P04G21Yi4J5KwA1r0rsmtaqXn7iCetRyaLCG+kHUhN/Jj8ozKvUHGIHDtLAKPlu5sF2JqiVgChtONtELHJUdNHtn3pM2k7o2r8/gZ7eXJyxxP2O/IF/8XbhsEP1bK1jVLYbeODanA2XNWv8j1i5dU1lamYhfqEVpoCvX9wKsYpM=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807894; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=r3vBDPiRwM/pFVmzlF7hTqqQx7+trjW5u24oYfBFoQo=; 
+	b=H8Bgy7c1YZG7u8kFE30rTI9vj8bO0b9UVJVSWDKqiOeehxDUpbCfMX6eYJPwiiViGeS8mlGIKZBWR4RaFYbI+EM4oXqzkcF/jacQ2T7/1ULg11b3iWWXXFgcN6DR4ULK3z+JIN+xKKCzMT3buV/7y7taf8Rj3iP7dF+UzLkNpbA=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807894;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=r3vBDPiRwM/pFVmzlF7hTqqQx7+trjW5u24oYfBFoQo=;
+	b=AhgZgkRMYY11fJouSY6tgowdzal2IXzfQBRuhv58oZqt4JozGSw0skNTibIrhG6j
+	D9v86VkjIJPZxE/E0zk9xKmhAWqBdMj3Qy3zH3Hbf9EoAG7xQrrR7/xCqXa6IV6XY6m
+	YDQMq/1JDqa3DmJFyowYNAJ+pvITu9+pAmVRgS8c=
+Received: by mx.zohomail.com with SMTPS id 176580788851118.171113445808487;
+	Mon, 15 Dec 2025 06:11:28 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:22 +0100
+Subject: [PATCH v5 6/8] drm/rockchip: vop2: Enforce AFBC transform stride
+ align in plane_check
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-6-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+Make sure we can't break the hardware by requesting an unsupported
+configuration.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 12 +++++++++---
+ 1 file changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 0eab3370f088..7591a34ba912 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1083,6 +1083,15 @@ static int vop2_plane_atomic_check(struct drm_plane *plane,
+ 		return -EINVAL;
+ 	}
+ 
++	if (drm_is_afbc(fb->modifier) &&
++	    pstate->rotation &
++		(DRM_MODE_REFLECT_X | DRM_MODE_ROTATE_90 | DRM_MODE_ROTATE_270) &&
++	    (fb->pitches[0] << 3) / vop2_get_bpp(fb->format) % 64) {
++		drm_dbg_kms(vop2->drm,
++			    "AFBC buffers must be 64-pixel aligned for horizontal rotation or mirroring\n");
++		return -EINVAL;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1290,9 +1299,6 @@ static void vop2_plane_atomic_update(struct drm_plane *plane,
+ 		 * with WIN_VIR_STRIDE.
+ 		 */
+ 		stride = (fb->pitches[0] << 3) / bpp;
+-		if ((stride & 0x3f) && (xmirror || rotate_90 || rotate_270))
+-			drm_dbg_kms(vop2->drm, "vp%d %s stride[%d] not 64 pixel aligned\n",
+-				    vp->id, win->data->name, stride);
+ 
+ 		 /* It's for head stride, each head size is 16 byte */
+ 		stride = ALIGN(stride, block_w) / block_w * 16;
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 98A2932BF35
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:12:39 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807961; cv=pass; b=PhD3sgHtuqw7klquctZg/7QeXFDXbDyV/3zHzp2s0NOZE6z8m/sPka07t6NzjiSeWeBvNnrHXUlbHm8A3PKYyLrYV3Aty3Fqowe0Y9jWypha8qbB0KJFE1b/P2Qb0Tv2A+QYe8OtwLSOWp57GlMfFBNVJfTnodYJpBTTDz/SihI=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807961; c=relaxed/simple;
+	bh=hLS356WL/rEz8cl9brRNaEwZJmoGRHs/B3acmH2QL9E=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=cqfKNWMASSNG7N7OXdPPMyLnGk12u0pgzy0wv9WGVDRUW/TRXQvGo5t6aV/L1lwpX4HjsI8R1Xsve9hb9W9JAiqwA/espg9FOjA7dkGEFcw2L83rgdp9EK16cMMaX/sAHsb6T77b+Ll+u/krp3RVxLJh1X6moQU/Nl/OKCy/gvo=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=d9lZdGCX; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="d9lZdGCX"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807912; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=Pe5zEGen7DWMIxa0od2V27KaZd5+IYdcsbmA109St1b4Tma8sLq/nrWMj+pK4uYwDZdpkmOoFUsuFE579SDvm13+7leM3eeELm4eMNSI4yJa7lWF8dpZONizF/rgv4vVfeWE+xY+67aV84AIH1S5hQ5w3vXTvaXWCPl19OUzajo=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807912; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=p065Ctfv0+YZkVudNfEaBaJuLCONxpch52O21i+TW98=; 
+	b=l39otskCqJRUucKHJXIrtcgsQwwak6Jpfxgi4eNObTAEFpGM7Ebp/fyVJsSHDY3L9MQCGl+IllVUhvKfQ9CPpmQQf7uzACKXZPkROzTp7evXYNaptubrIi2VEZk7N9wgScdjQH0giJj+S1AhFagT1Crw6BAlckbGKQyEDrwHgRo=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807912;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=p065Ctfv0+YZkVudNfEaBaJuLCONxpch52O21i+TW98=;
+	b=d9lZdGCXn+1rU5HzZhl0hdtdnqfneWhgLdqRxMqHXX/AyhNVd3bu+MmX0o/wsYII
+	q7XzwADK0RkiHmRCiZ5osIZHFzDuqx/8TmEdb3Wg/TEcvjc+FWorWA02yH4tbvLAvnT
+	mkGyloQ3O+cP4sWYa4jwwbKg6XaA1qr1DoDHuh6M=
+Received: by mx.zohomail.com with SMTPS id 1765807906487314.75561026470734;
+	Mon, 15 Dec 2025 06:11:46 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:23 +0100
+Subject: [PATCH v5 7/8] drm/rockchip: vop2: Use drm_is_afbc helper function
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-7-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+We don't need to do a long open-coded walk here; we can simply check the
+modifier value.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 7591a34ba912..707b48c7e9d8 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1207,7 +1207,7 @@ static void vop2_plane_atomic_update(struct drm_plane *plane,
+ 		return;
+ 	}
+ 
+-	afbc_en = rockchip_afbc(plane, fb->modifier);
++	afbc_en = drm_is_afbc(fb->modifier);
+ 
+ 	offset = (src->x1 >> 16) * fb->format->cpp[0];
+ 
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 956F430FC3C
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:12:00 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807922; cv=pass; b=rU1Vd9xbe5BuClSUACdh5O2LrWzIFiULStnKKbuNT4yYk02VPopOGPyaooLJ/sX+XYkSKg3+0IZS7bvHH96yXVaXA5Uo0y0aXB3M3d2eSmdSuyHrovuLu/ibnyJyuiuc5N7r73RqUW8s4mbOd31SncMQbb0LKRHh6BFvpubz7nI=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807922; c=relaxed/simple;
+	bh=KYX2UOjDa6RxJp4LFYY4tdtnuUXRKxjM6+vdTH3EGkg=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=JDl3Rjhb9MsvOmM1rpxQ+ZA8azFZtoephMisTuID3DMU63JLPPPnKH7YT/unGBZtIYbF0VbY70yRQVKAXAir7JXwUy7Cmr15lxIbOzsXFUQ7S6+eJZ7DRjKaFnpgqHt1Z1HNFy1qmeb1UU67mgVedZ+Lku/QatWB9ebjJPHo4pU=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=Lysxs/5y; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="Lysxs/5y"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807877; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=UUL4xXVJNIfEUsmFhWRldVk4suQwf3wCEnuqtuQhKcx3ASqdy9e/xeGsyJi/G7tSRP/X7XzdRBjfcfORoitY2uxmMBlWyaVyACgq8GxrtDbH7PKCRQg/Zv0OiI+OlvIDP0vVLgW5yskOMbMYm/5NTPZ4wxc3iTy3/4ytaGIvmVk=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807877; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=P1lGaywL2zfQuFsnDp6E8zqprL8Bq/LaGHpO8r0QUqw=; 
+	b=A+QyxOM0e64rHbOSC80vrcoftjYducjRnOM4DDdd8damIRFQyOuKK7Odvckc6EJnDFlRGbv3pau56nkCMjSZ5k+H7UN5rEXLmEp02t43t8JAE2aHwt3mBc6bDH2JrvBdGYcb9SauZdGWq3m1ahu8eSwgj0ZS8QXv5zGyTrtxVFc=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807877;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=P1lGaywL2zfQuFsnDp6E8zqprL8Bq/LaGHpO8r0QUqw=;
+	b=Lysxs/5ypSUNZvFaYjyNSUW9ZZ2wCzVvFsaepXI1NgNj8Cm2dPYfWJjWzwb8JB5k
+	7mFUwXCzYCaf9pZd8OwWErFy7iyQj1qyLH4MLpjP74dawCHw3ZRom1L4pybnxvDgfVw
+	OoT0orWuWREQ6wdhko+D/eUB3PRCtlStdJ9zAtfM=
+Received: by mx.zohomail.com with SMTPS id 1765807873201227.86050033379365;
+	Mon, 15 Dec 2025 06:11:13 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:21 +0100
+Subject: [PATCH v5 5/8] drm/rockchip: vop2: Enforce AFBC source alignment
+ in plane_check
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-5-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+Planes can only source AFBC framebuffers at multiples of 4px wide on
+RK3566/RK3568. Instead of clipping on all SoCs when the user asks for an
+unaligned source rectangle, reject the configuration in the plane's
+atomic check on RK3566/RK3568 only.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+[Make RK3566/RK3568 specific, reword message, s/byte/pixel/]
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index ded8b9952c6d..0eab3370f088 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1076,6 +1076,13 @@ static int vop2_plane_atomic_check(struct drm_plane *plane,
+ 		return -EINVAL;
+ 	}
+ 
++	if (vop2->version == VOP_VERSION_RK3568 && drm_is_afbc(fb->modifier) && src_w % 4) {
++		drm_dbg_kms(vop2->drm,
++			    "AFBC source rectangles must be 4-pixel aligned; is %d\n",
++			    src_w);
++		return -EINVAL;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1236,11 +1243,9 @@ static void vop2_plane_atomic_update(struct drm_plane *plane,
+ 	    WARN_ON(src_w < 4) || WARN_ON(src_h < 4))
+ 		return;
+ 
+-	if (afbc_en && src_w % 4) {
+-		drm_dbg_kms(vop2->drm, "vp%d %s src_w[%d] not 4 pixel aligned\n",
+-			    vp->id, win->data->name, src_w);
+-		src_w = ALIGN_DOWN(src_w, 4);
+-	}
++	if (vop2->version == VOP_VERSION_RK3568 && drm_is_afbc(fb->modifier))
++		if (WARN_ON(src_w % 4))
++			return;
+ 
+ 	act_info = (src_h - 1) << 16 | ((src_w - 1) & 0xffff);
+ 	dsp_info = (dsp_h - 1) << 16 | ((dsp_w - 1) & 0xffff);
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 9CB4530EF75
+	for <linux-kernel@vger.kernel.org>; Mon, 15 Dec 2025 14:11:45 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765807907; cv=pass; b=jH4HDI9NdJYczIy1mQb6HgQLYaUKb8DlP2H2tAkyjpV5sg5k9ZvZvpgueq08h5PQtMNFcJdc9Qi0prglsmeVnsR0FzMGnua5I6O1T7fKbeKvRyIugdCUGmo4vISyO3Sw0gr4Nh/iJF1vKWzDkwgdjvtk3Jzn+c/HKXoYmg7aw3c=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765807907; c=relaxed/simple;
+	bh=wxt7fsccmubnHLf7aFCeBTqPoSOxG4/hq/Z16+KJ2g0=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=PbME1wkKRCbPHqDjb+3tDxg6PAU5zJ1OMibhWm3s98V3TTbb15t47p7SyWWZvANLjGSaoAdIA1qgUD5Ls/H5PCRSNh3cqPxGR9cI+uOxTzRFcGO2kec+uascVX1QuK3yVUKOHvnaU5tc7RRBlsd6/iacRU+E+CLAX9apoO20RCE=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b=TTqeECkr; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=nicolas.frattaroli@collabora.com header.b="TTqeECkr"
+ARC-Seal: i=1; a=rsa-sha256; t=1765807863; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=io7FQifRbKmJQQH0DFt9jSrJo7us5yIlLwEUJ0yxcWwmpokwUf/DdMZqqfOa+UGgD2hLvwq+L2fESw0aBzNQABkG95azgPm2zKSbQV59Cf535Dqf+IW5OOc5t9fpzYVcLIBTc3NPocDqsU4SmMaCioeq1OaxnqNcQ7HEEY7F6tg=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1765807863; h=Content-Type:Content-Transfer-Encoding:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=7n42KK6gudYMqBGWZXjr2PpxZcrxS+YRaFD+RvftefE=; 
+	b=i10xTk8pXue1IwEELQfQ3zVI6eolZWGQik6flq0mJi5IGgWH8yP9+dLEuwEiKzZdEd/5nPJIUJEZjd/6Nfmh4EARMbTR0/BzpDVmqB6eXoJZWhArhvyxcSr1OQMLUANURMO2WBI2nvrX9JGe0acOHWmRthrPCQVLJx8mqiI2d94=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=nicolas.frattaroli@collabora.com;
+	dmarc=pass header.from=<nicolas.frattaroli@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1765807863;
+	s=zohomail; d=collabora.com; i=nicolas.frattaroli@collabora.com;
+	h=From:From:Date:Date:Subject:Subject:MIME-Version:Content-Type:Content-Transfer-Encoding:Message-Id:Message-Id:References:In-Reply-To:To:To:Cc:Cc:Reply-To;
+	bh=7n42KK6gudYMqBGWZXjr2PpxZcrxS+YRaFD+RvftefE=;
+	b=TTqeECkryqVhcTU7cEUW168Ju1P39T8lq6PtWqS5k6n9N6X/SpKSicOHq8A/brX0
+	wQymF81dRYOm8IUgHvu4nsmMFe1xUYNHr8dGTgrX7Dg+4Tip4tnkg9zrEqyRNfPI7Ep
+	nZWZ6JlQIGo+cLaCtuRCqsVzsXWaV3hXHCAy9o+M=
+Received: by mx.zohomail.com with SMTPS id 1765807859406709.1268892387307;
+	Mon, 15 Dec 2025 06:10:59 -0800 (PST)
+From: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+Date: Mon, 15 Dec 2025 15:09:20 +0100
+Subject: [PATCH v5 4/8] drm/rockchip: vop2: Enforce scaling workaround in
+ plane_check
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20251215-vop2-atomic-fixups-v5-4-83463c075a8d@collabora.com>
+References: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+In-Reply-To: <20251215-vop2-atomic-fixups-v5-0-83463c075a8d@collabora.com>
+To: Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Chaoyi Chen <chaoyi.chen@rock-chips.com>
+Cc: David Laight <david.laight.linux@gmail.com>, 
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org, 
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, 
+ Daniel Stone <daniels@collabora.com>, kernel@collabora.com, 
+ Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+X-Mailer: b4 0.14.3
+
+From: Daniel Stone <daniels@collabora.com>
+
+It seems only cluster windows are capable of applying downscaling when
+the source region has an odd width. Instead of applying a workaround
+inside atomic_update, fail the plane check if this is requested.
+
+Signed-off-by: Daniel Stone <daniels@collabora.com>
+Signed-off-by: Nicolas Frattaroli <nicolas.frattaroli@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 21 +++++++++++----------
+ 1 file changed, 11 insertions(+), 10 deletions(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index fbcc655cb583..ded8b9952c6d 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -998,6 +998,7 @@ static int vop2_plane_atomic_check(struct drm_plane *plane,
+ 	struct drm_crtc *crtc = pstate->crtc;
+ 	struct drm_crtc_state *cstate;
+ 	struct vop2_video_port *vp;
++	struct vop2_win *win = to_vop2_win(plane);
+ 	struct vop2 *vop2;
+ 	const struct vop2_data *vop2_data;
+ 	struct drm_rect *dest = &pstate->dst;
+@@ -1065,6 +1066,16 @@ static int vop2_plane_atomic_check(struct drm_plane *plane,
+ 		return -EINVAL;
+ 	}
+ 
++	/*
++	 * This is workaround solution for IC design:
++	 * esmart can't support scale down when src_w % 16 == 1.
++	 */
++	if (!vop2_cluster_window(win) && src_w > dest_w && (src_w & 1)) {
++		drm_dbg_kms(vop2->drm,
++			    "Esmart windows cannot downscale odd-width source regions\n");
++		return -EINVAL;
++	}
++
+ 	return 0;
+ }
+ 
+@@ -1225,16 +1236,6 @@ static void vop2_plane_atomic_update(struct drm_plane *plane,
+ 	    WARN_ON(src_w < 4) || WARN_ON(src_h < 4))
+ 		return;
+ 
+-	/*
+-	 * This is workaround solution for IC design:
+-	 * esmart can't support scale down when src_w % 16 == 1.
+-	 */
+-	if (!vop2_cluster_window(win) && src_w > dsp_w && (src_w & 1)) {
+-		drm_dbg_kms(vop2->drm, "vp%d %s act_w[%d] MODE 16 == 1\n",
+-			    vp->id, win->data->name, src_w);
+-		src_w -= 1;
+-	}
+-
+ 	if (afbc_en && src_w % 4) {
+ 		drm_dbg_kms(vop2->drm, "vp%d %s src_w[%d] not 4 pixel aligned\n",
+ 			    vp->id, win->data->name, src_w);
+
+-- 
+2.52.0
+
+

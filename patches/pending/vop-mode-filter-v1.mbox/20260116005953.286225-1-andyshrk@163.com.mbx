@@ -1,0 +1,341 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from m16.mail.163.com (m16.mail.163.com [220.197.31.2])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 5D5A9313E3F
+	for <linux-kernel@vger.kernel.org>; Fri, 16 Jan 2026 01:01:04 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=220.197.31.2
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1768525270; cv=none; b=ZsFf4iK5GKJhrYjHfWbPdwIdjI17gClu2HopRAClyDoHQri6AhVtg8hsCoQ7sDHFpbfFRcOibcevb6mZShsBMnBvICBuSl+0qo6ARmWnhNSLROpBbpXX54ev+uCRPTU3Ul9G4Gg+axhiBbh23sG1wq8zHozH43ONo4co9lKMbd4=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1768525270; c=relaxed/simple;
+	bh=KO0H9HrKijvK8pVs5kosUtvNoGniSo1+CgD8aT3bwiQ=;
+	h=From:To:Cc:Subject:Date:Message-ID:MIME-Version; b=C8EjnimSgfhxrOj5cBOBNVEqrKLgxgo57O0Js6EWe64RjalEI+D0/AymgPHlgfs42FdpoA+H8Jzs5+NZAWUTZtRYW2AjlKYUqh3fyqyI1oRMQ5IN8+cNlnTSQKSkVeu1xxDDiETzKNY52dslAaswLqdB+wgAaqWbK8fzPTGD7lM=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=163.com; spf=pass smtp.mailfrom=163.com; dkim=pass (1024-bit key) header.d=163.com header.i=@163.com header.b=galtRY90; arc=none smtp.client-ip=220.197.31.2
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=163.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=163.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=163.com header.i=@163.com header.b="galtRY90"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=163.com;
+	s=s110527; h=From:To:Subject:Date:Message-ID:MIME-Version; bh=ME
+	f0DHBWe9wPAEndIy61oCPwiRgDkfJY9Tvwbfp9TWI=; b=galtRY90/scvUYiiqi
+	R1/BDctSZsJyCULal6+W/axAI5CMzUGIw3sof82uUF7JrrmZTlZZC1d2ALOQ39YI
+	BvCNy19aIN90CRYfdMxBTXkQPwuZiOxDUmkTI2YR5aSvvuGQ/DE8/sWUpRQje9Hz
+	im+5Wk0Juf7PIlHwhyZFRVxA8=
+Received: from ProDesk-480.. (unknown [])
+	by gzga-smtp-mtada-g1-4 (Coremail) with SMTP id _____wDXRJeKjWlpWfAVGQ--.9426S2;
+	Fri, 16 Jan 2026 08:59:59 +0800 (CST)
+From: Andy Yan <andyshrk@163.com>
+To: heiko@sntech.de
+Cc: hjc@rock-chips.com,
+	mripard@kernel.org,
+	maarten.lankhorst@linux.intel.com,
+	tzimmermann@suse.de,
+	airlied@gmail.com,
+	simona@ffwll.ch,
+	dri-devel@lists.freedesktop.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org,
+	linux-kernel@vger.kernel.org,
+	Andy Yan <andy.yan@rock-chips.com>
+Subject: [PATCH] drm/rockchip: vop2: Add mode valid callback for crtc
+Date: Fri, 16 Jan 2026 08:59:49 +0800
+Message-ID: <20260116005953.286225-1-andyshrk@163.com>
+X-Mailer: git-send-email 2.43.0
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+X-CM-TRANSID: _____wDXRJeKjWlpWfAVGQ--.9426S2
+X-Coremail-Antispam: 1Uf129KBjvJXoW7WFykGr1kGFy5KF1DtryUAwb_yoW8XF15pa
+	17ArWYgr4rKFZFgFn7JF4DCw1akw1ayayxJrs3Ww13uFyftr4DX3WrC34DCry3XFy7Ga43
+	KrnFyFW5AF1I9w7anT9S1TB71UUUUU7qnTZGkaVYY2UrUUUUjbIjqfuFe4nvWSU5nxnvy2
+	9KBjDUYxBIdaVFxhVjvjDU0xZFpf9x07jrl1kUUUUU=
+X-CM-SenderInfo: 5dqg52xkunqiywtou0bp/xtbC7Q87mWlpjY+34wAA3W
+
+From: Andy Yan <andy.yan@rock-chips.com>
+
+Filter the mode that can't output by the crtc.
+
+Signed-off-by: Andy Yan <andy.yan@rock-chips.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index 498df0ce4680..74fba29bfff3 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1439,6 +1439,17 @@ static void vop2_crtc_disable_vblank(struct drm_crtc *crtc)
+ 	vop2_crtc_disable_irq(vp, VP_INT_FS_FIELD);
+ }
+ 
++static enum drm_mode_status vop2_crtc_mode_valid(struct drm_crtc *crtc,
++						 const struct drm_display_mode *mode)
++{
++	struct vop2_video_port *vp = to_vop2_video_port(crtc);
++
++	if (mode->hdisplay > vp->data->max_output.width)
++		return MODE_BAD_HVALUE;
++
++	return MODE_OK;
++}
++
+ static bool vop2_crtc_mode_fixup(struct drm_crtc *crtc,
+ 				 const struct drm_display_mode *mode,
+ 				 struct drm_display_mode *adj_mode)
+@@ -1884,6 +1895,7 @@ static void vop2_crtc_atomic_flush(struct drm_crtc *crtc,
+ 
+ static const struct drm_crtc_helper_funcs vop2_crtc_helper_funcs = {
+ 	.mode_fixup = vop2_crtc_mode_fixup,
++	.mode_valid = vop2_crtc_mode_valid,
+ 	.atomic_check = vop2_crtc_atomic_check,
+ 	.atomic_begin = vop2_crtc_atomic_begin,
+ 	.atomic_flush = vop2_crtc_atomic_flush,
+-- 
+2.43.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from gloria.sntech.de (gloria.sntech.de [185.11.138.130])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 358BB2745C
+	for <linux-kernel@vger.kernel.org>; Fri, 16 Jan 2026 16:49:50 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=185.11.138.130
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1768582194; cv=none; b=VCEUuup6oEvu1ekwTCB2xojwYkAG5nfM6/CkpmlgReBF5peuS1ED0HMSyhw8xjotxdZPdbVuiDU17jGw3cYAHW/tzcCS3u9rz2hpLWS4T2xRYrF8A5RJL1bjarmcjMKJh1kJXB//7DMb+rYmlZII3t6C1X47e/8XEyA/3nuKjb8=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1768582194; c=relaxed/simple;
+	bh=GkDKjDlxFtXb0NUjFiF2mLsnPMUeYSRT3wIGGP7h7fw=;
+	h=From:To:Cc:Subject:Date:Message-ID:In-Reply-To:References:
+	 MIME-Version:Content-Type; b=nTV9yGHDpS5BtgsR45CnIfdJtX8Um0etgVVTPsdGKf8Ecq45laD56lxq0FnVYC8YrDSC9XHk8Mbklc3ckJiMsaZt5BPQ3hMXGAxd87H9LzfL1njCLJrLY3tcSaFN7UNu7tOl+V/ax5d08lHQXDqkX9eO1VaXh6aqoqS5AXcAVZQ=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de; spf=pass smtp.mailfrom=sntech.de; dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b=ChRtAKmF; arc=none smtp.client-ip=185.11.138.130
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=sntech.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b="ChRtAKmF"
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; d=sntech.de;
+	s=gloria202408; h=Content-Type:Content-Transfer-Encoding:MIME-Version:
+	References:In-Reply-To:Message-ID:Date:Subject:Cc:To:From:Reply-To;
+	bh=yI2XYSwTvVhb9DCV7BJIh+Gsz4vYaSmf6hvMKZExTCo=; b=ChRtAKmFPFgjEj2MJUr5lwxoqR
+	6KHtYVPzSVyn9bFz7rHB0lcpr2sYi5ewutGrLY8qE1juhIvHX/67F94QnlB3wraAH2jbNuNpFg5au
+	IUqv1YSIaYrLzsoah74DeYeyC1CmUwzF7yH9YPP5HtAeBisxSpCTqBnPNmEgNIBOKicSlpmLu1O1y
+	FY2kEU9Bf++OXlUxM8zRYYOKoDsWM6GO0ZOI2Lb3Vm1/at800F8Mj1DJpFupJQn7TYh6twB4eg4a4
+	vkvQRrNNTtUj5LtTcg3HNgxs/XmdZeQ5E6rbcPfIDuWwnTjBPBXkMzka6qXaS9py9cT8jz2tJ3N08
+	kyeM9y5w==;
+Received: from i53875a97.versanet.de ([83.135.90.151] helo=diego.localnet)
+	by gloria.sntech.de with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.94.2)
+	(envelope-from <heiko@sntech.de>)
+	id 1vgn0l-002eXq-JT; Fri, 16 Jan 2026 17:49:24 +0100
+From: Heiko =?UTF-8?B?U3TDvGJuZXI=?= <heiko@sntech.de>
+To: Andy Yan <andyshrk@163.com>
+Cc: hjc@rock-chips.com, mripard@kernel.org, maarten.lankhorst@linux.intel.com,
+ tzimmermann@suse.de, airlied@gmail.com, simona@ffwll.ch,
+ dri-devel@lists.freedesktop.org, linux-arm-kernel@lists.infradead.org,
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org,
+ Andy Yan <andy.yan@rock-chips.com>
+Subject: Re: [PATCH] drm/rockchip: vop2: Add mode valid callback for crtc
+Date: Fri, 16 Jan 2026 17:49:23 +0100
+Message-ID: <6509513.iIbC2pHGDl@diego>
+In-Reply-To: <20260116005953.286225-1-andyshrk@163.com>
+References: <20260116005953.286225-1-andyshrk@163.com>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: quoted-printable
+Content-Type: text/plain; charset="utf-8"
+
+Hi Andy,
+
+Am Freitag, 16. Januar 2026, 01:59:49 Mitteleurop=C3=A4ische Normalzeit sch=
+rieb Andy Yan:
+> From: Andy Yan <andy.yan@rock-chips.com>
+
+when resending an unmodified patch, please mark the subject as
+[PATCH RESEND] ....
+
+> Filter the mode that can't output by the crtc.
+
+In commit 8e140cb60270 ("drm/rockchip: vop: limit maximum resolution to
+hardware capabilities") which introduced the similar check on VOP(1), we
+had additional information, in that the VOP1 hardware does not have
+an output height limit. Is the same true for VOP2 ?
+
+Because then I'd like to extend the commit description to something like:
+=3D=3D=3D=3D=3D=3D=3D 8< =3D=3D=3D=3D=3D=3D=3D
+The different VOP variants support different maximum resolutions. Reject
+resolutions that are not supported by a specific variant.
+
+Only the output width is checked because the hardware itself does not
+have a hard output height limit.
+=3D=3D=3D=3D=3D=3D=3D 8< =3D=3D=3D=3D=3D=3D=3D
+
+Because when someone sees the code later they might ask why the height
+is not checked, so having that in the commit description allows us all to
+remember why the check is this specific way :-)
+
+Thanks
+Heiko
+
+> Signed-off-by: Andy Yan <andy.yan@rock-chips.com>
+> ---
+>  drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 12 ++++++++++++
+>  1 file changed, 12 insertions(+)
+>=20
+> diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/d=
+rm/rockchip/rockchip_drm_vop2.c
+> index 498df0ce4680..74fba29bfff3 100644
+> --- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+> +++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+> @@ -1439,6 +1439,17 @@ static void vop2_crtc_disable_vblank(struct drm_cr=
+tc *crtc)
+>  	vop2_crtc_disable_irq(vp, VP_INT_FS_FIELD);
+>  }
+> =20
+> +static enum drm_mode_status vop2_crtc_mode_valid(struct drm_crtc *crtc,
+> +						 const struct drm_display_mode *mode)
+> +{
+> +	struct vop2_video_port *vp =3D to_vop2_video_port(crtc);
+> +
+> +	if (mode->hdisplay > vp->data->max_output.width)
+> +		return MODE_BAD_HVALUE;
+> +
+> +	return MODE_OK;
+> +}
+> +
+>  static bool vop2_crtc_mode_fixup(struct drm_crtc *crtc,
+>  				 const struct drm_display_mode *mode,
+>  				 struct drm_display_mode *adj_mode)
+> @@ -1884,6 +1895,7 @@ static void vop2_crtc_atomic_flush(struct drm_crtc =
+*crtc,
+> =20
+>  static const struct drm_crtc_helper_funcs vop2_crtc_helper_funcs =3D {
+>  	.mode_fixup =3D vop2_crtc_mode_fixup,
+> +	.mode_valid =3D vop2_crtc_mode_valid,
+>  	.atomic_check =3D vop2_crtc_atomic_check,
+>  	.atomic_begin =3D vop2_crtc_atomic_begin,
+>  	.atomic_flush =3D vop2_crtc_atomic_flush,
+>=20
+
+
+
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from m16.mail.163.com (m16.mail.163.com [117.135.210.2])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 359D824501B
+	for <linux-kernel@vger.kernel.org>; Sat, 17 Jan 2026 02:11:03 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=117.135.210.2
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1768615867; cv=none; b=pmZNWLZw/kHA51cEmd9KcsPNJ6QikiCco2gOPjjGMQl34FARpAtLT20gdzprAiPm09qhzd9KH1z5WJ5izkxpnFBdOd5kuK9xI16DxcxInkd//bt+Sf44J2Da1BFD/aTRwtQy0upc1NoCfjLhgw4o3GnWel5JR+81epQduKHORTU=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1768615867; c=relaxed/simple;
+	bh=mX+pKglcUGalsnXrao4pZyIC4YLVUK9HfhdJDPeAPw0=;
+	h=Date:From:To:Cc:Subject:In-Reply-To:References:Content-Type:
+	 MIME-Version:Message-ID; b=tk9Jo2kAoAS0VVJ160VL20jfPii8V9PcaHzhlt5KRJoezsN9inPnjBvuM9008rwU5zHcv/tGggOsy3ys+ll6r5Y39Me6QVkDz6drhXx6988g7NJwvwSFCdbZlRPqlaBRXKp92Fbnlo0JXiAo4Y62rbKEWyaJgJj6Bohw99KTzic=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=163.com; spf=pass smtp.mailfrom=163.com; dkim=pass (1024-bit key) header.d=163.com header.i=@163.com header.b=OWKwXoBW; arc=none smtp.client-ip=117.135.210.2
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=163.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=163.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=163.com header.i=@163.com header.b="OWKwXoBW"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=163.com;
+	s=s110527; h=Date:From:To:Subject:Content-Type:MIME-Version:
+	Message-ID; bh=mX+pKglcUGalsnXrao4pZyIC4YLVUK9HfhdJDPeAPw0=; b=O
+	WKwXoBWKRqUPFNSa1evtIxzarIzwBKxN71haE4VjEtyWif7u8nWsG6HSio3xi1TO
+	uFDbAa3UmpZo+lKbDeTfjKdHBiIoG7nv0DlvgT1gpBuxAlZRHRb55ammLKVcW5qc
+	bSYyEzp2D21FkPrNfxBbUGu7gc4nAL5DzBtyxvUVNM=
+Received: from andyshrk$163.com ( [58.22.7.114] ) by
+ ajax-webmail-wmsvr-40-108 (Coremail) ; Sat, 17 Jan 2026 10:09:55 +0800
+ (CST)
+Date: Sat, 17 Jan 2026 10:09:55 +0800 (CST)
+From: "Andy Yan" <andyshrk@163.com>
+To: =?UTF-8?Q?Heiko_St=C3=BCbner?= <heiko@sntech.de>
+Cc: hjc@rock-chips.com, mripard@kernel.org,
+	maarten.lankhorst@linux.intel.com, tzimmermann@suse.de,
+	airlied@gmail.com, simona@ffwll.ch, dri-devel@lists.freedesktop.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org,
+	"Andy Yan" <andy.yan@rock-chips.com>
+Subject: Re:Re: [PATCH] drm/rockchip: vop2: Add mode valid callback for crtc
+X-Priority: 3
+X-Mailer: Coremail Webmail Server Version 2023.4-cmXT build
+ 20251222(83accb85) Copyright (c) 2002-2026 www.mailtech.cn 163com
+In-Reply-To: <6509513.iIbC2pHGDl@diego>
+References: <20260116005953.286225-1-andyshrk@163.com>
+ <6509513.iIbC2pHGDl@diego>
+X-CM-CTRLMSGS: EPOSPXBsdXM9MTc2ODYxNTc5NDQyMF80MDY1OTUwMzdiOGQzZDMzMTQ0Yjk5M
+ DNmNTYwYjIzZg==
+X-NTES-SC: AL_Qu2dCvqauk8i4ymaZOkfmUgWjuw/WsG1v/Ul1YBSP556jCLpyxkmREZKAWnx882oLiKGsAS2YBV818lzcYV9RqYJwAQrkcPC+qrH09Zm5SyxFA==
+Content-Transfer-Encoding: base64
+Content-Type: text/plain; charset=UTF-8
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Message-ID: <5e931108.71d.19bc9b75cdf.Coremail.andyshrk@163.com>
+X-Coremail-Locale: zh_CN
+X-CM-TRANSID: bCgvCgD3H5Rz72pp7HZYAA--.3213W
+X-CM-SenderInfo: 5dqg52xkunqiywtou0bp/xtbCxRMNa2lq73N8bQAA3+
+X-Coremail-Antispam: 1U5529EdanIXcx71UUUUU7vcSsGvfC2KfnxnUU==
+
+CkhlbGxvIEhlaWtv77yMCgrlnKggMjAyNi0wMS0xNyAwMDo0OToyM++8jCJIZWlrbyBTdMO8Ym5l
+ciIgPGhlaWtvQHNudGVjaC5kZT4g5YaZ6YGT77yaCj5IaSBBbmR5LAo+Cj5BbSBGcmVpdGFnLCAx
+Ni4gSmFudWFyIDIwMjYsIDAxOjU5OjQ5IE1pdHRlbGV1cm9ww6Rpc2NoZSBOb3JtYWx6ZWl0IHNj
+aHJpZWIgQW5keSBZYW46Cj4+IEZyb206IEFuZHkgWWFuIDxhbmR5LnlhbkByb2NrLWNoaXBzLmNv
+bT4KPgo+d2hlbiByZXNlbmRpbmcgYW4gdW5tb2RpZmllZCBwYXRjaCwgcGxlYXNlIG1hcmsgdGhl
+IHN1YmplY3QgYXMKPltQQVRDSCBSRVNFTkRdIC4uLi4KPgoKClNvcnJ5LCBJIGZvcmdvdCB0aGF0
+IHRoaXMgcGF0Y2ggaGFkIGFscmVhZHkgYmVlbiBzZW50IG91dCBvbmNlIGJlZm9yZQoKPj4gRmls
+dGVyIHRoZSBtb2RlIHRoYXQgY2FuJ3Qgb3V0cHV0IGJ5IHRoZSBjcnRjLgo+Cj5JbiBjb21taXQg
+OGUxNDBjYjYwMjcwICgiZHJtL3JvY2tjaGlwOiB2b3A6IGxpbWl0IG1heGltdW0gcmVzb2x1dGlv
+biB0bwo+aGFyZHdhcmUgY2FwYWJpbGl0aWVzIikgd2hpY2ggaW50cm9kdWNlZCB0aGUgc2ltaWxh
+ciBjaGVjayBvbiBWT1AoMSksIHdlCj5oYWQgYWRkaXRpb25hbCBpbmZvcm1hdGlvbiwgaW4gdGhh
+dCB0aGUgVk9QMSBoYXJkd2FyZSBkb2VzIG5vdCBoYXZlCj5hbiBvdXRwdXQgaGVpZ2h0IGxpbWl0
+LiBJcyB0aGUgc2FtZSB0cnVlIGZvciBWT1AyID8KPgo+QmVjYXVzZSB0aGVuIEknZCBsaWtlIHRv
+IGV4dGVuZCB0aGUgY29tbWl0IGRlc2NyaXB0aW9uIHRvIHNvbWV0aGluZyBsaWtlOgo+PT09PT09
+PSA4PCA9PT09PT09Cj5UaGUgZGlmZmVyZW50IFZPUCB2YXJpYW50cyBzdXBwb3J0IGRpZmZlcmVu
+dCBtYXhpbXVtIHJlc29sdXRpb25zLiBSZWplY3QKPnJlc29sdXRpb25zIHRoYXQgYXJlIG5vdCBz
+dXBwb3J0ZWQgYnkgYSBzcGVjaWZpYyB2YXJpYW50Lgo+Cj5Pbmx5IHRoZSBvdXRwdXQgd2lkdGgg
+aXMgY2hlY2tlZCBiZWNhdXNlIHRoZSBoYXJkd2FyZSBpdHNlbGYgZG9lcyBub3QKPmhhdmUgYSBo
+YXJkIG91dHB1dCBoZWlnaHQgbGltaXQuCj49PT09PT09IDg8ID09PT09PT0KPgo+QmVjYXVzZSB3
+aGVuIHNvbWVvbmUgc2VlcyB0aGUgY29kZSBsYXRlciB0aGV5IG1pZ2h0IGFzayB3aHkgdGhlIGhl
+aWdodAo+aXMgbm90IGNoZWNrZWQsIHNvIGhhdmluZyB0aGF0IGluIHRoZSBjb21taXQgZGVzY3Jp
+cHRpb24gYWxsb3dzIHVzIGFsbCB0bwo+cmVtZW1iZXIgd2h5IHRoZSBjaGVjayBpcyB0aGlzIHNw
+ZWNpZmljIHdheSA6LSkKCkRvbmUgaW4gVjIKCgo+Cj5UaGFua3MKPkhlaWtvCj4KPj4gU2lnbmVk
+LW9mZi1ieTogQW5keSBZYW4gPGFuZHkueWFuQHJvY2stY2hpcHMuY29tPgo+PiAtLS0KPj4gIGRy
+aXZlcnMvZ3B1L2RybS9yb2NrY2hpcC9yb2NrY2hpcF9kcm1fdm9wMi5jIHwgMTIgKysrKysrKysr
+KysrCj4+ICAxIGZpbGUgY2hhbmdlZCwgMTIgaW5zZXJ0aW9ucygrKQo+PiAKPj4gZGlmZiAtLWdp
+dCBhL2RyaXZlcnMvZ3B1L2RybS9yb2NrY2hpcC9yb2NrY2hpcF9kcm1fdm9wMi5jIGIvZHJpdmVy
+cy9ncHUvZHJtL3JvY2tjaGlwL3JvY2tjaGlwX2RybV92b3AyLmMKPj4gaW5kZXggNDk4ZGYwY2U0
+NjgwLi43NGZiYTI5YmZmZjMgMTAwNjQ0Cj4+IC0tLSBhL2RyaXZlcnMvZ3B1L2RybS9yb2NrY2hp
+cC9yb2NrY2hpcF9kcm1fdm9wMi5jCj4+ICsrKyBiL2RyaXZlcnMvZ3B1L2RybS9yb2NrY2hpcC9y
+b2NrY2hpcF9kcm1fdm9wMi5jCj4+IEBAIC0xNDM5LDYgKzE0MzksMTcgQEAgc3RhdGljIHZvaWQg
+dm9wMl9jcnRjX2Rpc2FibGVfdmJsYW5rKHN0cnVjdCBkcm1fY3J0YyAqY3J0YykKPj4gIAl2b3Ay
+X2NydGNfZGlzYWJsZV9pcnEodnAsIFZQX0lOVF9GU19GSUVMRCk7Cj4+ICB9Cj4+ICAKPj4gK3N0
+YXRpYyBlbnVtIGRybV9tb2RlX3N0YXR1cyB2b3AyX2NydGNfbW9kZV92YWxpZChzdHJ1Y3QgZHJt
+X2NydGMgKmNydGMsCj4+ICsJCQkJCQkgY29uc3Qgc3RydWN0IGRybV9kaXNwbGF5X21vZGUgKm1v
+ZGUpCj4+ICt7Cj4+ICsJc3RydWN0IHZvcDJfdmlkZW9fcG9ydCAqdnAgPSB0b192b3AyX3ZpZGVv
+X3BvcnQoY3J0Yyk7Cj4+ICsKPj4gKwlpZiAobW9kZS0+aGRpc3BsYXkgPiB2cC0+ZGF0YS0+bWF4
+X291dHB1dC53aWR0aCkKPj4gKwkJcmV0dXJuIE1PREVfQkFEX0hWQUxVRTsKPj4gKwo+PiArCXJl
+dHVybiBNT0RFX09LOwo+PiArfQo+PiArCj4+ICBzdGF0aWMgYm9vbCB2b3AyX2NydGNfbW9kZV9m
+aXh1cChzdHJ1Y3QgZHJtX2NydGMgKmNydGMsCj4+ICAJCQkJIGNvbnN0IHN0cnVjdCBkcm1fZGlz
+cGxheV9tb2RlICptb2RlLAo+PiAgCQkJCSBzdHJ1Y3QgZHJtX2Rpc3BsYXlfbW9kZSAqYWRqX21v
+ZGUpCj4+IEBAIC0xODg0LDYgKzE4OTUsNyBAQCBzdGF0aWMgdm9pZCB2b3AyX2NydGNfYXRvbWlj
+X2ZsdXNoKHN0cnVjdCBkcm1fY3J0YyAqY3J0YywKPj4gIAo+PiAgc3RhdGljIGNvbnN0IHN0cnVj
+dCBkcm1fY3J0Y19oZWxwZXJfZnVuY3Mgdm9wMl9jcnRjX2hlbHBlcl9mdW5jcyA9IHsKPj4gIAku
+bW9kZV9maXh1cCA9IHZvcDJfY3J0Y19tb2RlX2ZpeHVwLAo+PiArCS5tb2RlX3ZhbGlkID0gdm9w
+Ml9jcnRjX21vZGVfdmFsaWQsCj4+ICAJLmF0b21pY19jaGVjayA9IHZvcDJfY3J0Y19hdG9taWNf
+Y2hlY2ssCj4+ICAJLmF0b21pY19iZWdpbiA9IHZvcDJfY3J0Y19hdG9taWNfYmVnaW4sCj4+ICAJ
+LmF0b21pY19mbHVzaCA9IHZvcDJfY3J0Y19hdG9taWNfZmx1c2gsCj4+IAo+Cj4KPgo+Cg==
+

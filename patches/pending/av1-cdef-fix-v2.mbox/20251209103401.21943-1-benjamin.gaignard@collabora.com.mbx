@@ -1,0 +1,107 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id A5E681C84D7;
+	Tue,  9 Dec 2025 10:34:09 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1765276452; cv=none; b=f1XO5d4YXMZBVMRpvPg5qNM9t5M8cXta7uVbEC5wT2krZO2Q5gHSa/n6aqRTt8j2HYkLFQkf7QdO+arCgofguGPOMSHkpNa8gT1Uvc4l0eS30vYu/aFZLeLmBEVV/aKh0BvtUfJfIY88XC6ImVQnABJbXSfNrwrB51aPQ+4IpOk=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1765276452; c=relaxed/simple;
+	bh=Q2dXtR2D1boXS39jDjWL1hbt8apwzkSNEh5YyxFa0Bs=;
+	h=From:To:Cc:Subject:Date:Message-ID:MIME-Version; b=orKMPrEnNJxhFJRdYUMy9JXobYAS7vmwWhFKBzFIFjJWifgYjT1sdrooJ6Y1hKTSZRMujk2c5QspnkREUKNu5KUISnkwULXdSp8gHJNprO2gpmLwzfnwmaoJ5cwCkg7TYL1B1INFv38g6wAn6ZLcRD+7x5aijzPL5yOpvdHD50U=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=Pn8XU/OU; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="Pn8XU/OU"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1765276446;
+	bh=Q2dXtR2D1boXS39jDjWL1hbt8apwzkSNEh5YyxFa0Bs=;
+	h=From:To:Cc:Subject:Date:From;
+	b=Pn8XU/OUEiW9tIQe6KZn6ZTy4uOrbGn5nfEzjyHUNRTeRxJGcqrdO3ZZdkE6DEH1p
+	 0U8sNjEJaBIFxFV62E/j4Yye5myk8+jyAiotvr2okQCSLgUYxh5akP8mh8zKdglQd3
+	 sSymLjzOziTXiFdQN6Dns5fGwVRuPBsDGkuMTMtjrI9vrXx1kByd9G1YMIuWhLjFOR
+	 QuTabJPc/WqN/llsOP6d62N33Dw065daEPSAT4uIKA11KMOIfI8sPnNg2yWq/QJWng
+	 mLCQ5pwJ3Sj/JLsRQM6z2QNzjpavuMBNQCFgcz4AC3oRORfrxwvieMb2dAkXDMNJSU
+	 QaIPAkMurLUiw==
+Received: from benjamin-XPS-13-9310.. (unknown [IPv6:2a01:e0a:120:3210:2285:5e2d:9392:bcdf])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: benjamin.gaignard)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 47B4A17E1155;
+	Tue,  9 Dec 2025 11:34:06 +0100 (CET)
+From: Benjamin Gaignard <benjamin.gaignard@collabora.com>
+To: nicolas.dufresne@collabora.com,
+	p.zabel@pengutronix.de,
+	mchehab@kernel.org,
+	heiko@sntech.de,
+	hverkuil@kernel.org
+Cc: linux-media@vger.kernel.org,
+	linux-rockchip@lists.infradead.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-kernel@vger.kernel.org,
+	kernel@collabora.com,
+	Benjamin Gaignard <benjamin.gaignard@collabora.com>,
+	Jianfeng Liu <liujianfeng1994@gmail.com>
+Subject: [PATCH v2] media: verisilicon: AV1: Fix enable cdef computation
+Date: Tue,  9 Dec 2025 11:34:01 +0100
+Message-ID: <20251209103401.21943-1-benjamin.gaignard@collabora.com>
+X-Mailer: git-send-email 2.43.0
+Precedence: bulk
+X-Mailing-List: linux-media@vger.kernel.org
+List-Id: <linux-media.vger.kernel.org>
+List-Subscribe: <mailto:linux-media+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-media+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+
+If all the fields of the CDEF parameters are zero (which is the default),
+then av1_enable_cdef register needs to be unset
+(despite the V4L2_AV1_SEQUENCE_FLAG_ENABLE_CDEF possibly being set).
+
+Signed-off-by: Benjamin Gaignard <benjamin.gaignard@collabora.com>
+Fixes: 727a400686a2c ("media: verisilicon: Add Rockchip AV1 decoder")
+Reported-by: Jianfeng Liu <liujianfeng1994@gmail.com>
+Closes: https://gitlab.freedesktop.org/gstreamer/gstreamer/-/issues/4786
+Reviewed-by: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+---
+ .../platform/verisilicon/rockchip_vpu981_hw_av1_dec.c  | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/media/platform/verisilicon/rockchip_vpu981_hw_av1_dec.c b/drivers/media/platform/verisilicon/rockchip_vpu981_hw_av1_dec.c
+index e4703bb6be7c..f4f7cb45b1f1 100644
+--- a/drivers/media/platform/verisilicon/rockchip_vpu981_hw_av1_dec.c
++++ b/drivers/media/platform/verisilicon/rockchip_vpu981_hw_av1_dec.c
+@@ -1396,8 +1396,16 @@ static void rockchip_vpu981_av1_dec_set_cdef(struct hantro_ctx *ctx)
+ 	u16 luma_sec_strength = 0;
+ 	u32 chroma_pri_strength = 0;
+ 	u16 chroma_sec_strength = 0;
++	bool enable_cdef;
+ 	int i;
+ 
++	enable_cdef = !(cdef->bits == 0 &&
++			cdef->damping_minus_3 == 0 &&
++			cdef->y_pri_strength[0] == 0 &&
++			cdef->y_sec_strength[0] == 0 &&
++			cdef->uv_pri_strength[0] == 0 &&
++			cdef->uv_sec_strength[0] == 0);
++	hantro_reg_write(vpu, &av1_enable_cdef, enable_cdef);
+ 	hantro_reg_write(vpu, &av1_cdef_bits, cdef->bits);
+ 	hantro_reg_write(vpu, &av1_cdef_damping, cdef->damping_minus_3);
+ 
+@@ -1953,8 +1961,6 @@ static void rockchip_vpu981_av1_dec_set_parameters(struct hantro_ctx *ctx)
+ 			 !!(ctrls->frame->flags & V4L2_AV1_FRAME_FLAG_SHOW_FRAME));
+ 	hantro_reg_write(vpu, &av1_switchable_motion_mode,
+ 			 !!(ctrls->frame->flags & V4L2_AV1_FRAME_FLAG_IS_MOTION_MODE_SWITCHABLE));
+-	hantro_reg_write(vpu, &av1_enable_cdef,
+-			 !!(ctrls->sequence->flags & V4L2_AV1_SEQUENCE_FLAG_ENABLE_CDEF));
+ 	hantro_reg_write(vpu, &av1_allow_masked_compound,
+ 			 !!(ctrls->sequence->flags
+ 			    & V4L2_AV1_SEQUENCE_FLAG_ENABLE_MASKED_COMPOUND));
+-- 
+2.43.0
+
+
