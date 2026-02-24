@@ -1,0 +1,40 @@
+Subject: [PATCH v2 0/5] Provide HDMI VSI & SPD InfoFrames to DW HDMI QP TX
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Thu, 29 Jan 2026 14:13:31 +0200
+Message-Id: <20260129-dw-hdmi-qp-iframe-v2-0-0157ad05232c@collabora.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+
+This patch series provides the missing support for sending HDMI
+Vendor-Specific Infoframes and Source Product Description InfoFrames in
+dw-hdmi-qp library.
+
+Additionally, it improves the existing AVI, DRM and Audio infoframes
+handling by getting rid of some boilerplate and/or redundant code.
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+Changes in v2:
+- Introduced new helper dw_hdmi_qp_write_infoframe() to allow further
+  code simplification (Daniel)
+- Rebased series on top of latest drm-misc-next
+- Link to v1: https://lore.kernel.org/r/20260125-dw-hdmi-qp-iframe-v1-0-e0f7649ecc4b@collabora.com
+
+---
+Cristian Ciocaltea (5):
+      drm/bridge: dw-hdmi-qp: Provide HDMI Vendor Specific InfoFrame
+      drm/bridge: dw-hdmi-qp: Provide SPD InfoFrame
+      drm/bridge: dw-hdmi-qp: Rework AVI InfoFrame handler
+      drm/bridge: dw-hdmi-qp: Rework DRM InfoFrame handler
+      drm/bridge: dw-hdmi-qp: Rework Audio InfoFrame handler
+
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.c | 224 ++++++++++++---------------
+ drivers/gpu/drm/bridge/synopsys/dw-hdmi-qp.h |   3 +
+ 2 files changed, 106 insertions(+), 121 deletions(-)
+---
+base-commit: 3aecd55af5b83d16d84e3c333d4163999ee8ff51
+change-id: 20260125-dw-hdmi-qp-iframe-9c581e69ffde
+
+
+

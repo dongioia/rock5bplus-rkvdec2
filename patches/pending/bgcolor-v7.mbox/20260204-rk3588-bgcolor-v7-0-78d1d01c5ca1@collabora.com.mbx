@@ -1,0 +1,1407 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id C68F931A7EA
+	for <linux-kernel@vger.kernel.org>; Wed,  4 Feb 2026 20:10:36 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770235837; cv=none; b=Vx/UrR/1E9CctHeJ3NQ6h5jiooF26bKyqQcFO/WxASho7HNJCDz72AN0nHm9Rb3WrUHkoRo1JejUk/gLe3DbSBdZfUWcJlNkyippTlt4cfv2bfWJK1S54CNLp+CM5DKOJMUS84RsxH4zO/D0ca7SEV0orOzYp6070iWBBkN7b7E=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770235837; c=relaxed/simple;
+	bh=a/M6Z0teSVJkkSYd4p86GcxD8xoetTNz8XjsO//xYdw=;
+	h=From:Subject:Date:Message-Id:MIME-Version:Content-Type:To:Cc; b=dG5ch4w5q2pDinS29NtLRFXtVNOxo741HqvaffFI0JMX8Ez2nNJgC9jgOlEHJDphw/TO2jB8GHwMb8UhN88AAkPvItGXEMioHFQw7faF+/eSBE+QVqXyRe7wyIBDJcGFzYLNAlSRfEdeNBj7TX5BphTkUPcP9+xkhXCZUDHRqIA=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=DZPThFqM; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="DZPThFqM"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770235360;
+	bh=a/M6Z0teSVJkkSYd4p86GcxD8xoetTNz8XjsO//xYdw=;
+	h=From:Subject:Date:To:Cc:From;
+	b=DZPThFqMzwckLkl057WW4jJOlvi1/DfQdfsyZycKQEWtbHlJfsEW3EYdc0TV+fTV6
+	 g1wXa9heDEs7LQyDajVeEOjkQdkYda+ZncRgsZU+NGintUro28SCVHfyibRzwTdewz
+	 I2NaRoF6U98HDQ5ReaivwF7p76Qfy0B/EiyzBT9NTeonTs3++rrlo8Z9iTXkuELPWp
+	 h7PyJx6v6T984Gza3V9vHm3dCXbZn5bteDE2fj8CSc0ffRCSObS3rgS5uGzjBdTytH
+	 dGim+bo0lhJ4snGzS4Oah6kFm1TtPXOSdxz918t3GOKg9D9WJWsgmgBQJrnkJXKXwr
+	 jgZcqJj7GkTtQ==
+Received: from localhost (unknown [82.79.138.145])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (prime256v1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: cristicc)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 05CAF17E1144;
+	Wed,  4 Feb 2026 21:02:39 +0100 (CET)
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Subject: [PATCH v7 0/4] Introduce BACKGROUND_COLOR DRM CRTC property
+Date: Wed, 04 Feb 2026 22:02:27 +0200
+Message-Id: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+X-B4-Tracking: v=1; b=H4sIAAAAAAAC/23QwU7DMAwG4FeZciYoduom2Yn3QBycNNkixoJSV
+ IGmvjvpEAytPf6/7E+WL2KMNcdR7HcXUeOUx1zOLZiHnQhHPh+izEPLAhWSsuhkfdVkrfSHUE6
+ lygBsvGNSxgfRlt5rTPnzCj6/tHzM40epX1d/gqX9oZzCe2oCqWQanBmSg8G69NT6E/tS+TGUN
+ 7FwE/4RoECvCGwEUgjagvJswxahbwSAXRG6EYwhOOU6tJG3iO5GIKx+MnXLFSkBoIlsyGwR9Ev
+ 0qo2tCGqER2K2PWgE2CL6/8T6ir4RASgZIu4U0T0xz/M3Xu/JVv8BAAA=
+X-Change-ID: 20250829-rk3588-bgcolor-c1a7b9a507bc
+To: Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Louis Chauvet <louis.chauvet@bootlin.com>, 
+ Haneen Mohammed <hamohammed.sa@gmail.com>, 
+ Melissa Wen <melissa.srw@gmail.com>, 
+ Jani Nikula <jani.nikula@linux.intel.com>, 
+ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Cc: Robert Mader <robert.mader@collabora.com>, kernel@collabora.com, 
+ dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ =?utf-8?q?N=C3=ADcolas_F=2E_R=2E_A=2E_Prado?= <nfraprado@collabora.com>, 
+ Diederik de Haas <diederik@cknow-tech.com>, 
+ AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>, 
+ Matt Roper <matthew.d.roper@intel.com>
+X-Mailer: b4 0.14.3
+
+Some display controllers can be hardware-configured to present non-black
+colors for pixels which are not covered by any plane (or are exposed
+through transparent regions of higher planes).
+
+The 1st patch of the series provides DIV_ROUND_CLOSEST() to uapi, as a
+prerequisite to the 2nd patch introducing the BACKGROUND_COLOR DRM
+property that can be attached to a CRTC via a dedicated helper function.
+A 64-bit ARGB color value format is also defined and can be manipulated
+with the help of a few utility macros.
+
+Note this is a reworked version of the patch [1] submitted (many) years
+ago by Matt Roper.  The main changes are:
+
+* Renamed DRM_ARGB_<COMP>() to DRM_ARGB64_GET<C>_BPC() while providing
+  convenience wrappers to extract all 16 bits of a specific color via
+  DRM_ARGB64_GET<C>()
+* Replaced drm_argb() function with DRM_ARGB64_PREP_BPC() macro, to
+  improve uAPI consistency and readability; additionally fixed a bug in
+  case of using bpc < 16: the unused least-significant bits of a given
+  component in the output value would contain the unused
+  most-significant bits of the following component in the input value,
+  instead of being set to 0
+* Replaced GENMASK_ULL(63, 0) with U64_MAX when calling
+  drm_property_create_range() to create the BACKGROUND_COLOR property
+* Moved crtc_state->bgcolor initialization from
+  __drm_atomic_helper_crtc_reset() to
+  __drm_atomic_helper_crtc_state_reset()
+* Replaced '*bgcolor*' occurrences to '*background_color*' for
+  consistency with the actual property name in both storage field and
+  helper functions names
+
+The subsequent patches add background color support to VKMS and the VOP2
+display controller used in the RK3568, RK3576, and RK3588 Rockchip SoC
+families.
+
+The validation has been done using a dedicated IGT test [2] - see the
+reported results below.
+
+On the userland side, a Weston merge request [3] is available, providing
+support for the BACKGROUND_COLOR CRTC property to the DRM backend.  It
+relies on the already existing background-color setting in weston.ini:
+
+  [shell]
+  background-color=0xAARRGGBB
+
+[1] https://lore.kernel.org/all/20190930224707.14904-2-matthew.d.roper@intel.com/
+[2] https://lore.kernel.org/all/20251219-crtc-bgcolor-v3-1-31b589911588@collabora.com/
+[3] https://gitlab.freedesktop.org/wayland/weston/-/merge_requests/1845
+
+IGT kms_crtc_background_color test results
+==========================================
+
+* VKMS
+
+virtme-ng$ IGT_FORCE_DRIVER=vkms build/tests/kms_crtc_background_color
+
+IGT-Version: 2.3-g6b07138e8 (x86_64) (Linux: 6.19.0-rc1-virtme x86_64)
+Using IGT_SRANDOM=1766149634 for randomisation
+Opened device: /dev/dri/card0
+Starting subtest: background-color-red
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.071s)
+Subtest background-color-red: SUCCESS (0.073s)
+Starting subtest: background-color-green
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.074s)
+Subtest background-color-green: SUCCESS (0.074s)
+Starting subtest: background-color-blue
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.074s)
+Subtest background-color-blue: SUCCESS (0.074s)
+Starting subtest: background-color-yellow
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.072s)
+Subtest background-color-yellow: SUCCESS (0.073s)
+Starting subtest: background-color-purple
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.072s)
+Subtest background-color-purple: SUCCESS (0.074s)
+Starting subtest: background-color-cyan
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.074s)
+Subtest background-color-cyan: SUCCESS (0.074s)
+Starting subtest: background-color-black
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.072s)
+Subtest background-color-black: SUCCESS (0.072s)
+Starting subtest: background-color-white
+Starting dynamic subtest: pipe-A-Virtual-1
+Dynamic subtest pipe-A-Virtual-1: SUCCESS (0.073s)
+Subtest background-color-white: SUCCESS (0.074s)
+
+* Radxa ROCK 5B (RK3588)
+
+rock5b$ build/tests/kms_crtc_background_color --device drm:/dev/dri/card1
+
+IGT-Version: 2.2-g3e4ec308e (aarch64) (Linux: 6.18.0-rc1 aarch64)
+Using IGT_SRANDOM=1762774806 for randomisation
+Opened device: /dev/dri/card1
+Starting subtest: background-color-red
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.491s)
+Subtest background-color-red: SUCCESS (0.493s)
+Starting subtest: background-color-green
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.533s)
+Subtest background-color-green: SUCCESS (0.535s)
+Starting subtest: background-color-blue
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.541s)
+Subtest background-color-blue: SUCCESS (0.544s)
+Starting subtest: background-color-yellow
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.535s)
+Subtest background-color-yellow: SUCCESS (0.537s)
+Starting subtest: background-color-purple
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.536s)
+Subtest background-color-purple: SUCCESS (0.538s)
+Starting subtest: background-color-cyan
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.539s)
+Subtest background-color-cyan: SUCCESS (0.541s)
+Starting subtest: background-color-black
+Starting dynamic subtest: pipe-C-DP-1
+(kms_crtc_background_color:744) igt_pipe_crc-WARNING: Warning on condition all_zero in function crc_sanity_checks, file ../lib/igt_pipe_crc.c:475
+(kms_crtc_background_color:744) igt_pipe_crc-WARNING: Suspicious CRC: All values are 0.
+(kms_crtc_background_color:744) igt_pipe_crc-WARNING: Warning on condition all_zero in function crc_sanity_checks, file ../lib/igt_pipe_crc.c:475
+(kms_crtc_background_color:744) igt_pipe_crc-WARNING: Suspicious CRC: All values are 0.
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.535s)
+Subtest background-color-black: SUCCESS (0.537s)
+Starting subtest: background-color-white
+Starting dynamic subtest: pipe-C-DP-1
+Dynamic subtest pipe-C-DP-1: SUCCESS (0.540s)
+Subtest background-color-white: SUCCESS (0.542s)
+
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+Changes in v7:
+- Consistently put "({" on a separate line for all macro definitions
+  (Andy Shevchenko)
+- Rebased series onto latest drm-misc-next
+- Link to v6: https://lore.kernel.org/r/20260129-rk3588-bgcolor-v6-0-c15f755a4055@collabora.com
+
+Changes in v6:
+- Collected Acked-by & Reviewed-by tags from Andy S & Angelo
+- Handled feedback from Andy Shevchenko
+  * Fixed up styling for __KERNEL_DIV_ROUND_CLOSEST() macro
+  * Made use of __GENMASK() helper in __DRM_ARGB64_PREP*() and
+    __DRM_ARGB64_GET*() definitions
+  * Introduced DRM_ARGB64_GET*_BPCS() as an alternative for
+    DRM_ARGB64_GET*_BPC() to help when performance is more important
+    than accuracy, e.g. used it along with FIELD_MODIFY() in the vop2
+    related patch to simplify a bit the bgcolor operations
+- Link to v5: https://lore.kernel.org/r/20260127-rk3588-bgcolor-v5-0-b25aa8613211@collabora.com
+
+Changes in v5:
+- Collected Reviewed-by & Tested-by tags from Nícolas & Diederik
+- Dumped background_color prop value in drm_atomic_crtc_print_state()
+  and updated comment in drm_crtc_state (Nícolas)
+- Documented the reasons of not using the DRM_ARGB64_GET*_BPC() helpers
+  in vop2 related patch (Nícolas)
+- Rebased series onto latest drm-misc-next
+- Link to v4: https://lore.kernel.org/r/20251219-rk3588-bgcolor-v4-0-2ff1127ea757@collabora.com
+
+Changes in v4:
+- Switched to simple bit-shifting approach when performing the bpc
+  conversion in the vop2 driver, to avoid the expensive division since
+  we shouldn't be concerned anymore about the precision (Chaoyi)
+- Rebased series onto latest drm-misc-next
+- Link to v3: https://lore.kernel.org/r/20251118-rk3588-bgcolor-v3-0-a2cc909428ea@collabora.com
+
+Changes in v3:
+- Added new patches:
+  * uapi: Provide DIV_ROUND_CLOSEST()
+  * drm/vkms: Support setting custom background color
+- Improved DRM_ARGB64_{PREP|GET}*() helpers by using a conversion ratio
+  for better color approximation when dealing with less than 16 bits of
+  precision
+- Mentioned the IGT test in the cover letter while documenting the
+  validation results; also dropped references to the now useless
+  modetest wrapper script and its generated report
+- Rebased series onto latest drm-misc-next
+- Link to v2: https://lore.kernel.org/r/20251013-rk3588-bgcolor-v2-0-25cc3810ba8c@collabora.com
+
+Changes in v2:
+- Improved uAPI consistency and readability by introducing
+  DRM_ARGB64_PREP*() and DRM_ARGB64_GET*() helper macros
+- Updated several code comment sections
+- Referenced the counterpart Weston support in the cover letter
+- Rebased series onto v6.18-rc1
+- Link to v1: https://lore.kernel.org/r/20250902-rk3588-bgcolor-v1-0-fd97df91d89f@collabora.com
+
+---
+Cristian Ciocaltea (4):
+      uapi: Provide DIV_ROUND_CLOSEST()
+      drm: Add CRTC background color property
+      drm/vkms: Support setting custom background color
+      drm/rockchip: vop2: Support setting custom background color
+
+ drivers/gpu/drm/drm_atomic.c                 |  1 +
+ drivers/gpu/drm/drm_atomic_state_helper.c    |  1 +
+ drivers/gpu/drm/drm_atomic_uapi.c            |  4 ++
+ drivers/gpu/drm/drm_blend.c                  | 39 ++++++++++++--
+ drivers/gpu/drm/drm_mode_config.c            |  6 +++
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 17 +++++-
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.h |  4 ++
+ drivers/gpu/drm/vkms/vkms_composer.c         | 10 +++-
+ drivers/gpu/drm/vkms/vkms_crtc.c             |  3 ++
+ include/drm/drm_blend.h                      |  4 +-
+ include/drm/drm_crtc.h                       | 12 +++++
+ include/drm/drm_mode_config.h                |  5 ++
+ include/linux/math.h                         | 18 +------
+ include/uapi/drm/drm_mode.h                  | 80 ++++++++++++++++++++++++++++
+ include/uapi/linux/const.h                   | 18 +++++++
+ 15 files changed, 197 insertions(+), 25 deletions(-)
+---
+base-commit: cff3f89ffbdd4b6c43a117c01aaf5b290ff80803
+change-id: 20250829-rk3588-bgcolor-c1a7b9a507bc
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id C6A7F3A1E96
+	for <linux-kernel@vger.kernel.org>; Wed,  4 Feb 2026 20:10:36 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770235837; cv=none; b=B3MNr/MkQDRThxbAeDlBmnPhOFAYUr04MkX5Ie9lK8ybwtu+fqO1OzueKpjwSLtZDFEmCkF6SGq/2+n1mhVKzZWB16NvuloWWytWI0yEcAduaxlAzHv0exf9r+PM9UaGKkQXKtvQf3ByjXtnaaTrJBJh5LmXepoc3nRSbJIF0p0=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770235837; c=relaxed/simple;
+	bh=amFnri11i2h/V8EBwlIzxK8P0NaPKaUHqPlVcDaTJYc=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=O7EeTvA6Z6ePD/tw6aO0vkXmyU6N3EU8/iP1NlmRc80YY6iGCEPFel1lIdlvEbACWoHORoRp5N6VnXN5S3JFoBt+gMo1V42sDwW7szxWy2en4yqw7mCkSJ6xns0zF6awp0rz3OXyhZ1LnKh4a64HaRqsY2kFLDIpe0WosiUZR5E=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=oc+R7ikQ; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="oc+R7ikQ"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770235363;
+	bh=amFnri11i2h/V8EBwlIzxK8P0NaPKaUHqPlVcDaTJYc=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=oc+R7ikQR6NfwwpzhIqOw3389KhKicKGuDNPDXsxrvedHYWzWiQf6eppZv0tgM7Rj
+	 n3/uJNyOn9YQh670wasFQ9qu9mvfEqHkpFnylIZBG2CcznWc3mGkF5I+U2O2GZEmvY
+	 L/fyHzH9coTxeMKrNAE0t4c0yuL0aWyCZ8HeE2T2UPBCMlElJdY9yZUHsOm3ZBZEFM
+	 BB6gTVmAjTmNo1IZBwl5nQvCNxeLJO5/6Jz53WOa+u7ZmSFtAjT7kzsXaUyonCg1Ua
+	 jrGhW04yWjzs9+BrADBGtr3jSpY5u+CchSZbN9w5tFFAcfhPQ3laU/d/R7gHDryFCf
+	 9hx29Arxn+IAQ==
+Received: from localhost (unknown [82.79.138.145])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (prime256v1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: cristicc)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 364DC17E15F5;
+	Wed,  4 Feb 2026 21:02:43 +0100 (CET)
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Wed, 04 Feb 2026 22:02:31 +0200
+Subject: [PATCH v7 4/4] drm/rockchip: vop2: Support setting custom
+ background color
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260204-rk3588-bgcolor-v7-4-78d1d01c5ca1@collabora.com>
+References: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+In-Reply-To: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+To: Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Louis Chauvet <louis.chauvet@bootlin.com>, 
+ Haneen Mohammed <hamohammed.sa@gmail.com>, 
+ Melissa Wen <melissa.srw@gmail.com>, 
+ Jani Nikula <jani.nikula@linux.intel.com>, 
+ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Cc: Robert Mader <robert.mader@collabora.com>, kernel@collabora.com, 
+ dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ Diederik de Haas <diederik@cknow-tech.com>
+X-Mailer: b4 0.14.3
+
+The Rockchip VOP2 display controller allows configuring the background
+color of each video output port.
+
+Since a previous patch introduced the BACKGROUND_COLOR CRTC property,
+which defaults to solid black, make use of it when programming the
+hardware.
+
+Note the maximum precision allowed by the display controller is 10bpc,
+while the alpha component is not supported, hence ignored.
+
+Tested-by: Diederik de Haas <diederik@cknow-tech.com>
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.c | 17 ++++++++++++++++-
+ drivers/gpu/drm/rockchip/rockchip_drm_vop2.h |  4 ++++
+ 2 files changed, 20 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+index ec3b4fde10db..8f22e90a23dd 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.c
+@@ -1552,6 +1552,7 @@ static void vop2_post_config(struct drm_crtc *crtc)
+ 	struct vop2_video_port *vp = to_vop2_video_port(crtc);
+ 	struct vop2 *vop2 = vp->vop2;
+ 	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
++	u64 bgcolor = crtc->state->background_color;
+ 	u16 vtotal = mode->crtc_vtotal;
+ 	u16 hdisplay = mode->crtc_hdisplay;
+ 	u16 hact_st = mode->crtc_htotal - mode->crtc_hsync_start;
+@@ -1597,7 +1598,15 @@ static void vop2_post_config(struct drm_crtc *crtc)
+ 		vop2_vp_write(vp, RK3568_VP_POST_DSP_VACT_INFO_F1, val);
+ 	}
+ 
+-	vop2_vp_write(vp, RK3568_VP_DSP_BG, 0);
++	/*
++	 * Background color is programmed with 10 bits of precision.
++	 * Since performance is more important than accuracy here,
++	 * make use of the DRM_ARGB64_GET*_BPCS() helpers.
++	 */
++	val = FIELD_PREP(RK3568_VP_DSP_BG__DSP_BG_RED, DRM_ARGB64_GETR_BPCS(bgcolor, 10));
++	FIELD_MODIFY(RK3568_VP_DSP_BG__DSP_BG_GREEN, &val, DRM_ARGB64_GETG_BPCS(bgcolor, 10));
++	FIELD_MODIFY(RK3568_VP_DSP_BG__DSP_BG_BLUE, &val, DRM_ARGB64_GETB_BPCS(bgcolor, 10));
++	vop2_vp_write(vp, RK3568_VP_DSP_BG, val);
+ }
+ 
+ static int us_to_vertical_line(struct drm_display_mode *mode, int us)
+@@ -1983,6 +1992,10 @@ static int vop2_crtc_state_dump(struct drm_crtc *crtc, struct seq_file *s)
+ 		   drm_get_bus_format_name(vcstate->bus_format));
+ 	seq_printf(s, "\toutput_mode[%x]", vcstate->output_mode);
+ 	seq_printf(s, " color_space[%d]\n", vcstate->color_space);
++	seq_printf(s, "\tbackground color (10bpc): r=0x%x g=0x%x b=0x%x\n",
++		   DRM_ARGB64_GETR_BPCS(cstate->background_color, 10),
++		   DRM_ARGB64_GETG_BPCS(cstate->background_color, 10),
++		   DRM_ARGB64_GETB_BPCS(cstate->background_color, 10));
+ 	seq_printf(s, "    Display mode: %dx%d%s%d\n",
+ 		   mode->hdisplay, mode->vdisplay, interlaced ? "i" : "p",
+ 		   drm_mode_vrefresh(mode));
+@@ -2472,6 +2485,8 @@ static int vop2_create_crtcs(struct vop2 *vop2)
+ 			return dev_err_probe(drm->dev, ret,
+ 					     "crtc init for video_port%d failed\n", i);
+ 
++		drm_crtc_attach_background_color_property(&vp->crtc);
++
+ 		drm_crtc_helper_add(&vp->crtc, &vop2_crtc_helper_funcs);
+ 		if (vop2->lut_regs) {
+ 			const struct vop2_video_port_data *vp_data = &vop2_data->vp[vp->id];
+diff --git a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.h b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.h
+index 9124191899ba..37722652844a 100644
+--- a/drivers/gpu/drm/rockchip/rockchip_drm_vop2.h
++++ b/drivers/gpu/drm/rockchip/rockchip_drm_vop2.h
+@@ -658,6 +658,10 @@ enum dst_factor_mode {
+ #define RK3588_VP_CLK_CTRL__DCLK_OUT_DIV		GENMASK(3, 2)
+ #define RK3588_VP_CLK_CTRL__DCLK_CORE_DIV		GENMASK(1, 0)
+ 
++#define RK3568_VP_DSP_BG__DSP_BG_RED			GENMASK(29, 20)
++#define RK3568_VP_DSP_BG__DSP_BG_GREEN			GENMASK(19, 10)
++#define RK3568_VP_DSP_BG__DSP_BG_BLUE			GENMASK(9, 0)
++
+ #define RK3568_VP_POST_SCL_CTRL__VSCALEDOWN		BIT(1)
+ #define RK3568_VP_POST_SCL_CTRL__HSCALEDOWN		BIT(0)
+ 
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id C698132860C
+	for <linux-kernel@vger.kernel.org>; Wed,  4 Feb 2026 20:10:36 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770235837; cv=none; b=kwl80pPx8DSTbh24M5bpz3kyOrUKgsNxOCQFa3K7VLr6FDWgEe+3JgdyOkTYOjmAoxP/w+ummXA5D0L/6fegvyvPjmljp8Dq9PlIYeeXoo+cq03F1Gmx18JGpU8ztveHSLVf6R8KsUoET8F2Xm8FRL/U9dzL1BHvjk04KPtCKdc=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770235837; c=relaxed/simple;
+	bh=Al+IbduDoznaQ+DuAWwkIEZt/3e0W4FxunJtTBZquXU=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=bGtAl5nFgvtr2u+gLJp0P3/VGguLiVF7vSAaz3C5bu6D8G5PKF0uEdlyVVqF28azjx3f681nVtzWzmm5fMvUJelhMjkag52IM8JQgzEmdpa3CEEb+lQDjlVS38lypazl5hlhv2I8WAshJMolLEGlj2EHeiZNj6/VEadjuB8vZa0=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=gY16mB7M; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="gY16mB7M"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770235361;
+	bh=Al+IbduDoznaQ+DuAWwkIEZt/3e0W4FxunJtTBZquXU=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=gY16mB7MuwmuJhss3aDdRiWjtlrDMo4wBSn5gF9FKMLBRnLdiHMk4YWz3+MLzoqai
+	 ctRH2UfBk9DaTBojyFC87h5I543qhK4gHp6AxoianIVtCtQ5emlIb3u9LgJFZbObNz
+	 mWasX3MNEq5+whAH8WfhOrmDkbycqh9fTiGwYO3y7gBw93dHJmGuTaEXv6xg4m3beX
+	 J4hC8Af61GUt+PqAfiXF0LM7NbzfdsRalHF64KxBoi00seqDVbcd6CtWJitP/Om3rQ
+	 rMDpmAsvBL9DsNbBTUyUXY764mIlP+h2LrAv8j+wzR4imYgKY7l4wnu8O3WZM/zFO9
+	 J9Re07YbBwKaw==
+Received: from localhost (unknown [82.79.138.145])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (prime256v1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: cristicc)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 9DD3317E150C;
+	Wed,  4 Feb 2026 21:02:41 +0100 (CET)
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Wed, 04 Feb 2026 22:02:29 +0200
+Subject: [PATCH v7 2/4] drm: Add CRTC background color property
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+Message-Id: <20260204-rk3588-bgcolor-v7-2-78d1d01c5ca1@collabora.com>
+References: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+In-Reply-To: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+To: Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Louis Chauvet <louis.chauvet@bootlin.com>, 
+ Haneen Mohammed <hamohammed.sa@gmail.com>, 
+ Melissa Wen <melissa.srw@gmail.com>, 
+ Jani Nikula <jani.nikula@linux.intel.com>, 
+ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Cc: Robert Mader <robert.mader@collabora.com>, kernel@collabora.com, 
+ dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ Matt Roper <matthew.d.roper@intel.com>, 
+ =?utf-8?q?N=C3=ADcolas_F=2E_R=2E_A=2E_Prado?= <nfraprado@collabora.com>, 
+ Diederik de Haas <diederik@cknow-tech.com>
+X-Mailer: b4 0.14.3
+
+Some display controllers can be hardware programmed to show non-black
+colors for pixels that are either not covered by any plane or are
+exposed through transparent regions of higher planes.  This feature can
+help reduce memory bandwidth usage, e.g. in compositors managing a UI
+with a solid background color while using smaller planes to render the
+remaining content.
+
+To support this capability, introduce the BACKGROUND_COLOR standard DRM
+mode property, which can be attached to a CRTC through the
+drm_crtc_attach_background_color_property() helper function.
+
+Additionally, define a 64-bit ARGB format value to be built with the
+help of a couple of dedicated DRM_ARGB64_PREP*() helpers.  Individual
+color components can be extracted with desired precision using the
+corresponding DRM_ARGB64_GET*() macros.
+
+Co-developed-by: Matt Roper <matthew.d.roper@intel.com>
+Signed-off-by: Matt Roper <matthew.d.roper@intel.com>
+Reviewed-by: Nícolas F. R. A. Prado <nfraprado@collabora.com>
+Tested-by: Diederik de Haas <diederik@cknow-tech.com>
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+ drivers/gpu/drm/drm_atomic.c              |  1 +
+ drivers/gpu/drm/drm_atomic_state_helper.c |  1 +
+ drivers/gpu/drm/drm_atomic_uapi.c         |  4 ++
+ drivers/gpu/drm/drm_blend.c               | 39 +++++++++++++--
+ drivers/gpu/drm/drm_mode_config.c         |  6 +++
+ include/drm/drm_blend.h                   |  4 +-
+ include/drm/drm_crtc.h                    | 12 +++++
+ include/drm/drm_mode_config.h             |  5 ++
+ include/uapi/drm/drm_mode.h               | 80 +++++++++++++++++++++++++++++++
+ 9 files changed, 147 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/gpu/drm/drm_atomic.c b/drivers/gpu/drm/drm_atomic.c
+index 52738b80ddbe..c489c7c26396 100644
+--- a/drivers/gpu/drm/drm_atomic.c
++++ b/drivers/gpu/drm/drm_atomic.c
+@@ -476,6 +476,7 @@ static void drm_atomic_crtc_print_state(struct drm_printer *p,
+ 	drm_printf(p, "\tconnector_mask=%x\n", state->connector_mask);
+ 	drm_printf(p, "\tencoder_mask=%x\n", state->encoder_mask);
+ 	drm_printf(p, "\tmode: " DRM_MODE_FMT "\n", DRM_MODE_ARG(&state->mode));
++	drm_printf(p, "\tbackground_color=%llx\n", state->background_color);
+ 
+ 	if (crtc->funcs->atomic_print_state)
+ 		crtc->funcs->atomic_print_state(p, state);
+diff --git a/drivers/gpu/drm/drm_atomic_state_helper.c b/drivers/gpu/drm/drm_atomic_state_helper.c
+index cee6d8fc44ad..57668f1c9460 100644
+--- a/drivers/gpu/drm/drm_atomic_state_helper.c
++++ b/drivers/gpu/drm/drm_atomic_state_helper.c
+@@ -75,6 +75,7 @@ __drm_atomic_helper_crtc_state_reset(struct drm_crtc_state *crtc_state,
+ 				     struct drm_crtc *crtc)
+ {
+ 	crtc_state->crtc = crtc;
++	crtc_state->background_color = DRM_ARGB64_PREP(0xffff, 0, 0, 0);
+ }
+ EXPORT_SYMBOL(__drm_atomic_helper_crtc_state_reset);
+ 
+diff --git a/drivers/gpu/drm/drm_atomic_uapi.c b/drivers/gpu/drm/drm_atomic_uapi.c
+index dc013a22bf26..20f59a9a7ebc 100644
+--- a/drivers/gpu/drm/drm_atomic_uapi.c
++++ b/drivers/gpu/drm/drm_atomic_uapi.c
+@@ -454,6 +454,8 @@ static int drm_atomic_crtc_set_property(struct drm_crtc *crtc,
+ 					&replaced);
+ 		state->color_mgmt_changed |= replaced;
+ 		return ret;
++	} else if (property == config->background_color_property) {
++		state->background_color = val;
+ 	} else if (property == config->prop_out_fence_ptr) {
+ 		s32 __user *fence_ptr = u64_to_user_ptr(val);
+ 
+@@ -501,6 +503,8 @@ drm_atomic_crtc_get_property(struct drm_crtc *crtc,
+ 		*val = (state->ctm) ? state->ctm->base.id : 0;
+ 	else if (property == config->gamma_lut_property)
+ 		*val = (state->gamma_lut) ? state->gamma_lut->base.id : 0;
++	else if (property == config->background_color_property)
++		*val = state->background_color;
+ 	else if (property == config->prop_out_fence_ptr)
+ 		*val = 0;
+ 	else if (property == crtc->scaling_filter_property)
+diff --git a/drivers/gpu/drm/drm_blend.c b/drivers/gpu/drm/drm_blend.c
+index 6852d73c931c..f249af2a11af 100644
+--- a/drivers/gpu/drm/drm_blend.c
++++ b/drivers/gpu/drm/drm_blend.c
+@@ -191,10 +191,6 @@
+  *		 plane does not expose the "alpha" property, then this is
+  *		 assumed to be 1.0
+  *
+- * Note that all the property extensions described here apply either to the
+- * plane or the CRTC (e.g. for the background color, which currently is not
+- * exposed and assumed to be black).
+- *
+  * SCALING_FILTER:
+  *     Indicates scaling filter to be used for plane scaler
+  *
+@@ -207,6 +203,25 @@
+  *
+  * Drivers can set up this property for a plane by calling
+  * drm_plane_create_scaling_filter_property
++ *
++ * The property extensions described above all apply to the plane.  Drivers
++ * may also expose the following crtc property extension:
++ *
++ * BACKGROUND_COLOR:
++ *	Background color is set up with drm_crtc_attach_background_color_property(),
++ *	and expects a 64-bit ARGB value following DRM_FORMAT_ARGB16161616, as
++ *	generated by the DRM_ARGB64_PREP*() helpers. It controls the color of a
++ *	full-screen layer that exists below all planes. This color will be used
++ *	for pixels not covered by any plane and may also be blended with plane
++ *	contents as allowed by a plane's alpha values.
++ *	The background color defaults to black, and is assumed to be black for
++ *	drivers that do not expose this property. Although background color
++ *	isn't a plane, it is assumed that the color provided here undergoes the
++ *	CRTC degamma/CSC/gamma transformations applied after the planes blending.
++ *	Note that the color value includes an alpha channel, hence non-opaque
++ *	background color values are allowed, but since physically transparent
++ *	monitors do not (yet) exists, the final alpha value may not reach the
++ *	video sink or it may simply ignore it.
+  */
+ 
+ /**
+@@ -621,3 +636,19 @@ int drm_plane_create_blend_mode_property(struct drm_plane *plane,
+ 	return 0;
+ }
+ EXPORT_SYMBOL(drm_plane_create_blend_mode_property);
++
++/**
++ * drm_crtc_attach_background_color_property - attach background color property
++ * @crtc: drm crtc
++ *
++ * Attaches the background color property to @crtc.  The property defaults to
++ * solid black and will accept 64-bit ARGB values in the format generated by
++ * DRM_ARGB64_PREP*() helpers.
++ */
++void drm_crtc_attach_background_color_property(struct drm_crtc *crtc)
++{
++	drm_object_attach_property(&crtc->base,
++				   crtc->dev->mode_config.background_color_property,
++				   DRM_ARGB64_PREP(0xffff, 0, 0, 0));
++}
++EXPORT_SYMBOL(drm_crtc_attach_background_color_property);
+diff --git a/drivers/gpu/drm/drm_mode_config.c b/drivers/gpu/drm/drm_mode_config.c
+index d12db9b0bab8..dba7aa871246 100644
+--- a/drivers/gpu/drm/drm_mode_config.c
++++ b/drivers/gpu/drm/drm_mode_config.c
+@@ -380,6 +380,12 @@ static int drm_mode_create_standard_properties(struct drm_device *dev)
+ 		return -ENOMEM;
+ 	dev->mode_config.gamma_lut_size_property = prop;
+ 
++	prop = drm_property_create_range(dev, 0,
++					 "BACKGROUND_COLOR", 0, U64_MAX);
++	if (!prop)
++		return -ENOMEM;
++	dev->mode_config.background_color_property = prop;
++
+ 	prop = drm_property_create(dev,
+ 				   DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_BLOB,
+ 				   "IN_FORMATS", 0);
+diff --git a/include/drm/drm_blend.h b/include/drm/drm_blend.h
+index 88bdfec3bd88..c7e888767c81 100644
+--- a/include/drm/drm_blend.h
++++ b/include/drm/drm_blend.h
+@@ -31,8 +31,9 @@
+ #define DRM_MODE_BLEND_COVERAGE		1
+ #define DRM_MODE_BLEND_PIXEL_NONE	2
+ 
+-struct drm_device;
+ struct drm_atomic_state;
++struct drm_crtc;
++struct drm_device;
+ struct drm_plane;
+ 
+ static inline bool drm_rotation_90_or_270(unsigned int rotation)
+@@ -58,4 +59,5 @@ int drm_atomic_normalize_zpos(struct drm_device *dev,
+ 			      struct drm_atomic_state *state);
+ int drm_plane_create_blend_mode_property(struct drm_plane *plane,
+ 					 unsigned int supported_modes);
++void drm_crtc_attach_background_color_property(struct drm_crtc *crtc);
+ #endif
+diff --git a/include/drm/drm_crtc.h b/include/drm/drm_crtc.h
+index 66278ffeebd6..312fc1e745d2 100644
+--- a/include/drm/drm_crtc.h
++++ b/include/drm/drm_crtc.h
+@@ -274,6 +274,18 @@ struct drm_crtc_state {
+ 	 */
+ 	struct drm_property_blob *gamma_lut;
+ 
++	/**
++	 * @background_color:
++	 *
++	 * RGB value representing the CRTC's background color.  The background
++	 * color (aka "canvas color") of a CRTC is the color that will be used
++	 * for pixels not covered by a plane, or covered by transparent pixels
++	 * of a plane.  The value here should be built using DRM_ARGB64_PREP*()
++	 * helpers, while the individual color components can be extracted with
++	 * desired precision via the DRM_ARGB64_GET*() macros.
++	 */
++	u64 background_color;
++
+ 	/**
+ 	 * @target_vblank:
+ 	 *
+diff --git a/include/drm/drm_mode_config.h b/include/drm/drm_mode_config.h
+index 5e1dd0cfccde..687c0ee163d2 100644
+--- a/include/drm/drm_mode_config.h
++++ b/include/drm/drm_mode_config.h
+@@ -836,6 +836,11 @@ struct drm_mode_config {
+ 	 * gamma LUT as supported by the driver (read-only).
+ 	 */
+ 	struct drm_property *gamma_lut_size_property;
++	/**
++	 * @background_color_property: Optional CRTC property to set the
++	 * background color.
++	 */
++	struct drm_property *background_color_property;
+ 
+ 	/**
+ 	 * @suggested_x_property: Optional connector property with a hint for
+diff --git a/include/uapi/drm/drm_mode.h b/include/uapi/drm/drm_mode.h
+index 3693d82b5279..a4bdc4bd11bc 100644
+--- a/include/uapi/drm/drm_mode.h
++++ b/include/uapi/drm/drm_mode.h
+@@ -27,6 +27,9 @@
+ #ifndef _DRM_MODE_H
+ #define _DRM_MODE_H
+ 
++#include <linux/bits.h>
++#include <linux/const.h>
++
+ #include "drm.h"
+ 
+ #if defined(__cplusplus)
+@@ -1549,6 +1552,83 @@ struct drm_mode_closefb {
+ 	__u32 pad;
+ };
+ 
++/*
++ * Put 16-bit ARGB values into a standard 64-bit representation that can be
++ * used for ioctl parameters, inter-driver communication, etc.
++ *
++ * If the component values being provided contain less than 16 bits of
++ * precision, use a conversion ratio to get a better color approximation.
++ * The ratio is computed as (2^16 - 1) / (2^bpc - 1), where bpc and 16 are
++ * the input and output precision, respectively.
++ * Also note bpc must be greater than 0.
++ */
++#define __DRM_ARGB64_PREP(c, shift)					\
++	(((__u64)(c) & __GENMASK(15, 0)) << (shift))
++
++#define __DRM_ARGB64_PREP_BPC(c, shift, bpc)				\
++({									\
++	__u16 mask = __GENMASK((bpc) - 1, 0);				\
++	__u16 conv = __KERNEL_DIV_ROUND_CLOSEST((mask & (c)) *		\
++						__GENMASK(15, 0), mask);\
++	__DRM_ARGB64_PREP(conv, shift);					\
++})
++
++#define DRM_ARGB64_PREP(alpha, red, green, blue)			\
++(									\
++	__DRM_ARGB64_PREP(alpha, 48) |					\
++	__DRM_ARGB64_PREP(red,   32) |					\
++	__DRM_ARGB64_PREP(green, 16) |					\
++	__DRM_ARGB64_PREP(blue,   0)					\
++)
++
++#define DRM_ARGB64_PREP_BPC(alpha, red, green, blue, bpc)		\
++({									\
++	__typeof__(bpc) __bpc = bpc;					\
++	__DRM_ARGB64_PREP_BPC(alpha, 48, __bpc) |			\
++	__DRM_ARGB64_PREP_BPC(red,   32, __bpc) |			\
++	__DRM_ARGB64_PREP_BPC(green, 16, __bpc) |			\
++	__DRM_ARGB64_PREP_BPC(blue,   0, __bpc);			\
++})
++
++/*
++ * Extract the specified color component from a standard 64-bit ARGB value.
++ *
++ * If the requested precision is less than 16 bits, make use of a conversion
++ * ratio calculated as (2^bpc - 1) / (2^16 - 1), where bpc and 16 are the
++ * output and input precision, respectively.
++ *
++ * If speed is more important than accuracy, use DRM_ARGB64_GET*_BPCS()
++ * instead of DRM_ARGB64_GET*_BPC() in order to replace the expensive
++ * division with a simple bit right-shift operation.
++ */
++#define __DRM_ARGB64_GET(c, shift)					\
++	((__u16)(((__u64)(c) >> (shift)) & __GENMASK(15, 0)))
++
++#define __DRM_ARGB64_GET_BPC(c, shift, bpc)				\
++({									\
++	__u16 comp = __DRM_ARGB64_GET(c, shift);			\
++	__KERNEL_DIV_ROUND_CLOSEST(comp * __GENMASK((bpc) - 1, 0),	\
++				   __GENMASK(15, 0));			\
++})
++
++#define __DRM_ARGB64_GET_BPCS(c, shift, bpc)				\
++	(__DRM_ARGB64_GET(c, shift) >> (16 - (bpc)))
++
++#define DRM_ARGB64_GETA(c)		__DRM_ARGB64_GET(c, 48)
++#define DRM_ARGB64_GETR(c)		__DRM_ARGB64_GET(c, 32)
++#define DRM_ARGB64_GETG(c)		__DRM_ARGB64_GET(c, 16)
++#define DRM_ARGB64_GETB(c)		__DRM_ARGB64_GET(c, 0)
++
++#define DRM_ARGB64_GETA_BPC(c, bpc)	__DRM_ARGB64_GET_BPC(c, 48, bpc)
++#define DRM_ARGB64_GETR_BPC(c, bpc)	__DRM_ARGB64_GET_BPC(c, 32, bpc)
++#define DRM_ARGB64_GETG_BPC(c, bpc)	__DRM_ARGB64_GET_BPC(c, 16, bpc)
++#define DRM_ARGB64_GETB_BPC(c, bpc)	__DRM_ARGB64_GET_BPC(c, 0, bpc)
++
++#define DRM_ARGB64_GETA_BPCS(c, bpc)	__DRM_ARGB64_GET_BPCS(c, 48, bpc)
++#define DRM_ARGB64_GETR_BPCS(c, bpc)	__DRM_ARGB64_GET_BPCS(c, 32, bpc)
++#define DRM_ARGB64_GETG_BPCS(c, bpc)	__DRM_ARGB64_GET_BPCS(c, 16, bpc)
++#define DRM_ARGB64_GETB_BPCS(c, bpc)	__DRM_ARGB64_GET_BPCS(c, 0, bpc)
++
+ #if defined(__cplusplus)
+ }
+ #endif
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id F119317DFE7
+	for <linux-kernel@vger.kernel.org>; Wed,  4 Feb 2026 20:15:36 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770236137; cv=none; b=FNqQK5Z2xV7SGYmdHhii6O0ldwtLeCFMJnpcpsPSQv3k5ZLxpxgorihRwmN//hf5BiPg2jcv3Yvzbz33pEaLWDXw4U3iSclytWNqk3GFJn+JEqpV8mCX7eCws+V57KYJyMyYER10PR4yi2uT+5ie3NL2xSuKHFc759EdtGML848=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770236137; c=relaxed/simple;
+	bh=/L0lTmhcZkxDMMrnCZSUmTG7CK9mTVDRkVjSQ2g9G1Q=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=JTH5NrHdc1fBQFkUh/Yi0/akNBPWgezKXDJClivFh+Ww+vCzsI0ZnLsa9jQAvXxD5ePhuIKo3L0qcwJPgTJbaHpKaLdf+ZH1mDN3Bh9r8fFTzWY9iMnW3YgW3FyXMr8NG5oAcYey3FBXH/emmVx3WSkCruT4yMHS0XabAzUUMzk=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=JtU1hes2; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="JtU1hes2"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770235362;
+	bh=/L0lTmhcZkxDMMrnCZSUmTG7CK9mTVDRkVjSQ2g9G1Q=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=JtU1hes2FpXEaCG7KUee9M5k2UnwWvCa5oUd07aUPvZY8KvFsktKSzJt1Qvu4GodK
+	 Kpfac9bLI1UX3uzei4drWyl/c0v4pS6QebKkt6KPvSjpZciZ5TaaNjnZrUalXFQ3x4
+	 0ab88dKIpwRON7cd8W7Y9l1vCEtJ6bJSbe5qKdwp2YrbxOAWreRVAyryW5AsO+Wrcm
+	 SY6v3Vp4n556jG3PvTW8gNDnE8lkTlQncAzul5J0H0qKDub+yzE3nhWVHph5JgK0ox
+	 qwqcmk7/iL1k8/0/2KUMPKhdju5cpDpoIOopG94yjvJ/Fm4Bgn+CIouzzctfFTJUyr
+	 C8vsFKcnQMTcQ==
+Received: from localhost (unknown [82.79.138.145])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (prime256v1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: cristicc)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 69DD617E1582;
+	Wed,  4 Feb 2026 21:02:42 +0100 (CET)
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Wed, 04 Feb 2026 22:02:30 +0200
+Subject: [PATCH v7 3/4] drm/vkms: Support setting custom background color
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+Message-Id: <20260204-rk3588-bgcolor-v7-3-78d1d01c5ca1@collabora.com>
+References: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+In-Reply-To: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+To: Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Louis Chauvet <louis.chauvet@bootlin.com>, 
+ Haneen Mohammed <hamohammed.sa@gmail.com>, 
+ Melissa Wen <melissa.srw@gmail.com>, 
+ Jani Nikula <jani.nikula@linux.intel.com>, 
+ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Cc: Robert Mader <robert.mader@collabora.com>, kernel@collabora.com, 
+ dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ =?utf-8?q?N=C3=ADcolas_F=2E_R=2E_A=2E_Prado?= <nfraprado@collabora.com>, 
+ Diederik de Haas <diederik@cknow-tech.com>
+X-Mailer: b4 0.14.3
+
+Make use of the BACKGROUND_COLOR CRTC property when filling the
+background during blending.  It already defaults to solid black.
+
+Since the internal representation of the pixel color in VKMS relies on
+16 bits of precision, use the newly introduced DRM_ARGB64_GET{R|G|B}()
+helpers to access the individual components of the background color
+property, which is compliant with DRM_FORMAT_ARGB16161616.
+
+It's worth noting the alpha component is ignored, hence non-opaque
+background colors are not supported.
+
+Reviewed-by: Nícolas F. R. A. Prado <nfraprado@collabora.com>
+Tested-by: Diederik de Haas <diederik@cknow-tech.com>
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+ drivers/gpu/drm/vkms/vkms_composer.c | 10 ++++++++--
+ drivers/gpu/drm/vkms/vkms_crtc.c     |  3 +++
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/vkms/vkms_composer.c b/drivers/gpu/drm/vkms/vkms_composer.c
+index cd85de4ffd03..83d217085ad0 100644
+--- a/drivers/gpu/drm/vkms/vkms_composer.c
++++ b/drivers/gpu/drm/vkms/vkms_composer.c
+@@ -475,8 +475,14 @@ static void blend(struct vkms_writeback_job *wb,
+ {
+ 	struct vkms_plane_state **plane = crtc_state->active_planes;
+ 	u32 n_active_planes = crtc_state->num_active_planes;
+-
+-	const struct pixel_argb_u16 background_color = { .a = 0xffff };
++	u64 bgcolor = crtc_state->base.background_color;
++
++	const struct pixel_argb_u16 background_color = {
++		.a = 0xffff,
++		.r = DRM_ARGB64_GETR(bgcolor),
++		.g = DRM_ARGB64_GETG(bgcolor),
++		.b = DRM_ARGB64_GETB(bgcolor),
++	};
+ 
+ 	int crtc_y_limit = crtc_state->base.mode.vdisplay;
+ 	int crtc_x_limit = crtc_state->base.mode.hdisplay;
+diff --git a/drivers/gpu/drm/vkms/vkms_crtc.c b/drivers/gpu/drm/vkms/vkms_crtc.c
+index 9a7db1d51022..2514c367f710 100644
+--- a/drivers/gpu/drm/vkms/vkms_crtc.c
++++ b/drivers/gpu/drm/vkms/vkms_crtc.c
+@@ -4,6 +4,7 @@
+ 
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_atomic_helper.h>
++#include <drm/drm_blend.h>
+ #include <drm/drm_managed.h>
+ #include <drm/drm_print.h>
+ #include <drm/drm_probe_helper.h>
+@@ -228,6 +229,8 @@ struct vkms_output *vkms_crtc_init(struct drm_device *dev, struct drm_plane *pri
+ 
+ 	drm_crtc_enable_color_mgmt(crtc, 0, false, VKMS_LUT_SIZE);
+ 
++	drm_crtc_attach_background_color_property(crtc);
++
+ 	spin_lock_init(&vkms_out->lock);
+ 	spin_lock_init(&vkms_out->composer_lock);
+ 
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from smtpout-04.galae.net (smtpout-04.galae.net [185.171.202.116])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id D16633EF0B8
+	for <linux-kernel@vger.kernel.org>; Fri,  6 Feb 2026 14:04:31 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=185.171.202.116
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770386672; cv=none; b=BYUaVUVJpU86msMO36QZ18byuMtdRcRKV5G3FirxXyMwc3FgV3upqmZGnRcpvyitTCeAHgd4C6WZ/DZ62mF5SM5jEuxJjqZMzG3GVLmeRtDdrdY8kBIsmBtidvOfxgH8oCGhC9RvSpj+yRU1PTGSfUMlltyDe5Yt7A65SZZhv6I=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770386672; c=relaxed/simple;
+	bh=e5sHRUDUGHJ76zPoOXJJWKpkAEhjS6mHPn07rZwieGs=;
+	h=Message-ID:Date:MIME-Version:Subject:To:Cc:References:From:
+	 In-Reply-To:Content-Type; b=NgNslZFst7loGBwLAXrwebVKodFMGO3iCRx+03mJ+ndtRUGxJLuCsvzHCxPTx/5R0TV6rdGivo7YtI0CQtWIzhtPhypwCTtPLuhDcPWr0JKxqO40jZxMNg2kjJvz77QIB6CswWv3YbUx7ZDcTBq3/9rx/zbPa+9CSOSRnIZNTPw=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=reject dis=none) header.from=bootlin.com; spf=pass smtp.mailfrom=bootlin.com; dkim=pass (2048-bit key) header.d=bootlin.com header.i=@bootlin.com header.b=qPCZ4Ghb; arc=none smtp.client-ip=185.171.202.116
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=reject dis=none) header.from=bootlin.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=bootlin.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=bootlin.com header.i=@bootlin.com header.b="qPCZ4Ghb"
+Received: from smtpout-01.galae.net (smtpout-01.galae.net [212.83.139.233])
+	by smtpout-04.galae.net (Postfix) with ESMTPS id BEC9DC243B8;
+	Fri,  6 Feb 2026 14:04:36 +0000 (UTC)
+Received: from mail.galae.net (mail.galae.net [212.83.136.155])
+	by smtpout-01.galae.net (Postfix) with ESMTPS id 2F7B160729;
+	Fri,  6 Feb 2026 14:04:30 +0000 (UTC)
+Received: from [127.0.0.1] (localhost [127.0.0.1]) by localhost (Mailerdaemon) with ESMTPSA id 50438119D1929;
+	Fri,  6 Feb 2026 15:04:22 +0100 (CET)
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=bootlin.com; s=dkim;
+	t=1770386669; h=from:subject:date:message-id:to:cc:mime-version:content-type:
+	 content-transfer-encoding:content-language:in-reply-to:references;
+	bh=d70krws98qMbryfn/12Zb3xwhE2iiVZ6JA0PmydolRU=;
+	b=qPCZ4GhbgSvh7oc+x3hfb/WxEKcrK6O2VtHn9ZUnKHIWbmuwpDPS+JVzXwRZvJjY52JV/q
+	jRFNs9CU0xQoxAmTuVScqUmJr3RhJksmzPmC2iDxOIGOKozVtX3K0+pFhuAw87JTmlzOzO
+	Mx7asUoldGGsbCO1CxidWKqAh6wVT4SkqjyaR14D4D/lxH/+TnRz846TduWs57dgblA7K2
+	qq8aj5PKT39GkueFiEWEvJOcmHo1rod8gM8pqXd1pJ+UJU/zVu6F/+Oy2EP5MnYL2KIUVh
+	AJXEPBPb7T4XHikvoDSeE/Goj7h2+A7djgwt/yvu7WKYngnH526TrWO6uKX5cQ==
+Message-ID: <e6dd0f45-1d64-48b8-bc76-43cc29fabec2@bootlin.com>
+Date: Fri, 6 Feb 2026 15:04:51 +0100
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+User-Agent: Mozilla Thunderbird
+Subject: Re: [PATCH v7 3/4] drm/vkms: Support setting custom background color
+To: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>,
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>,
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>,
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>,
+ Sandy Huang <hjc@rock-chips.com>, =?UTF-8?Q?Heiko_St=C3=BCbner?=
+ <heiko@sntech.de>, Andy Yan <andy.yan@rock-chips.com>,
+ Haneen Mohammed <hamohammed.sa@gmail.com>,
+ Melissa Wen <melissa.srw@gmail.com>,
+ Jani Nikula <jani.nikula@linux.intel.com>,
+ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Cc: Robert Mader <robert.mader@collabora.com>, kernel@collabora.com,
+ dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org,
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org,
+ =?UTF-8?B?TsOtY29sYXMgRi4gUi4gQS4gUHJhZG8=?= <nfraprado@collabora.com>,
+ Diederik de Haas <diederik@cknow-tech.com>
+References: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+ <20260204-rk3588-bgcolor-v7-3-78d1d01c5ca1@collabora.com>
+From: Louis Chauvet <louis.chauvet@bootlin.com>
+Content-Language: en-US
+In-Reply-To: <20260204-rk3588-bgcolor-v7-3-78d1d01c5ca1@collabora.com>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 8bit
+X-Last-TLS-Session-Version: TLSv1.3
+
+
+
+On 2/4/26 21:02, Cristian Ciocaltea wrote:
+> Make use of the BACKGROUND_COLOR CRTC property when filling the
+> background during blending.  It already defaults to solid black.
+> 
+> Since the internal representation of the pixel color in VKMS relies on
+> 16 bits of precision, use the newly introduced DRM_ARGB64_GET{R|G|B}()
+> helpers to access the individual components of the background color
+> property, which is compliant with DRM_FORMAT_ARGB16161616.
+> 
+> It's worth noting the alpha component is ignored, hence non-opaque
+> background colors are not supported.
+> 
+> Reviewed-by: Nícolas F. R. A. Prado <nfraprado@collabora.com>
+
+Reviewed-by: Louis Chauvet <louis.chauvet@bootlin.com>
+
+> Tested-by: Diederik de Haas <diederik@cknow-tech.com>
+> Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+> ---
+>   drivers/gpu/drm/vkms/vkms_composer.c | 10 ++++++++--
+>   drivers/gpu/drm/vkms/vkms_crtc.c     |  3 +++
+>   2 files changed, 11 insertions(+), 2 deletions(-)
+> 
+> diff --git a/drivers/gpu/drm/vkms/vkms_composer.c b/drivers/gpu/drm/vkms/vkms_composer.c
+> index cd85de4ffd03..83d217085ad0 100644
+> --- a/drivers/gpu/drm/vkms/vkms_composer.c
+> +++ b/drivers/gpu/drm/vkms/vkms_composer.c
+> @@ -475,8 +475,14 @@ static void blend(struct vkms_writeback_job *wb,
+>   {
+>   	struct vkms_plane_state **plane = crtc_state->active_planes;
+>   	u32 n_active_planes = crtc_state->num_active_planes;
+> -
+> -	const struct pixel_argb_u16 background_color = { .a = 0xffff };
+> +	u64 bgcolor = crtc_state->base.background_color;
+> +
+> +	const struct pixel_argb_u16 background_color = {
+> +		.a = 0xffff,
+> +		.r = DRM_ARGB64_GETR(bgcolor),
+> +		.g = DRM_ARGB64_GETG(bgcolor),
+> +		.b = DRM_ARGB64_GETB(bgcolor),
+> +	};
+>   
+>   	int crtc_y_limit = crtc_state->base.mode.vdisplay;
+>   	int crtc_x_limit = crtc_state->base.mode.hdisplay;
+> diff --git a/drivers/gpu/drm/vkms/vkms_crtc.c b/drivers/gpu/drm/vkms/vkms_crtc.c
+> index 9a7db1d51022..2514c367f710 100644
+> --- a/drivers/gpu/drm/vkms/vkms_crtc.c
+> +++ b/drivers/gpu/drm/vkms/vkms_crtc.c
+> @@ -4,6 +4,7 @@
+>   
+>   #include <drm/drm_atomic.h>
+>   #include <drm/drm_atomic_helper.h>
+> +#include <drm/drm_blend.h>
+>   #include <drm/drm_managed.h>
+>   #include <drm/drm_print.h>
+>   #include <drm/drm_probe_helper.h>
+> @@ -228,6 +229,8 @@ struct vkms_output *vkms_crtc_init(struct drm_device *dev, struct drm_plane *pri
+>   
+>   	drm_crtc_enable_color_mgmt(crtc, 0, false, VKMS_LUT_SIZE);
+>   
+> +	drm_crtc_attach_background_color_property(crtc);
+> +
+>   	spin_lock_init(&vkms_out->lock);
+>   	spin_lock_init(&vkms_out->composer_lock);
+>   
+> 
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id C69FF3A0E9A
+	for <linux-kernel@vger.kernel.org>; Wed,  4 Feb 2026 20:10:36 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770235837; cv=none; b=eB9St+BHnjy9QtToEu6QkhMmU+U3i6RhyHK6qLyUnT6IfnazwOWm+LBIk+EwE3P/44Ufzg3sxQYA7FN9km0RxmPRSnObgrL+ZqfPQ7jaP1t6HihkYsElJpCZIJgzzqVxTbAE7P8ctv3rE0NLJvY5XDcmGHRir3kPWGm5g3VFEs8=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770235837; c=relaxed/simple;
+	bh=xeVIe8cmrntR0enuK392UB2SXROYBNmtYamPiBlWwyw=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=DnXqk0zuj9IDrSAtdqxfdNjC9FtieQd4VrNmm+31osO/Cjz3rH9ntTFcPgqzx2c0VSpfT6f5OOwhw58jghtMm8mjqbjifTY78gdqaXECSt73ps+n7t1aVKReebzFFr29k8rtB8+A8HPthdS9AwKUOV3V+qz21LGCIFOryr7zwDE=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=IR2U3YZ9; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="IR2U3YZ9"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770235360;
+	bh=xeVIe8cmrntR0enuK392UB2SXROYBNmtYamPiBlWwyw=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=IR2U3YZ9XeUWH2ccVQaIHAil82kaplR8ZdUbQIp3gsKJHSJoihkRV+aBQphygD6r9
+	 RXvrVP5R3+d0ayg2mWnrgtooW8OyAR9CZmoL+0HqtQU6IzdXEN8wyL1t4PWQj845JZ
+	 KZo4Fkt/3/hgWDf7cNxfu7hKwd29jCQumr4zSwA3tkMeZca8g764if0L3OJ1l3zGZM
+	 YAGx9C4L9DNZzqr5HJVRPopap5Ri/AbuMGqTnLenH53fnpVTsrsyYfv69gi/g+Mwo4
+	 tgXOD/7jUzy35naUJAlOtTo9ysqbB3VTX7QlAYl94kNL/DZtzYf9hxX1K9tjP6dsdl
+	 SULP+VjTxB2Fg==
+Received: from localhost (unknown [82.79.138.145])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (prime256v1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: cristicc)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id CB79A17E13D3;
+	Wed,  4 Feb 2026 21:02:40 +0100 (CET)
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Wed, 04 Feb 2026 22:02:28 +0200
+Subject: [PATCH v7 1/4] uapi: Provide DIV_ROUND_CLOSEST()
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+Message-Id: <20260204-rk3588-bgcolor-v7-1-78d1d01c5ca1@collabora.com>
+References: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+In-Reply-To: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+To: Maarten Lankhorst <maarten.lankhorst@linux.intel.com>, 
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>, 
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>, 
+ Sandy Huang <hjc@rock-chips.com>, 
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>, 
+ Andy Yan <andy.yan@rock-chips.com>, 
+ Louis Chauvet <louis.chauvet@bootlin.com>, 
+ Haneen Mohammed <hamohammed.sa@gmail.com>, 
+ Melissa Wen <melissa.srw@gmail.com>, 
+ Jani Nikula <jani.nikula@linux.intel.com>, 
+ Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Cc: Robert Mader <robert.mader@collabora.com>, kernel@collabora.com, 
+ dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ =?utf-8?q?N=C3=ADcolas_F=2E_R=2E_A=2E_Prado?= <nfraprado@collabora.com>, 
+ Diederik de Haas <diederik@cknow-tech.com>, 
+ AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
+X-Mailer: b4 0.14.3
+
+Currently DIV_ROUND_CLOSEST() is only available for the kernel via
+include/linux/math.h.
+
+Expose it to userland as well by adding __KERNEL_DIV_ROUND_CLOSEST() as
+a common definition in uapi.
+
+Additionally, ensure it allows building ISO C applications by switching
+from the 'typeof' GNU extension to the ISO-friendly __typeof__.
+
+Reviewed-by: Nícolas F. R. A. Prado <nfraprado@collabora.com>
+Tested-by: Diederik de Haas <diederik@cknow-tech.com>
+Acked-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+Reviewed-by: AngeloGioacchino Del Regno <angelogioacchino.delregno@collabora.com>
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+ include/linux/math.h       | 18 +-----------------
+ include/uapi/linux/const.h | 18 ++++++++++++++++++
+ 2 files changed, 19 insertions(+), 17 deletions(-)
+
+diff --git a/include/linux/math.h b/include/linux/math.h
+index 6dc1d1d32fbc..1e8fb3efbc8c 100644
+--- a/include/linux/math.h
++++ b/include/linux/math.h
+@@ -89,23 +89,7 @@
+ }							\
+ )
+ 
+-/*
+- * Divide positive or negative dividend by positive or negative divisor
+- * and round to closest integer. Result is undefined for negative
+- * divisors if the dividend variable type is unsigned and for negative
+- * dividends if the divisor variable type is unsigned.
+- */
+-#define DIV_ROUND_CLOSEST(x, divisor)(			\
+-{							\
+-	typeof(x) __x = x;				\
+-	typeof(divisor) __d = divisor;			\
+-	(((typeof(x))-1) > 0 ||				\
+-	 ((typeof(divisor))-1) > 0 ||			\
+-	 (((__x) > 0) == ((__d) > 0))) ?		\
+-		(((__x) + ((__d) / 2)) / (__d)) :	\
+-		(((__x) - ((__d) / 2)) / (__d));	\
+-}							\
+-)
++#define DIV_ROUND_CLOSEST __KERNEL_DIV_ROUND_CLOSEST
+ /*
+  * Same as above but for u64 dividends. divisor must be a 32-bit
+  * number.
+diff --git a/include/uapi/linux/const.h b/include/uapi/linux/const.h
+index b8f629ef135f..565f309b9df8 100644
+--- a/include/uapi/linux/const.h
++++ b/include/uapi/linux/const.h
+@@ -50,4 +50,22 @@
+ 
+ #define __KERNEL_DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+ 
++/*
++ * Divide positive or negative dividend by positive or negative divisor
++ * and round to closest integer. Result is undefined for negative
++ * divisors if the dividend variable type is unsigned and for negative
++ * dividends if the divisor variable type is unsigned.
++ */
++#define __KERNEL_DIV_ROUND_CLOSEST(x, divisor)		\
++({							\
++	__typeof__(x) __x = x;				\
++	__typeof__(divisor) __d = divisor;		\
++							\
++	(((__typeof__(x))-1) > 0 ||			\
++	 ((__typeof__(divisor))-1) > 0 ||		\
++	 (((__x) > 0) == ((__d) > 0))) ?		\
++		(((__x) + ((__d) / 2)) / (__d)) :	\
++		(((__x) - ((__d) / 2)) / (__d));	\
++})
++
+ #endif /* _UAPI_LINUX_CONST_H */
+
+-- 
+2.52.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from m16.mail.163.com (m16.mail.163.com [220.197.31.4])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 89328533D6
+	for <linux-kernel@vger.kernel.org>; Sat, 14 Feb 2026 07:45:29 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=220.197.31.4
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1771055134; cv=none; b=miEHctantNax3dEDd2575jlVDmhpwsrcPBd6LJ1414xRTIW86HBHyjbK1ZE96c+MBwtMYQPmnh5VJA9em0fg2uOGhUPByNJ7KR2DtgC5g+g6cKtKNi3q5EKw5k+qTO46x3+GCqpc8mD6LgNMsXPf3sn0uBbl0Q65c8dIdWFBEBo=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1771055134; c=relaxed/simple;
+	bh=+v5pAbslEMYTGdjdZQDhHSyvhMUMNQICQR+cUdc+GgQ=;
+	h=Date:From:To:Cc:Subject:In-Reply-To:References:Content-Type:
+	 MIME-Version:Message-ID; b=WfpQf5dEhi5vrp65JFilOPwAaflY7vK3kvbo92vVEi6H/8RD4p9qmuKmOsqiOm+PgLO+QLoiIXBx2fFzvFRdNhPznkqIIg5bMvFh8A06GqZgauf5P2HZLtxDbYh8vxOfSE9i9i3A4GREXwWOr0xT5h5vKNDoS1oHwHH10zkY9iw=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=163.com; spf=pass smtp.mailfrom=163.com; dkim=pass (1024-bit key) header.d=163.com header.i=@163.com header.b=TBKEyd/7; arc=none smtp.client-ip=220.197.31.4
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=163.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=163.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=163.com header.i=@163.com header.b="TBKEyd/7"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=163.com;
+	s=s110527; h=Date:From:To:Subject:Content-Type:MIME-Version:
+	Message-ID; bh=+v5pAbslEMYTGdjdZQDhHSyvhMUMNQICQR+cUdc+GgQ=; b=T
+	BKEyd/70P5p0XXP5OUHUtm7AZ6I6tqNyhILHrI5l9oDiwXO9E6zlXh8dlH/Q1CgJ
+	b0CECQKVUi9zqQqMEF7KLrnKN9dr2BYwQP3p09ofL8ozkJ2SA5YJBUMEhb5aYFMX
+	zO75HP4EvO/Pm0dUyQ/gssxxwt/NaUUBdsumlSqklE=
+Received: from andyshrk$163.com ( [2409:8a55:33d7:2431:f10b:187b:3f26:ab0c]
+ ) by ajax-webmail-wmsvr-40-117 (Coremail) ; Sat, 14 Feb 2026 15:41:12 +0800
+ (CST)
+Date: Sat, 14 Feb 2026 15:41:12 +0800 (CST)
+From: "Andy Yan" <andyshrk@163.com>
+To: "Cristian Ciocaltea" <cristian.ciocaltea@collabora.com>
+Cc: "Maarten Lankhorst" <maarten.lankhorst@linux.intel.com>,
+	"Maxime Ripard" <mripard@kernel.org>,
+	"Thomas Zimmermann" <tzimmermann@suse.de>,
+	"David Airlie" <airlied@gmail.com>,
+	"Simona Vetter" <simona@ffwll.ch>,
+	"Sandy Huang" <hjc@rock-chips.com>,
+	=?UTF-8?Q?Heiko_St=C3=BCbner?= <heiko@sntech.de>,
+	"Andy Yan" <andy.yan@rock-chips.com>,
+	"Louis Chauvet" <louis.chauvet@bootlin.com>,
+	"Haneen Mohammed" <hamohammed.sa@gmail.com>,
+	"Melissa Wen" <melissa.srw@gmail.com>,
+	"Jani Nikula" <jani.nikula@linux.intel.com>,
+	"Andy Shevchenko" <andriy.shevchenko@linux.intel.com>,
+	"Robert Mader" <robert.mader@collabora.com>, kernel@collabora.com,
+	dri-devel@lists.freedesktop.org, linux-kernel@vger.kernel.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org,
+	"Diederik de Haas" <diederik@cknow-tech.com>
+Subject: Re:[PATCH v7 4/4] drm/rockchip: vop2: Support setting custom
+ background color
+X-Priority: 3
+X-Mailer: Coremail Webmail Server Version 2023.4-cmXT build
+ 20251222(83accb85) Copyright (c) 2002-2026 www.mailtech.cn 163com
+In-Reply-To: <20260204-rk3588-bgcolor-v7-4-78d1d01c5ca1@collabora.com>
+References: <20260204-rk3588-bgcolor-v7-0-78d1d01c5ca1@collabora.com>
+ <20260204-rk3588-bgcolor-v7-4-78d1d01c5ca1@collabora.com>
+X-CM-CTRLMSGS: 0xem7nBsdXM9MTc3MTA1NDg3MzAxOV9mMzIxMGMxZjQ2NDU5YTk3OTJhOTllM
+ jYyODkxNTJkNg==
+X-NTES-SC: AL_Qu2cA/yeu0As5CiZZ+kfmUgWjuw/WsG1v/Ul1YBSP556jD/p5wAhYnlFJHL90dOvNj6tnyiuTwJi+sdlbbJff74t27OnGnXYj8g71xfaPiVNkQ==
+Content-Transfer-Encoding: base64
+Content-Type: text/plain; charset=UTF-8
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Message-ID: <7d35324b.1f93.19c5b18b8f6.Coremail.andyshrk@163.com>
+X-Coremail-Locale: zh_CN
+X-CM-TRANSID: dSgvCgB3p7oYJ5BpAj4oAA--.41162W
+X-CM-SenderInfo: 5dqg52xkunqiywtou0bp/xtbC7hhOrGmQJxgIRwAA3d
+X-Coremail-Antispam: 1U5529EdanIXcx71UUUUU7vcSsGvfC2KfnxnUU==
+
+CkhlbGxvIENyaXN0aWFuLAoKQXQgMjAyNi0wMi0wNSAwNDowMjozMSwgIkNyaXN0aWFuIENpb2Nh
+bHRlYSIgPGNyaXN0aWFuLmNpb2NhbHRlYUBjb2xsYWJvcmEuY29tPiB3cm90ZToKPlRoZSBSb2Nr
+Y2hpcCBWT1AyIGRpc3BsYXkgY29udHJvbGxlciBhbGxvd3MgY29uZmlndXJpbmcgdGhlIGJhY2tn
+cm91bmQKPmNvbG9yIG9mIGVhY2ggdmlkZW8gb3V0cHV0IHBvcnQuCj4KPlNpbmNlIGEgcHJldmlv
+dXMgcGF0Y2ggaW50cm9kdWNlZCB0aGUgQkFDS0dST1VORF9DT0xPUiBDUlRDIHByb3BlcnR5LAo+
+d2hpY2ggZGVmYXVsdHMgdG8gc29saWQgYmxhY2ssIG1ha2UgdXNlIG9mIGl0IHdoZW4gcHJvZ3Jh
+bW1pbmcgdGhlCj5oYXJkd2FyZS4KPgo+Tm90ZSB0aGUgbWF4aW11bSBwcmVjaXNpb24gYWxsb3dl
+ZCBieSB0aGUgZGlzcGxheSBjb250cm9sbGVyIGlzIDEwYnBjLAo+d2hpbGUgdGhlIGFscGhhIGNv
+bXBvbmVudCBpcyBub3Qgc3VwcG9ydGVkLCBoZW5jZSBpZ25vcmVkLgo+Cj5UZXN0ZWQtYnk6IERp
+ZWRlcmlrIGRlIEhhYXMgPGRpZWRlcmlrQGNrbm93LXRlY2guY29tPgo+U2lnbmVkLW9mZi1ieTog
+Q3Jpc3RpYW4gQ2lvY2FsdGVhIDxjcmlzdGlhbi5jaW9jYWx0ZWFAY29sbGFib3JhLmNvbT4KCiAg
+IFJldmlld2VkLWJ5OiBBbmR5IFlhbiA8YW5keXNocmtAMTYzLmNvbT4KPi0tLQo+IGRyaXZlcnMv
+Z3B1L2RybS9yb2NrY2hpcC9yb2NrY2hpcF9kcm1fdm9wMi5jIHwgMTcgKysrKysrKysrKysrKysr
+Ky0KPiBkcml2ZXJzL2dwdS9kcm0vcm9ja2NoaXAvcm9ja2NoaXBfZHJtX3ZvcDIuaCB8ICA0ICsr
+KysKPiAyIGZpbGVzIGNoYW5nZWQsIDIwIGluc2VydGlvbnMoKyksIDEgZGVsZXRpb24oLSkKPgo+
+ZGlmZiAtLWdpdCBhL2RyaXZlcnMvZ3B1L2RybS9yb2NrY2hpcC9yb2NrY2hpcF9kcm1fdm9wMi5j
+IGIvZHJpdmVycy9ncHUvZHJtL3JvY2tjaGlwL3JvY2tjaGlwX2RybV92b3AyLmMKPmluZGV4IGVj
+M2I0ZmRlMTBkYi4uOGYyMmU5MGEyM2RkIDEwMDY0NAo+LS0tIGEvZHJpdmVycy9ncHUvZHJtL3Jv
+Y2tjaGlwL3JvY2tjaGlwX2RybV92b3AyLmMKPisrKyBiL2RyaXZlcnMvZ3B1L2RybS9yb2NrY2hp
+cC9yb2NrY2hpcF9kcm1fdm9wMi5jCj5AQCAtMTU1Miw2ICsxNTUyLDcgQEAgc3RhdGljIHZvaWQg
+dm9wMl9wb3N0X2NvbmZpZyhzdHJ1Y3QgZHJtX2NydGMgKmNydGMpCj4gCXN0cnVjdCB2b3AyX3Zp
+ZGVvX3BvcnQgKnZwID0gdG9fdm9wMl92aWRlb19wb3J0KGNydGMpOwo+IAlzdHJ1Y3Qgdm9wMiAq
+dm9wMiA9IHZwLT52b3AyOwo+IAlzdHJ1Y3QgZHJtX2Rpc3BsYXlfbW9kZSAqbW9kZSA9ICZjcnRj
+LT5zdGF0ZS0+YWRqdXN0ZWRfbW9kZTsKPisJdTY0IGJnY29sb3IgPSBjcnRjLT5zdGF0ZS0+YmFj
+a2dyb3VuZF9jb2xvcjsKPiAJdTE2IHZ0b3RhbCA9IG1vZGUtPmNydGNfdnRvdGFsOwo+IAl1MTYg
+aGRpc3BsYXkgPSBtb2RlLT5jcnRjX2hkaXNwbGF5Owo+IAl1MTYgaGFjdF9zdCA9IG1vZGUtPmNy
+dGNfaHRvdGFsIC0gbW9kZS0+Y3J0Y19oc3luY19zdGFydDsKPkBAIC0xNTk3LDcgKzE1OTgsMTUg
+QEAgc3RhdGljIHZvaWQgdm9wMl9wb3N0X2NvbmZpZyhzdHJ1Y3QgZHJtX2NydGMgKmNydGMpCj4g
+CQl2b3AyX3ZwX3dyaXRlKHZwLCBSSzM1NjhfVlBfUE9TVF9EU1BfVkFDVF9JTkZPX0YxLCB2YWwp
+Owo+IAl9Cj4gCj4tCXZvcDJfdnBfd3JpdGUodnAsIFJLMzU2OF9WUF9EU1BfQkcsIDApOwo+Kwkv
+Kgo+KwkgKiBCYWNrZ3JvdW5kIGNvbG9yIGlzIHByb2dyYW1tZWQgd2l0aCAxMCBiaXRzIG9mIHBy
+ZWNpc2lvbi4KPisJICogU2luY2UgcGVyZm9ybWFuY2UgaXMgbW9yZSBpbXBvcnRhbnQgdGhhbiBh
+Y2N1cmFjeSBoZXJlLAo+KwkgKiBtYWtlIHVzZSBvZiB0aGUgRFJNX0FSR0I2NF9HRVQqX0JQQ1Mo
+KSBoZWxwZXJzLgo+KwkgKi8KPisJdmFsID0gRklFTERfUFJFUChSSzM1NjhfVlBfRFNQX0JHX19E
+U1BfQkdfUkVELCBEUk1fQVJHQjY0X0dFVFJfQlBDUyhiZ2NvbG9yLCAxMCkpOwo+KwlGSUVMRF9N
+T0RJRlkoUkszNTY4X1ZQX0RTUF9CR19fRFNQX0JHX0dSRUVOLCAmdmFsLCBEUk1fQVJHQjY0X0dF
+VEdfQlBDUyhiZ2NvbG9yLCAxMCkpOwo+KwlGSUVMRF9NT0RJRlkoUkszNTY4X1ZQX0RTUF9CR19f
+RFNQX0JHX0JMVUUsICZ2YWwsIERSTV9BUkdCNjRfR0VUQl9CUENTKGJnY29sb3IsIDEwKSk7Cj4r
+CXZvcDJfdnBfd3JpdGUodnAsIFJLMzU2OF9WUF9EU1BfQkcsIHZhbCk7Cj4gfQo+IAo+IHN0YXRp
+YyBpbnQgdXNfdG9fdmVydGljYWxfbGluZShzdHJ1Y3QgZHJtX2Rpc3BsYXlfbW9kZSAqbW9kZSwg
+aW50IHVzKQo+QEAgLTE5ODMsNiArMTk5MiwxMCBAQCBzdGF0aWMgaW50IHZvcDJfY3J0Y19zdGF0
+ZV9kdW1wKHN0cnVjdCBkcm1fY3J0YyAqY3J0Yywgc3RydWN0IHNlcV9maWxlICpzKQo+IAkJICAg
+ZHJtX2dldF9idXNfZm9ybWF0X25hbWUodmNzdGF0ZS0+YnVzX2Zvcm1hdCkpOwo+IAlzZXFfcHJp
+bnRmKHMsICJcdG91dHB1dF9tb2RlWyV4XSIsIHZjc3RhdGUtPm91dHB1dF9tb2RlKTsKPiAJc2Vx
+X3ByaW50ZihzLCAiIGNvbG9yX3NwYWNlWyVkXVxuIiwgdmNzdGF0ZS0+Y29sb3Jfc3BhY2UpOwo+
+KwlzZXFfcHJpbnRmKHMsICJcdGJhY2tncm91bmQgY29sb3IgKDEwYnBjKTogcj0weCV4IGc9MHgl
+eCBiPTB4JXhcbiIsCj4rCQkgICBEUk1fQVJHQjY0X0dFVFJfQlBDUyhjc3RhdGUtPmJhY2tncm91
+bmRfY29sb3IsIDEwKSwKPisJCSAgIERSTV9BUkdCNjRfR0VUR19CUENTKGNzdGF0ZS0+YmFja2dy
+b3VuZF9jb2xvciwgMTApLAo+KwkJICAgRFJNX0FSR0I2NF9HRVRCX0JQQ1MoY3N0YXRlLT5iYWNr
+Z3JvdW5kX2NvbG9yLCAxMCkpOwo+IAlzZXFfcHJpbnRmKHMsICIgICAgRGlzcGxheSBtb2RlOiAl
+ZHglZCVzJWRcbiIsCj4gCQkgICBtb2RlLT5oZGlzcGxheSwgbW9kZS0+dmRpc3BsYXksIGludGVy
+bGFjZWQgPyAiaSIgOiAicCIsCj4gCQkgICBkcm1fbW9kZV92cmVmcmVzaChtb2RlKSk7Cj5AQCAt
+MjQ3Miw2ICsyNDg1LDggQEAgc3RhdGljIGludCB2b3AyX2NyZWF0ZV9jcnRjcyhzdHJ1Y3Qgdm9w
+MiAqdm9wMikKPiAJCQlyZXR1cm4gZGV2X2Vycl9wcm9iZShkcm0tPmRldiwgcmV0LAo+IAkJCQkJ
+ICAgICAiY3J0YyBpbml0IGZvciB2aWRlb19wb3J0JWQgZmFpbGVkXG4iLCBpKTsKPiAKPisJCWRy
+bV9jcnRjX2F0dGFjaF9iYWNrZ3JvdW5kX2NvbG9yX3Byb3BlcnR5KCZ2cC0+Y3J0Yyk7Cj4rCj4g
+CQlkcm1fY3J0Y19oZWxwZXJfYWRkKCZ2cC0+Y3J0YywgJnZvcDJfY3J0Y19oZWxwZXJfZnVuY3Mp
+Owo+IAkJaWYgKHZvcDItPmx1dF9yZWdzKSB7Cj4gCQkJY29uc3Qgc3RydWN0IHZvcDJfdmlkZW9f
+cG9ydF9kYXRhICp2cF9kYXRhID0gJnZvcDJfZGF0YS0+dnBbdnAtPmlkXTsKPmRpZmYgLS1naXQg
+YS9kcml2ZXJzL2dwdS9kcm0vcm9ja2NoaXAvcm9ja2NoaXBfZHJtX3ZvcDIuaCBiL2RyaXZlcnMv
+Z3B1L2RybS9yb2NrY2hpcC9yb2NrY2hpcF9kcm1fdm9wMi5oCj5pbmRleCA5MTI0MTkxODk5YmEu
+LjM3NzIyNjUyODQ0YSAxMDA2NDQKPi0tLSBhL2RyaXZlcnMvZ3B1L2RybS9yb2NrY2hpcC9yb2Nr
+Y2hpcF9kcm1fdm9wMi5oCj4rKysgYi9kcml2ZXJzL2dwdS9kcm0vcm9ja2NoaXAvcm9ja2NoaXBf
+ZHJtX3ZvcDIuaAo+QEAgLTY1OCw2ICs2NTgsMTAgQEAgZW51bSBkc3RfZmFjdG9yX21vZGUgewo+
+ICNkZWZpbmUgUkszNTg4X1ZQX0NMS19DVFJMX19EQ0xLX09VVF9ESVYJCUdFTk1BU0soMywgMikK
+PiAjZGVmaW5lIFJLMzU4OF9WUF9DTEtfQ1RSTF9fRENMS19DT1JFX0RJVgkJR0VOTUFTSygxLCAw
+KQo+IAo+KyNkZWZpbmUgUkszNTY4X1ZQX0RTUF9CR19fRFNQX0JHX1JFRAkJCUdFTk1BU0soMjks
+IDIwKQo+KyNkZWZpbmUgUkszNTY4X1ZQX0RTUF9CR19fRFNQX0JHX0dSRUVOCQkJR0VOTUFTSygx
+OSwgMTApCj4rI2RlZmluZSBSSzM1NjhfVlBfRFNQX0JHX19EU1BfQkdfQkxVRQkJCUdFTk1BU0so
+OSwgMCkKPisKPiAjZGVmaW5lIFJLMzU2OF9WUF9QT1NUX1NDTF9DVFJMX19WU0NBTEVET1dOCQlC
+SVQoMSkKPiAjZGVmaW5lIFJLMzU2OF9WUF9QT1NUX1NDTF9DVFJMX19IU0NBTEVET1dOCQlCSVQo
+MCkKPiAKPgo+LS0gCj4yLjUyLjAKPgo=
+

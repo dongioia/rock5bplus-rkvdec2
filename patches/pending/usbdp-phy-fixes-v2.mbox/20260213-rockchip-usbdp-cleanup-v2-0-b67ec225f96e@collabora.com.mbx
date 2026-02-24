@@ -1,0 +1,1428 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id B6BBC3612EC
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:32 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993573; cv=none; b=Y/SnCESBG5rX0uxUpTYq8LkncPtmGWGm4RzxNo3f689HLvOWrwrMC1y1yluncjxjFsskaf3yeCH1pg1JkxTs0jOZep0ixEMAX7f7sQQzSziHE+A2S0WezEEm/u9UlXneHu1QgUxxCNsBE47pCMT8nn+pVvLmvFnvIiRz4sb7AsY=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993573; c=relaxed/simple;
+	bh=dbmD73BoFx8n8ji9c8pKJSP2kyDhGv8dKwkqGb0zmWo=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=rltTaD5o6RaiLXQjfbuYJCE+hyYwme19tCMGZemQBcwWzDGEbw74hEhN2k+QiAz4nc0Tn9SWWqjcCHBfnk1uO6QDlgzQi5uDIU2QMf4PKlnZqZCm0eYJyC4scXhkE5ZIkR8Jy9bY/gyvqoE2Z75XW0eQGvNyrKuoPmX/6yc/2yc=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=pzB+xnED; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="pzB+xnED"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=dbmD73BoFx8n8ji9c8pKJSP2kyDhGv8dKwkqGb0zmWo=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=pzB+xnEDEuPr/TFEiOu4rkMCXIkKAPHkB/0K2Gb3cm/zHwLBGeIjECq5PtNCizOmc
+	 CfWXI0BwZV7bd+UlMjpu5oH14BmLVOdglfpFrfFWcN4iEMRgWXm1HEB5juX0P+y/kU
+	 TgO2z+zIyi2MsRy3G9rpze0MTKcwr+V6iaR2NUtNRKPaiDvXi8LMhwWaxHeQ+DsfIn
+	 MreL/EKE8Q/sdEIZkPhLbveFrrh5UMW7pyFkFwvHoOcEMMOHPumklCKEvoish+twEt
+	 p8O3sRDeAoSf89kfd+yGln0DYYvGEppWi1vuMlrBW63SYUiijUAeUix7CDgjZd2LZ7
+	 sEjD772b/ILJg==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 00E6A17E35C9;
+	Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A3769480026; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:25 +0100
+Subject: [PATCH v2 2/9] phy: rockchip: usbdp: Keep clocks running on PHY
+ re-init
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-2-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=2058;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=dbmD73BoFx8n8ji9c8pKJSP2kyDhGv8dKwkqGb0zmWo=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6IKL3g9Xg4uHD3m3XJ4FYx+rjvoxp8Nn
+ PZI4qPvLtn/sokCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qamMIP/1SyV/tn5Qk3Iz0vOkqblDl1EZk0ZLi9R4wyaPyHRTr9lmiNSJqGPzMK+HzUCbw7PDn
+ V3mJB/qw95Jb2vC4HPlMVFUpsa0QcdAxszqQp4/qAKqwUnN9LC4FICd0GsK8w8flwDDq6+C8tvL
+ dAsOgnkfmWyBAAp0474Xl/ha3ODBcgVF/pl0XX/SPOQIs4P4slvL74DxDkTvcaN9bRkM9O0crDP
+ C3HGS+6rdtC9QKDc2WYxL6N8YXrkEZOm9e3GG6GZdPPgOR0hLUZNddHzKC0nsKThJYPS0+iPdCR
+ mlGNVzUxx7Lqmb/YtrrvGY5w0IzU9iid5Z3y6Bew4q2OLQN5AdDMwTkIi/z2lvf7J9FOinfoEDs
+ Vze5uMhZrKbBBaWmeKNvFhVc2GXK0HTrjPozzioFxZ3hyQ41PRM6VN5vZ3srwsfJ2kDhz2lcrvt
+ KBepDgcB5UUrHxHEDtfOGpNbnxKmP3Kgxa8mW4I/i/oGyew5NMig6T2ZlpkVetlsJ9cxDQpVTjZ
+ JBuknTXMUAXPVNpjk+ZyVl/C2rrtssydnsnNeOY4I+OzIt9WIEE6BtD+so0I5JED8ZOBuulwd+M
+ pZuiGaCs7/cIqutYDIuncAlr8QgAEd0/aFB8CsPte8WWxEqz5E5tYWjSSneMxDqKXQ26T01aEJN
+ kcwsy825ypADI6SVMCWYwjQ==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+When a mode change is required rk_udphy_power_on() disables the clocks
+and then calls rk_udphy_setup(), which then enables all the clocks again
+before continuing with rk_udphy_init().
+
+Considering that rk_udphy_init() does assert the reset lines, re-enabling
+the clocks is just delaying things. Avoid it by directly calling
+rk_udphy_init() and skip the clock restart.
+
+Keeping the time with non-working PHY on re-init as short as possible
+helps (but does not fix!) a race-condition: The USB3 controller needs
+the PHY running to access its registers. With the PHY stopped, accessing
+the USB3 registers results in an SError. The re-init is usually
+triggered by the DisplayPort controller driver requesting the DP's side
+of the PHY. If the USB controller is already running at that point
+(which is usually the case), the system can run into the SError.
+
+A proper fix requires some API to lock/pause the USB controller from
+the PHY side, which is a bigger change. Luckily this workaround, whichis
+sensible anyways, I didn't manage to run into the SError. This is
+most likely due to the fact that the DP driver will enable the DP PHY
+directly after the USB-C cable is plugged in, before the USB driver is
+aware of new devices being available.
+
+Fixes: 2f70bbddeb45 ("phy: rockchip: add usbdp combo phy driver")
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 744cc7c642f4..98562a888b42 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -1012,8 +1012,7 @@ static int rk_udphy_power_on(struct rk_udphy *udphy, u8 mode)
+ 		if (udphy->mode == UDPHY_MODE_DP)
+ 			rk_udphy_u3_port_disable(udphy, true);
+ 
+-		rk_udphy_disable(udphy);
+-		ret = rk_udphy_setup(udphy);
++		ret = rk_udphy_init(udphy);
+ 		if (ret)
+ 			return ret;
+ 	}
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id BF44D361666
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:32 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993574; cv=none; b=ul/HAt9YcJm1J56xV8P3n4SM/Mqmqm7sXSkqQTfSJVgMGsvWGSJZrbjDFun5I3M+orTHGFivwwkNCcuSJiQ2ac5TuU4Hfrl1OWP1t07spluOmf+/1dAiO1U8e0yYmjmc1uaqdluhvkol6GlgDXfAZvHUbBSh9ClnqkK44hOWfXw=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993574; c=relaxed/simple;
+	bh=AFv/3KVzIinIaZVoV9/X3xfLJqoXvuiVXD2r4mVIsww=;
+	h=From:Subject:Date:Message-Id:MIME-Version:Content-Type:To:Cc; b=VC6L/kHmOn81lIdMpASu4ll+y4Cxh5zr4c5QulS12tG4/qzZniCsoYbJpN81hcXkLHEznf7aHcWSHmfAeXwmcfKnf4TUZV5a6EY+k0CKqGH9w7OuQ/UvuP3bTE9Q1PCuVt8qUtJ+KFRJ/DEqo0m/Q3xM0sNeexhPwoHSI7nQ3u4=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=AuscEqkA; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="AuscEqkA"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=AFv/3KVzIinIaZVoV9/X3xfLJqoXvuiVXD2r4mVIsww=;
+	h=From:Subject:Date:To:Cc:From;
+	b=AuscEqkAFwbiqXbgf+PzpkqZFbrRO6l4t9hTpwv4v8MDtt2jLwVE1yPO5Q4YN1s8p
+	 lEDaaBTZ1S37HOxmy/jNSzPB2MOz703hPpGAN/O3qy6/Tj5GWCnhtOWWQutuS2lpXT
+	 WnTJehRfFshhGdzxlL7KuVk6+1lT1DUeLtfJywrQ//bwpz/txS/EFWBPCLSFQ8tXR9
+	 R90xTQxxCuAn05G36GDh/dACx3RQhzktyOtpOuf++YY1LJ+XIVd9T5UW9KOZo3FQ6C
+	 aqNA42Z6wKnykR/r53vtFFYSCvEYVjKEfKQElxbMlpB+8cl8cIbqn4fcZqbio/eXMd
+	 pEeVxUnSF/ftQ==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id F3B3917E35C4;
+	Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A13DC480024; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Subject: [PATCH v2 0/9] phy: rockchip: usbdp: Fixes, DP 1-lane support and
+ cleanups
+Date: Fri, 13 Feb 2026 15:39:23 +0100
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+X-B4-Tracking: v=1; b=H4sIAJs3j2kC/4WNTQ6CMBBGr0Jm7Zi2hBpceQ/Coj+DTETatEI0h
+ LtbuYDL95LvfRtkSkwZrtUGiVbOHOYC6lSBG818J2RfGJRQWihRYwru4UaOuGTrI7qJzLxEbGz
+ T+sE2WpoayjgmGvh9hLu+8Mj5FdLn+Fnlz/5NrhIFSm300Cry8qJvLkyTsSGZswtP6Pd9/wIUl
+ HzYwAAAAA==
+X-Change-ID: 20260203-rockchip-usbdp-cleanup-5b59dfb561a3
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>, 
+ William Wu <william.wu@rock-chips.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1899;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=AFv/3KVzIinIaZVoV9/X3xfLJqoXvuiVXD2r4mVIsww=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6J4T1TA/ICcgouv1OxcjiqS8Pv6r3wbM
+ dgCSVEyjFgI6YkCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qaqykQAKGhSPK9pjC9N+Oe0fRcmlv8QW7GGWXRmWY9U1GCPL+0Jilz+40w3VLjBZsknJJhwI+
+ 0fhDtAfk0F+1fVeDWp3N06h2l5ohmmda3z2Y6oQUNiD/nMfHSTwLcaPA9XdAvbwuW0CskvdSsS9
+ NnnEJDjhQiC/vRNXe6T2Da+/HDmew0Qh9nc4Q0mIfgMN8UykQiwW1uYJjtvumPhiKaAr8ujWhbc
+ RsjjbWayMmo8W+s+GCRIbwQog1quEVD5euxpqD6yiquzFgqZVzwEpQmAr5XFLyvgIm0502wApBe
+ AWEetO6iHFVv8PDkR3BOV8IQb9pRJYn/F1qQ1lBeiGYlZbrgfiIJtKyL7CupFlB94u6G9PhjKHO
+ Gk3NWksgB3zDc2hfPFwcmtUgl6uPvbp8t5o3cYOKSTENq2S12PzLyrNLW2CtYSDezWQiYcGEgAB
+ QthSHebniKwWZobCoI2btRX9eZOtLsOhWZ0+pi2b2xZNdb1eKJctkEMqafmoA6pfTqps9CNTP10
+ tFBkGtw6f/NF3AaEb4jZEzY1uq5EVssuY5f8c/U0BU5+ZuGfk502UZSWoG0dvJJT51Y9HkohC/z
+ IHX+oBSFLKSPT+uZWDQlTK4m+bfZLe4kwEjZ+s50eu73uEgpl8N8YCJJgLcrpSqlK7X81gC4kUp
+ 4/PDrJmXMLclkEJkB1281VQ==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+As there are some issues with the DisplayPort support, I went
+though Rockchip's BSP kernel tree and looked for fixes. I found
+two small changes for the initial register setup, which do not
+help with the DP issue but seem sensible in general. Afterwards
+I added one more fix, which corrects an issue that effectively
+results in USB-C adapters with combined USB3+DP capabilities
+not being able to use the DP part.
+
+Afterwards I added one more patch adding single-lane DP support
+(found in Rockchip BSP kernel) and a couple of cleanups from my
+side. These are logically independent from the fixes, but I put
+all together in a single series because they need to be applied
+in the right order to avoid conflicts.
+
+Changes in v2:
+- Link to v1: https://lore.kernel.org/r/20260203-rockchip-usbdp-cleanup-v1-0-16a6f92ed176@collabora.com
+- Added new patches to fix USB3 SError
+
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+Frank Wang (1):
+      phy: rockchip: usbdp: Amend SSC modulation deviation
+
+Sebastian Reichel (6):
+      phy: rockchip: usbdp: Do not loose USB3 PHY status
+      phy: rockchip: usbdp: Keep clocks running on PHY re-init
+      phy: rockchip: usbdp: Add missing mode_change update
+      phy: rockchip: usbdp: Rename DP lane functions
+      phy: rockchip: usbdp: Use FIELD_PREP_WM16_CONST
+      phy: rockchip: usbdp: Cleanup DP lane selection function
+
+William Wu (1):
+      phy: rockchip: usbdp: Fix LFPS detect threshold control
+
+Zhang Yubing (1):
+      phy: rockchip: usbdp: Support single-lane DP
+
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 120 +++++++++++++-----------------
+ 1 file changed, 50 insertions(+), 70 deletions(-)
+---
+base-commit: 05f7e89ab9731565d8a62e3b5d1ec206485eeb0b
+change-id: 20260203-rockchip-usbdp-cleanup-5b59dfb561a3
+
+Best regards,
+-- 
+Sebastian Reichel <sebastian.reichel@collabora.com>
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id EA11D36166B
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:32 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993574; cv=none; b=H4KoHdyuAYyxgBnQnaGyxQ+t7k+iZkfhoMzFKh8gRRAZWeienU6kT/wtG7lBJbZkYJvGJ4GaX64WQaTYBSOKUXuZ4XSBcbFwdtiqGW0aW8DXMTLBgfS9pVnHgMtX3FnWYHEnDXSO+yRXdA+pj4B/ajcFxdn45UvltqmD2yI78kI=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993574; c=relaxed/simple;
+	bh=7erG1vSntiZYfDvD9BPxDXJhjGY+cucRfQBaEqe1HlY=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=pzOq15huSfuP+CihhRm94oBUIOgDMT3alMxG/JyoDdhgQ7/NBSN5SDZH7oIayuHVTM9Au0Bitsp9NkiMX5K370nEETJ/eZ9m2Ap6WbKgd9WXv/adgaqwGSdPbTfg3iKk5/DbsZlQU4rvGKu64BpvdG7gqlVD1D1+Fq6YS+nwMug=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=XbtZ3mpM; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="XbtZ3mpM"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=7erG1vSntiZYfDvD9BPxDXJhjGY+cucRfQBaEqe1HlY=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=XbtZ3mpMj0al+Y6ZnDssTMaPqGQwayBfzApX8nZ52HKOSOPbwB8106sFYPsF8Ysg9
+	 vfVrnJYZEl0UIsu+BbBFCIJkt9BqlQ+ZnrsU/RhZzmVQnmNMQ2w7+NUPOxNosHVb+a
+	 A3EqHFoQCFenki7FygUy5kVklGkxy9Gndo13T+UGv3cxVfrsb3YH2p8f2aFZ3n3Ikv
+	 t2F9rhCC8z10JlwST9Kfuu+v5Ma/uSmvoA/ztHVW7t+hm7GL7c8OdgTJqCPvNBRg+t
+	 iZMkBNU2vDKt563mGVlOycGHhrUNfXhdPdKewO3XNCgY8OBVxWD1IVpRh+h7IF8vND
+	 2vuH9HfXvNAVg==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 0236017E35CB;
+	Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A48A7480028; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:26 +0100
+Subject: [PATCH v2 3/9] phy: rockchip: usbdp: Amend SSC modulation
+ deviation
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-3-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1708;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=DmJGqquNgLK3sA4UZxU1kvwePYoRCEplGjQQLTvjtuw=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6L8/zsXW7i/yR2pli5WYUthugEfmpOo0
+ LBVJviVHxKvOokCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qavpkQAIxF+tT2W+HaPs5A98sDF2ZKHNsRow2BaJxdrhZtaRMXHNnMMWZpDz8Jrxs1bnS+eoI
+ KEOQVI4nv2uaS927aY5Lxfw4HKodj//3qQs9cvogTH32Uad/Rh45JZ0bb3eTOQIpahSZuzMeT54
+ jh0n1k9zwtm8lfIwEcKE1Xm9betrsxSsWGW6S8K5awBJqu/03276GXXKNOTGafU+9Ctq1kuUwge
+ fgVKRnRuQodmm/XtToCCV9+mAkUZDtEq8YBrtOxVozHLGXIp5IwQtSZ+eqx4oQlU0YIc+7NR2jp
+ seVSoxfUzYhZbyTFkvsjQtiUpO/euLYzOYJrWJqGXrd2fCRVHyzn1rwZpcN5P2JRf+omAeB5TKj
+ lqzTDrcOGY1RLm2PWgO4n+QCV7Gnhpym0Mi5hLOUjioHK6JxmYfc/lfm3iaucnaH9G64eDNlKfP
+ ZlkLvOLJ9DkfOG2SSIejirqXIayu/EMz9qSNwUeh3mg/sVoMeYMIK62Do7PJKztrDm5WZ2t3IPt
+ c3jTTGfAKraWD9A7CFftCDqtzDbnzwbxhUsXehamKFeLx5A1XVPr/xUsKg1Lul5FVCqamDpQidO
+ Q59YCEse31kzqfuntdF283vG+yDgccQuuaQ9yPPe2x/80lChip3/X5EzCSgebEBrzZzmO1ZmXKt
+ IVp4sgiGPBVMcme4sLuQwHQ==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+From: Frank Wang <frank.wang@rock-chips.com>
+
+Move SSC modulation deviation into private config of clock
+
+ - 24M: 0x00d4[5:0] = 0x30
+ - 26M: 0x00d4[5:0] = 0x33
+
+Signed-off-by: Frank Wang <frank.wang@rock-chips.com>
+[Taken over from rockchip's kernel tree; register 0x00d4 is not
+described in the TRM]
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 98562a888b42..1f686844c337 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -350,7 +350,8 @@ static const struct reg_sequence rk_udphy_24m_refclk_cfg[] = {
+ 	{0x0a64, 0xa8}, {0x1a3c, 0xd0},
+ 	{0x1a44, 0xd0}, {0x1a48, 0x01},
+ 	{0x1a4c, 0x0d}, {0x1a54, 0xe0},
+-	{0x1a5c, 0xe0}, {0x1a64, 0xa8}
++	{0x1a5c, 0xe0}, {0x1a64, 0xa8},
++	{0x00d4, 0x30}
+ };
+ 
+ static const struct reg_sequence rk_udphy_26m_refclk_cfg[] = {
+@@ -377,7 +378,7 @@ static const struct reg_sequence rk_udphy_26m_refclk_cfg[] = {
+ 	{0x0c30, 0x0e}, {0x0c48, 0x06},
+ 	{0x1c30, 0x0e}, {0x1c48, 0x06},
+ 	{0x028c, 0x18}, {0x0af0, 0x00},
+-	{0x1af0, 0x00}
++	{0x1af0, 0x00}, {0x00d4, 0x33}
+ };
+ 
+ static const struct reg_sequence rk_udphy_init_sequence[] = {
+@@ -412,8 +413,7 @@ static const struct reg_sequence rk_udphy_init_sequence[] = {
+ 	{0x0070, 0x7d}, {0x0074, 0x68},
+ 	{0x0af4, 0x1a}, {0x1af4, 0x1a},
+ 	{0x0440, 0x3f}, {0x10d4, 0x08},
+-	{0x20d4, 0x08}, {0x00d4, 0x30},
+-	{0x0024, 0x6e},
++	{0x20d4, 0x08}, {0x0024, 0x6e}
+ };
+ 
+ static inline int rk_udphy_grfreg_write(struct regmap *base,
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id AC4EB22E3F0
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:32 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993573; cv=none; b=d5vDnIZoSSauFVvAqMIPk9onTa6AFJjVnrGT/DErk7xg9DUvBfY4WcrEbgxEc2eskHys3xk4DNdrDiXHzuMahcwP8bhkSFFmy2YPx49wGh5vmGHVsoeRPWH1rU818l+yIMXMFVCCvm0Ghsg6gjBHUvVmmeoQvm6nhX/9//8guLs=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993573; c=relaxed/simple;
+	bh=nkXYQxPq+lB3vzjnwGcNOGOuenfLKxQwMSun5YGuw0M=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=UyXqXQtreZ0Tn+WPwm/NMs2cAJ23Agtx68XP9TPYInuOgWG94rymujUDpszPPOgDdcfNJ7YZ9c+QutBYIfVitob1YBz/IpluyhAyNSvyYCf3RAxbseXTKxuZIffNCRJ5z4GUAPUuNAOmLVRsUupeAaMzcmyvWQGXZQwcK8oVFuA=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=WjPWzo80; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="WjPWzo80"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=nkXYQxPq+lB3vzjnwGcNOGOuenfLKxQwMSun5YGuw0M=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=WjPWzo80zImLgGFoMw6PLU9crMiXM1rmf0/zYICM/d4ST5SrXaS/RS91Oadv3QP/f
+	 AOpBdSsq2t8zMkFl1Se1IuJYzvsUnp8YZQmZoiJSHAr+hFShXNtmUctUO8CObV6fmV
+	 8w6z1jBx6pkE2OSj4x0R9jLLs8Pf46N1nt8v1Kok3hw5EQLd1nboqEbOgieQHHqNs/
+	 cm5ZfbT15ileraeqnckGxGVNXM1kPIUNT1SkY1ryk5rxVvVw3pBfB8ZBm51wUloeqV
+	 mTcOY7hDGpuP+4iwCUcC+JDFMYEd5XzV1X7WX4jOyUq4tO07HHnIs7s7S640c52UvQ
+	 JCWyaUjT7UxUw==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id F125017E0C21;
+	Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A5D1E480029; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:27 +0100
+Subject: [PATCH v2 4/9] phy: rockchip: usbdp: Fix LFPS detect threshold
+ control
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-4-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>, 
+ William Wu <william.wu@rock-chips.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1464;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=idTUPP5e91uhF/EzTIc6KkaVZGLtsNP2d+inYWbkKyo=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6IqwDxfz1aUT1ZBR3lZSM3/i+R6o6LJV
+ XktVQhWf3UviYkCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qaquYP/2TJwLaJlvW6UKYe+deia1zmDIUc5QiD1iJppCMfer4jkB2ei33ZsFyKz68Y0iFFTS6
+ W64TT4VVxZvgmBEeU539QrxLJvdpnRH/jGY92dpK7RKELS6I6hFE/88fdPy9Q0EE/9EA5Hthtrk
+ K4yJ57Gli3uwbe+dPGP0aE5p8jX3D2rR0ZDqJmWOJa7zSTJF4TCpVRpcUBD4TBFy+iyrHMfk2kH
+ XO/noYoDV6/oqIfgrtO/7pFgQZb+yGElU5W8OIP9aRMikCJtyVe7OmVA0TTPK2qcBMsAUnzYOLb
+ 69hQsPGMghqHXXkfe5RJzC8iJGm09XILBn8eRSR99MNtDJRzbuVj3hiHDMKFUii16MNzaXT5VI2
+ D7YKcd4qub//to4XKmYW4ymXXT17N6lu6qytOrJS+qTioebgorK/lUlFlWNs+spUsf9in2Fw+ym
+ ViSTI7VqZ2RPElcyGw9+MLBXBRmseAVSrvfvgdrOueGnvoabukupm/5gfr8hCXwXCFUkMDiPE6b
+ aWxGmbBjcsF/vnQou9q7oRBq6idjfvkeplw6Kg7r0BpinTzp6337peJISzd8L8u0y+fWL8cPSCV
+ 9BDfcO2X0abcM+R1QV8P1d3QQ/lS5RQMw9QuIHoko3BiJX/Gy58iwEY1Lm1sDXbameGAWYqKn72
+ AlWiUr3m5ajzX1EZOBuY1tw==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+From: William Wu <william.wu@rock-chips.com>
+
+According to the LFPS Tx Low Power/LFPS Rx Detect Threshold [1],
+the device under test(DUT) must not respond if LFPS below the
+minimum LFPS Rx Detect Threshold 100mV. Test fail on Rockchip
+platforms, because the default LFPS detect threshold is set to
+65mV.
+
+The USBDP PHY LFPS detect threshold voltage could be set to
+30mV ~ 140mV, and since there could be 10-20% PVT variation,
+we set LFPS detect threshold voltage to 110mV.
+
+[1] https://compliance.usb.org/resources/LFPS_Rx_Tx_Low_Power_Compliance_Update_Rev5.pdf
+
+Signed-off-by: William Wu <william.wu@rock-chips.com>
+[Taken over from rockchip's kernel tree; the registers are not described
+in the TRM]
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 1f686844c337..97e53b933225 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -413,7 +413,8 @@ static const struct reg_sequence rk_udphy_init_sequence[] = {
+ 	{0x0070, 0x7d}, {0x0074, 0x68},
+ 	{0x0af4, 0x1a}, {0x1af4, 0x1a},
+ 	{0x0440, 0x3f}, {0x10d4, 0x08},
+-	{0x20d4, 0x08}, {0x0024, 0x6e}
++	{0x20d4, 0x08}, {0x0024, 0x6e},
++	{0x09c0, 0x0a}, {0x19c0, 0x0a}
+ };
+ 
+ static inline int rk_udphy_grfreg_write(struct regmap *base,
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id AC574360750
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:32 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993573; cv=none; b=eoI0bvzKCa9PuiUmsSF+RaJr8mj4hpfb09LyCCSxI8s/YQmwRGLhwWP62QQN8wt3xHKt2907XuQIJV4BjUTQgf88kJ9hyCHx+MzT9DPQiyCHj4yA3tJ6tYjvR103chgxgGOKwwp3ahe3Jm8ijKi1UJuZVOLKrMlM/yChq33zOSA=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993573; c=relaxed/simple;
+	bh=eMQSoA3yBQNOiKbh6HTmD8tTsyMPezXp/4Ipf/FEVXQ=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=MU0BxyvwsTpWpHLCDuqGgOrwha0FtJF5YMgQkDXVLH4/QgetJb2MtcfCe5Mo13HleSoUDmlfXHnHYZTD6sA5eIZAT8VdQqnM8rUbvl7+fI4KQozWvqqI7GzwiKg1u9dBnLxqUK35O70ytQ+5EJ1BmZdyAklcTXimKAFFZ+BJyBA=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=UG1st0WR; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="UG1st0WR"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=eMQSoA3yBQNOiKbh6HTmD8tTsyMPezXp/4Ipf/FEVXQ=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=UG1st0WRv3msU4i2ml9gRkoKmwYXfwHDdcvOnZTHV2r86/S0Wiq24S8M2avYUL7xw
+	 odigbnosHtxYz4LRDcH5rT/6/+HpiKiQq5HuYMohc1XKOLCbHtr9pLqemijK3B4ORC
+	 OPkRBbSJPj1mDwvt25Dyo/TUBXucmZkLSiJLtrlDRyiCoD4aGLKmD6eF5VCR8te8yt
+	 O8S82mlaWcb65uybpxpHCFnS6eoY6f+dYSf8YJFWvhBlYz25ql2C8uU0sDfjjUytzL
+	 tRP7sqIAtF3Gz9RO8gchSWZ18PeRSUlU+8gCszZaf/xq1meJ5MEfIgVzAtdq2J+92q
+	 w6EpVHcEqsAzg==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id F266317E151C;
+	Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A325B480023; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:24 +0100
+Subject: [PATCH v2 1/9] phy: rockchip: usbdp: Do not loose USB3 PHY status
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-1-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1410;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=eMQSoA3yBQNOiKbh6HTmD8tTsyMPezXp/4Ipf/FEVXQ=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6JwlQ5sVLw+EsxuN6XzwX40cw5FSQpxW
+ zefZ9/KuguLU4kCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qaW+0QAIdSqpWu+mTVk0DJBfUoKmS+bJbm2OSRrX12DmzA0bM651LYlcILZ4rJI6goLbXW4Tq
+ CKlx6yTBYBpuDS325Oovnp/fAabAaNjOp2Pb/BNpCCVe7ycIP1TJjnA5q7XWsJxbeR/uO5g6mMn
+ N89ZNW2px7L7QxwQ+pbD6cOTPXM4YkfbfudCDIrLgaXXzBx/3dEv0naKJYwy+iGGKR/6zJd9NUS
+ 2AZFY7Qsxzh1uwrt24L+QE8funtctJ8v5TKZurj0X+WEamez5LGsTZ9Mn3MzIGwfdRDeKZiDURe
+ Pog/DXpZDzhkIhoN61phxozQwOUSdzwluueuq2OhFAyoGZVVYco6eIOKp82vq1blQrLj7L1mU1v
+ ZnL2GUEcUzW8wXWCLX6Ve0uLF1G2xkZFhrCZujmTyCdZg1hshqJMy5GgD3Wm66RGmp7+tqM/9Lm
+ dSEi2joWeBC6TxSr85slTQt2ael1uejp7kQ/lglE+IEz+aHg9GqnErlxDvNgdL/0Cwfww5+Bi4q
+ vKdrGpHKJxtVyut5FXHMSL07clmhhd4HDTTqvHVZ16Y9cAS2rDVb13irm1pOl/C2thqS4uRk1kx
+ SRBPGIGyQHvjoUJl8wvyK3njGRKopZvHXpzggsdVH8y9ilHVAkWDXJj8hnKupYHPlVt4lFI4iI4
+ cfkYae96aJRIZvObfb5YxUA==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+By default (i.e. without manually enabling runtime PM) DWC3 requests the
+USB3 PHY once and keeps it enabled all the time. When DisplayPort is
+being requested later on, a mode change is needed. This re-initializes
+the PHY. During re-initialization the status variable has incorrectly
+been cleared, which means the tracking information for USB3 ist lost.
+
+This is not an immediate problem, since the DP side keeps the PHY
+enabled. But once DP is toggled off, the whole PHY will be disabled.
+This is a problem, because the USB side still needs it powered.
+
+Fix things by not clearing the status flags.
+
+Fixes: 2f70bbddeb45 ("phy: rockchip: add usbdp combo phy driver")
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index fba35510d88c..744cc7c642f4 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -1009,7 +1009,6 @@ static int rk_udphy_power_on(struct rk_udphy *udphy, u8 mode)
+ 			rk_udphy_u3_port_disable(udphy, false);
+ 	} else if (udphy->mode_change) {
+ 		udphy->mode_change = false;
+-		udphy->status = UDPHY_MODE_NONE;
+ 		if (udphy->mode == UDPHY_MODE_DP)
+ 			rk_udphy_u3_port_disable(udphy, true);
+ 
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 7A22E3624B1
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:35 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993577; cv=none; b=SfyQtcY+wGOr71b79gjTq9J+mclSljClOJq3Jlngl8HpqqamrFGQ6QAVAXsvLa6HudgCLoU9BDvbUZOdnNSSQ21YIz1xSPqHEqjARf47aqj70trRz5tAS+XOE+mlASgtKWaMVrGkgVDCCo6zI/QWf85SOvQohUhZ83V5law9X+g=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993577; c=relaxed/simple;
+	bh=t6Qag4fKlcyNQ2bp0g4W2ytwsSllPhCO59J7cdiOxhM=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=S+poi1OsguXcMnaTqHPNEVPg79yrjM1g/tuyUksZI3WlKj7mmnl5ON+IOUmn1WNHUlXFOIyYdiF+V+CzDkCMUzUGFnAfCsmB/63FEwwH4Gj18BpM1Fz8kZYjLT7IEM8+VtJsefMHWtsqPjUR2u3FVBJAlaH5FH8+OLp2vsUQ330=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=RRpsbayg; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="RRpsbayg"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=t6Qag4fKlcyNQ2bp0g4W2ytwsSllPhCO59J7cdiOxhM=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=RRpsbaygo1BeDiuT2/NKjKXgSBBlqdXfdb+poydH/dIMU6vpEGI8aSezm5vX3bFvY
+	 xebMtytqL2UkoMoJdDOvXbRQ1H0uDoDMO2uuc57xvmpjJ4rgXFbCexdcMbj6drTxg4
+	 /StDBINseVeXs+eBJWBzprpa+6q6IBuj/MrrTqrfR1Qzs1VBpoz+TrmW6dIIAAjIPG
+	 cijxToT7B8dbMCygyiBF0HbCIfoT/qOHug749CvwTRVLnGpMjBnuQ6dJk17xBItY47
+	 BX4wXX7YxY18dnkzeUZSmTtnfLxp+tR/YWzyt2bGNVhBvQpYB9ClzbDOJUoHAlGJKD
+	 /m8oRS5YoBiZA==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits))
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 6776817E35DB;
+	Fri, 13 Feb 2026 15:39:31 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id AC53948002E; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:32 +0100
+Subject: [PATCH v2 9/9] phy: rockchip: usbdp: Cleanup DP lane selection
+ function
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-9-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=2099;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=t6Qag4fKlcyNQ2bp0g4W2ytwsSllPhCO59J7cdiOxhM=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6JpbUWKX7+fFbjU3EViR0yPRehliYy8k
+ ERY6cluu0Na0okCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qap1cP/3kkujbXo/HgYJ18VQnowLv/vL6GHBhRS869P4YFbM4d8P/ChC/cp9NnqvcmuC2zhYv
+ tOmXwqd901CuvixhSyT6CLN49HQ31+NCESPUyHpF+ePxHZaysBKsRVcZOi5ypTIt4LFjYO5AO7n
+ AYPepPLLVEly2Gr6TdxkZ2DQeFLrxIs0hSoASPgfyemH2nshOWvZ3KYCM25S+DDvaPqgtzupp1S
+ PiJ67Wf7Gd7q39uWQ+0shIQ4+sTz91ZejTH4Zxs3MeEcKWmXKZrbWUOscSB3J+j84z1lp6dF7z+
+ fkVSEIDGeI04Ro4aIpEfrDgg9Wid9szCxQ0K0SuHsHHyg8dNHDHqYzOWnU9kkf2LT3+EbbUfzmh
+ rHhjtAGq1pTquHLHTXToz4QR7xv4hdr5lfsnY7VYNvgh4RnbQBonnO1sqdzfwDRQy8Ikg+9iCW9
+ vBvbmLOt/OGzydnVg96KexlRy9hN0wyzup5a4jwdTBTUxcSGVt2nu4/Z91Hd61MM9q/u9bjxNuR
+ J8lE5+6CVw1A4+6O4WwijjslHc17G5Sv/9zk71zAZ3+9Bl285nPCoTx3wlHOXj2ksQiR9VXdoWJ
+ QKpGv/bog2gkd3bBjO9fX0fMNWNINybxyRe9iM1h6UBPvXv5Zu/+2p2Y0U9uIMj/VtCmGafhEBx
+ uR1bCTivZbAZ3f0oZNzs2nQ==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+Use FIELD_PREP_WM16() helpers to simplify the DP lane selection
+logic.
+
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 30 ++++++++----------------------
+ 1 file changed, 8 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 1bfc365e2b2c..c2f52b7125d3 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -3,7 +3,7 @@
+  * Rockchip USBDP Combo PHY with Samsung IP block driver
+  *
+  * Copyright (C) 2021-2024 Rockchip Electronics Co., Ltd
+- * Copyright (C) 2024 Collabora Ltd
++ * Copyright (C) 2024-2026 Collabora Ltd
+  */
+ 
+ #include <dt-bindings/phy/phy.h>
+@@ -550,30 +550,16 @@ static void rk_udphy_usb_bvalid_enable(struct rk_udphy *udphy, u8 enable)
+ static void rk_udphy_dp_lane_select(struct rk_udphy *udphy)
+ {
+ 	const struct rk_udphy_cfg *cfg = udphy->cfgs;
+-	u32 value = 0;
+-
+-	switch (udphy->dp_lanes) {
+-	case 4:
+-		value |= 3 << udphy->dp_lane_sel[3] * 2;
+-		value |= 2 << udphy->dp_lane_sel[2] * 2;
+-		fallthrough;
+-
+-	case 2:
+-		value |= 1 << udphy->dp_lane_sel[1] * 2;
+-		fallthrough;
++	u32 value = FIELD_PREP_WM16(DP_LANE_SEL_ALL, 0);
++	int i;
+ 
+-	case 1:
+-		value |= 0 << udphy->dp_lane_sel[0] * 2;
+-		break;
++	for (i = 0; i < udphy->dp_lanes; i++)
++		value |= field_prep(DP_LANE_SEL_N(udphy->dp_lane_sel[i]), i);
+ 
+-	default:
+-		break;
+-	}
++	value |= FIELD_PREP_WM16(DP_AUX_DIN_SEL, udphy->dp_aux_din_sel);
++	value |= FIELD_PREP_WM16(DP_AUX_DOUT_SEL, udphy->dp_aux_dout_sel);
+ 
+-	regmap_write(udphy->vogrf, cfg->vogrfcfg[udphy->id].dp_lane_reg,
+-		     ((DP_AUX_DIN_SEL | DP_AUX_DOUT_SEL | DP_LANE_SEL_ALL) << 16) |
+-		     FIELD_PREP(DP_AUX_DIN_SEL, udphy->dp_aux_din_sel) |
+-		     FIELD_PREP(DP_AUX_DOUT_SEL, udphy->dp_aux_dout_sel) | value);
++	regmap_write(udphy->vogrf, cfg->vogrfcfg[udphy->id].dp_lane_reg, value);
+ }
+ 
+ static void rk_udphy_dp_lane_enable(struct rk_udphy *udphy, int dp_lanes)
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 63F033624A7
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:35 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993576; cv=none; b=XYZwc0ppCJ5QLyhsyC6tBVvReH5GTA4HW5bgT6UB+aX5pgMGOCWgza9Mcc4auEmjmiEZQZoIu0oYTHd2xZZ+g4f49u+TcqcFYJeA+Dy7hCqwL8kz/f+1EvERrOLovCFH0z2ubAt5AgGXVyXI5UE0hYaGM96X2DZhGXeXEvt3K/g=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993576; c=relaxed/simple;
+	bh=wJZwMH5VNSE/o5UNMK6zuMUZDJCLHOUN4lmKhidacts=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=T5ffjLqNsy5azWMrPZIGfy9me8Sfda00vXIfmYyJaaidM7LoPg16K/em4SVjl3m/GmCCym1yVipkSLt9FGsjxnMHG+arbJctoG36gm7cNQaYq1RBq0K7yjFEgV/+hXKO6mz767Q3Qj0u1H3SkLMz6ne78wN5lZM1TqO3C9X7a04=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=d4P/UOrn; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="d4P/UOrn"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=wJZwMH5VNSE/o5UNMK6zuMUZDJCLHOUN4lmKhidacts=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=d4P/UOrn67uHWFvw6Br0qmMLgCfchrD2APunCATJT+8atNfOYuVMUGKo/20J1KKuv
+	 Z7Xm+bOW8/+bXWLjR4O0T0gP1snz6GYaXLmTOq6xmmvotwzrx5HCAVv3OZe6mfpECH
+	 xCPuLa5NajwoQRHV1e9vAWimxsSmF1H1ycvSFuvFhEoO2q0vymq8KPfEmdU1N+qb6R
+	 vDunMW7/asrj0UENr75+vw+F0UsuwOzdOJyWX029odLVbTKaePSj3vzmHMuUWO1r8N
+	 awcYoDD9x9TORYL4n6CmCTwNg1emtR1zVMhwYMQDwiPhWqadf70SI6JxLPTcBZb0gZ
+	 1nbUPjZnLkceg==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits))
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 6798217E35DC;
+	Fri, 13 Feb 2026 15:39:31 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id AAD4248002D; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:31 +0100
+Subject: [PATCH v2 8/9] phy: rockchip: usbdp: Use FIELD_PREP_WM16_CONST
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-8-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1489;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=wJZwMH5VNSE/o5UNMK6zuMUZDJCLHOUN4lmKhidacts=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6J8qWsmaF7tuteYMKNHtx/ukhITmdoaz
+ WoVEoFmj/ZxeIkCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qamqoP/jN9NNvXsp9yErGx8UmQJ3nzfrd7W6VJBYhTU8cY1tQrQShqfe1ApTVF1D3HjoX9SOj
+ ex4sNRP4WzxIv7vgMELmcHQbv7jPwbPECn2wA0IWTX9GZ5YdbageUreaqAgL64qEDjyqWPj0hE7
+ qvjPqPpQ0+yYvEOzHJod1/S0heE6Lz14eX8zMHXVDmWTfGA3PtYTKhXgQGJ3FW7H/4iecZNaQ5W
+ qXO3A8hcWpeMpkOmzAEwCggG7bWvI0GbOuvOAhnTJpQ4uK1a8az7ANwfY8arJ+GsUtVzGVd9Fm+
+ daP1CLTHWISFg0TDZRNrWEqwU3ExwutfWbpWxQdV9iusa/9Dzt2sdh/rn8K2VnuDvejbl8WwmVp
+ 46X+vEr1dQq6lUG3pTt384qHSpYjO7DGfTKLIsO/EYt/ZPp+EvS2uVISYbFZc8rDjT1vOTT2NpL
+ fqqmtEZDNdaMru1Rf41y67qC/3RXbPvUUeVoCZfYiRlbQPUS5zHuaGw4TQ8P9IAYwf4A+xlmrOX
+ vBW7RC2AR5dQMgVHrpHSwjo3KHT7dxoiu/EH3uIZG8IkRKbP43pSMoiWl5mZkQE3KbpDsl+pFT7
+ Ia6xJxRbWegkJ6vEVH2jOkeMs9PRlhsIeP5Hb2AxXFED2riAoNbRDiOmTb6WreDwKz2pJO5X/u9
+ cnownPMKHItNBL+ijYwUzcQ==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+Cleanup code by replacing open-coded version of FIELD_PREP_WM16_CONST
+with the existing helper macro.
+
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 6d7ca11b308e..1bfc365e2b2c 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -12,6 +12,7 @@
+ #include <linux/clk.h>
+ #include <linux/delay.h>
+ #include <linux/gpio.h>
++#include <linux/hw_bitfield.h>
+ #include <linux/mfd/syscon.h>
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+@@ -75,7 +76,6 @@
+ #define TRSV_LN2_MON_RX_CDR_DONE_OFFSET		0x1b84	/* trsv_reg06E1 */
+ #define TRSV_LN2_MON_RX_CDR_LOCK_DONE		BIT(0)
+ 
+-#define BIT_WRITEABLE_SHIFT			16
+ #define PHY_AUX_DP_DATA_POL_NORMAL		0
+ #define PHY_AUX_DP_DATA_POL_INVERT		1
+ #define PHY_LANE_MUX_USB			0
+@@ -104,8 +104,8 @@ struct rk_udphy_grf_reg {
+ #define _RK_UDPHY_GEN_GRF_REG(offset, mask, disable, enable) \
+ {\
+ 	offset, \
+-	FIELD_PREP_CONST(mask, disable) | (mask << BIT_WRITEABLE_SHIFT), \
+-	FIELD_PREP_CONST(mask, enable) | (mask << BIT_WRITEABLE_SHIFT), \
++	FIELD_PREP_WM16_CONST(mask, disable), \
++	FIELD_PREP_WM16_CONST(mask, enable), \
+ }
+ 
+ #define RK_UDPHY_GEN_GRF_REG(offset, bitend, bitstart, disable, enable) \
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 7A1AD3624B0
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:35 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993577; cv=none; b=CUl5ANvXIqKPwFjQzsAPqveiL932j8rzS/ZdzOIz8jTZ//hvFGNdIdt+lnxLogFKpv9ebkd2cuMeb+Z37RYX2tKlWhrBXWTW4dD+q99jQZs9/IoUs1VDaFhAO6/Xa/u9aF5DnnXZpnySuXQaGYIhOZzpwnpXY8ROQCjwpXWPIJE=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993577; c=relaxed/simple;
+	bh=qMiM+y23mMIV/O2+DsAFTwCJPGth2zOC8TvDV61Cnco=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=rtnuFQEsa/PU3AW2PapUshCOU3FSfmZUDqYIj7ME5UsL7dbJm9xzdU0GuVUJvv1EA13KTMK+aYf0ijNYX8o3njwfwVHrI2GQl94MI2wgm3j/le4y0ivdHMnunTMKQhlNUNDmbeJYWlDHjE6gvf17efytvSME67yun9etMbYWg4g=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=aLx3sYtD; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="aLx3sYtD"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=qMiM+y23mMIV/O2+DsAFTwCJPGth2zOC8TvDV61Cnco=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=aLx3sYtDvlnned6DOUihKVHj41pbpib040UbF+CPy+pTng3A2papWcXtIj4HdhN/h
+	 Caa2/6xivnQFYqS1X1Xl3z+3cEffPtK0t07SleajVVrsSeKUAtZFPzUdnBbOY6z/0t
+	 8GB51SewCWDZYC5ZGvdGH7Oh6I2la7yCgXvOYStAW0YDviO0IN9A6zHZNtOM7g1s0F
+	 EdVOn1tKov3E5qnzUB/wC6XjAegCn/1Ct5zbcumzbTz0LmkYQ2t3dJ8yP6sFEIhPZt
+	 f/z3maNJoSiGZiNJVqbQ4GsRtutqHHMDP3zHtcJi9HkL9jMrrhrSJfsM1JgVQ1RbF5
+	 ruOeGnZuGWR7Q==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits))
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 6090817E35D2;
+	Fri, 13 Feb 2026 15:39:31 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A89D748002B; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:29 +0100
+Subject: [PATCH v2 6/9] phy: rockchip: usbdp: Support single-lane DP
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-6-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=5209;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=ioOYbBoPnii0Ssh3FoAynz8BRGrqgJ5P5pyx9vo4JGQ=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6Kw6o6cRC+Nulqa/iqY9hEKi1x5mQvev
+ RbuU+YAC7AHU4kCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qaQTAP/Rv/GVnDDMuQfbPFHRS20ChggxZ4hT9jpg9vo/dtCyCKHQUvxtmxmD+kTBb5jDYMh5I
+ Cg9YHyox21KS0AaOEd+bOR9djhIebeW4AY1YMzZSXHBLCZctMbMhOaTzvl82J+yrMNBMz56tugz
+ EVvhZgwMTHfHWqykFdIagTXn6RmiXLT9I5unthTMJEvU2swaWpnDALk3rGbgvFwvznSUlfMWZRz
+ 3mCey1NKyGDAN50bGcAe8bUydZ2S14ivv0iboNqbN9pKXuh5WsxWVkfYRCoICCk86dBKjpucfGv
+ +Qe5+yVC2HFly8CpQSIFo9HRuOIFeGrBXmvP2EeNPzSPu4swFIMErdrtPSvjacId5Lgh29HOVnE
+ H1HJdSSrLg60HBD1MUVbaJ8fy7ZUCTMvB2liXnbgipacue0el4b1HXB5ThqnUcLQkgYRy7gzqMJ
+ tBLlxX/W/JZGGSbzzSwAbRqQNUqiPI7+k99qtBIEw+xBW9V3tsNxfmLD/0qBEwv7vr1FZhm/opo
+ CvO97Ijo/ztAuVag4mLaPIqM68btPS/srckJNiqrx8yAF/O0a5QPz8LpWkxkUS7VQNXuo5Hj1Wq
+ k/7jZkOBYoxhuGh/FoNi++VJdLdAW1jGktRHzFYNpFHD56wVLzQTPzHtFqFOct9aJDxpczqy+Zn
+ EOKewC8zU2sTadzB+SncnFQ==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+From: Zhang Yubing <yubing.zhang@rock-chips.com>
+
+Implement support for using just a single DisplayPort line.
+
+Signed-off-by: Zhang Yubing <yubing.zhang@rock-chips.com>
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 61 +++++++++++++------------------
+ 1 file changed, 25 insertions(+), 36 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index febc148a754e..bf8394174294 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -193,6 +193,7 @@ struct rk_udphy {
+ 	int id;
+ 
+ 	bool dp_in_use;
++	int dp_lanes;
+ 
+ 	/* PHY const config */
+ 	const struct rk_udphy_cfg *cfgs;
+@@ -537,6 +538,13 @@ static void rk_udphy_usb_bvalid_enable(struct rk_udphy *udphy, u8 enable)
+  * <0 1>                  dpln0         dpln1       usbrx         usbtx
+  * <2 3>                  usbrx         usbtx       dpln0         dpln1
+  * ---------------------------------------------------------------------------
++ * if 1 lane for dp function, 2 lane for usb function, define rockchip,dp-lane-mux = <x>;
++ * sample as follow:
++ * ---------------------------------------------------------------------------
++ *                        B11-B10       A2-A3       A11-A10       B2-B3
++ * rockchip,dp-lane-mux   ln0(tx/rx)    ln1(tx)     ln2(tx/rx)    ln3(tx)
++ * <0>                    dpln0         \           usbrx         usbtx
++ * ---------------------------------------------------------------------------
+  */
+ 
+ static void rk_udphy_dplane_select(struct rk_udphy *udphy)
+@@ -544,18 +552,18 @@ static void rk_udphy_dplane_select(struct rk_udphy *udphy)
+ 	const struct rk_udphy_cfg *cfg = udphy->cfgs;
+ 	u32 value = 0;
+ 
+-	switch (udphy->mode) {
+-	case UDPHY_MODE_DP:
+-		value |= 2 << udphy->dp_lane_sel[2] * 2;
++	switch (udphy->dp_lanes) {
++	case 4:
+ 		value |= 3 << udphy->dp_lane_sel[3] * 2;
++		value |= 2 << udphy->dp_lane_sel[2] * 2;
+ 		fallthrough;
+ 
+-	case UDPHY_MODE_DP_USB:
+-		value |= 0 << udphy->dp_lane_sel[0] * 2;
++	case 2:
+ 		value |= 1 << udphy->dp_lane_sel[1] * 2;
+-		break;
++		fallthrough;
+ 
+-	case UDPHY_MODE_USB:
++	case 1:
++		value |= 0 << udphy->dp_lane_sel[0] * 2;
+ 		break;
+ 
+ 	default:
+@@ -568,28 +576,6 @@ static void rk_udphy_dplane_select(struct rk_udphy *udphy)
+ 		     FIELD_PREP(DP_AUX_DOUT_SEL, udphy->dp_aux_dout_sel) | value);
+ }
+ 
+-static int rk_udphy_dplane_get(struct rk_udphy *udphy)
+-{
+-	int dp_lanes;
+-
+-	switch (udphy->mode) {
+-	case UDPHY_MODE_DP:
+-		dp_lanes = 4;
+-		break;
+-
+-	case UDPHY_MODE_DP_USB:
+-		dp_lanes = 2;
+-		break;
+-
+-	case UDPHY_MODE_USB:
+-	default:
+-		dp_lanes = 0;
+-		break;
+-	}
+-
+-	return dp_lanes;
+-}
+-
+ static void rk_udphy_dplane_enable(struct rk_udphy *udphy, int dp_lanes)
+ {
+ 	u32 val = 0;
+@@ -659,6 +645,7 @@ static void rk_udphy_set_typec_default_mapping(struct rk_udphy *udphy)
+ 	}
+ 
+ 	rk_udphy_mode_set(udphy, UDPHY_MODE_DP_USB);
++	udphy->dp_lanes = 2;
+ }
+ 
+ static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+@@ -897,7 +884,7 @@ static int rk_udphy_parse_lane_mux_data(struct rk_udphy *udphy)
+ 		return 0;
+ 	}
+ 
+-	if (num_lanes != 2 && num_lanes != 4)
++	if (num_lanes != 1 && num_lanes != 2 && num_lanes != 4)
+ 		return dev_err_probe(udphy->dev, -EINVAL,
+ 				     "invalid number of lane mux\n");
+ 
+@@ -923,7 +910,8 @@ static int rk_udphy_parse_lane_mux_data(struct rk_udphy *udphy)
+ 	}
+ 
+ 	udphy->mode = UDPHY_MODE_DP;
+-	if (num_lanes == 2) {
++	udphy->dp_lanes = num_lanes;
++	if (num_lanes == 1 || num_lanes == 2) {
+ 		udphy->mode |= UDPHY_MODE_USB;
+ 		udphy->flip = (udphy->lane_mux_sel[0] == PHY_LANE_MUX_DP);
+ 	}
+@@ -1074,18 +1062,17 @@ static int rk_udphy_dp_phy_exit(struct phy *phy)
+ static int rk_udphy_dp_phy_power_on(struct phy *phy)
+ {
+ 	struct rk_udphy *udphy = phy_get_drvdata(phy);
+-	int ret, dp_lanes;
++	int ret;
+ 
+ 	mutex_lock(&udphy->mutex);
+ 
+-	dp_lanes = rk_udphy_dplane_get(udphy);
+-	phy_set_bus_width(phy, dp_lanes);
++	phy_set_bus_width(phy, udphy->dp_lanes);
+ 
+ 	ret = rk_udphy_power_on(udphy, UDPHY_MODE_DP);
+ 	if (ret)
+ 		goto unlock;
+ 
+-	rk_udphy_dplane_enable(udphy, dp_lanes);
++	rk_udphy_dplane_enable(udphy, udphy->dp_lanes);
+ 
+ 	rk_udphy_dplane_select(udphy);
+ 
+@@ -1365,6 +1352,7 @@ static int rk_udphy_typec_mux_set(struct typec_mux_dev *mux,
+ 		udphy->lane_mux_sel[2] = PHY_LANE_MUX_DP;
+ 		udphy->lane_mux_sel[3] = PHY_LANE_MUX_DP;
+ 		mode = UDPHY_MODE_DP;
++		udphy->dp_lanes = 4;
+ 		break;
+ 
+ 	case TYPEC_DP_STATE_D:
+@@ -1381,6 +1369,7 @@ static int rk_udphy_typec_mux_set(struct typec_mux_dev *mux,
+ 			udphy->lane_mux_sel[3] = PHY_LANE_MUX_DP;
+ 		}
+ 		mode = UDPHY_MODE_DP_USB;
++		udphy->dp_lanes = 2;
+ 		break;
+ 	}
+ 
+@@ -1529,7 +1518,7 @@ static int rk_udphy_probe(struct platform_device *pdev)
+ 		ret = PTR_ERR(udphy->phy_dp);
+ 		return dev_err_probe(dev, ret, "failed to create DP phy\n");
+ 	}
+-	phy_set_bus_width(udphy->phy_dp, rk_udphy_dplane_get(udphy));
++	phy_set_bus_width(udphy->phy_dp, udphy->dp_lanes);
+ 	udphy->phy_dp->attrs.max_link_rate = 8100;
+ 	phy_set_drvdata(udphy->phy_dp, udphy);
+ 
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 7A2AE3624B5
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:35 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993577; cv=none; b=oyjUpbutSUiz/6EDohjVIiyoOqWJ1FP2kBUH8TN0plwlv+V2tQphMVW3G32FCN2hePsU/U63xAVXRsOcxkgG9/1SxeEsFTlpGxTEizqPHExFOK9EMq9UWZg93A1HKN6vt2c61DTdXaI0NuzCtixd5rK3/h8C2sSrdS4c5iBVU3k=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993577; c=relaxed/simple;
+	bh=dUOuRcSdmkPT5OJpNxAO8iMCG2oRg7tjpzo/g+O1Qks=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=rLAMPmMso2vadapCwn8MhzcTYTMT0ufiFZw4cWlwKvEUZQ16K2skxH4GMV4nrrA2qndU/Rmr3l/0vRg7khQa0U0kcHjwWwu/145ANEXVCdpJ1SI74+oLELqXFN60WqHqdCA/1/Ja60SR/faLhRMPzJizCFBpux78yePyCztbeaM=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=gMQCfKMm; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="gMQCfKMm"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=dUOuRcSdmkPT5OJpNxAO8iMCG2oRg7tjpzo/g+O1Qks=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=gMQCfKMm1dKcG0bb8E4aSjatPR9AKtw/m3NxaZPJjDA46ZSmZsaHjFx+de51mgx+t
+	 ogug53r5vbNzn/nOW1XEFck5GJzS/W7uj7Hg0+PmB3SVzbyMd1ykNM4N31vfLgLuWm
+	 d9lQDilLQ0iTH9y8ilz/Y0qOOGP8ThXYXKS76uNzddyR+z6AI3HtBh6GJRrNpL2mTy
+	 ptl1ucu3TUlHN4fpPjOSlCNqAQ3pYAFJpFDzYv3iPiSci0CUFu9xws3Xj5X8vJ0+H9
+	 K7KB4WLRumPp57w3g1aT06keOPM9C8f6ZsWDW9HC09ePgo8FsDLT8l5S7yqjuMaDch
+	 trScFsyaAEd9Q==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits))
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 5205F17E35CE;
+	Fri, 13 Feb 2026 15:39:31 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A738448002A; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:28 +0100
+Subject: [PATCH v2 5/9] phy: rockchip: usbdp: Add missing mode_change
+ update
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-5-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1949;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=dUOuRcSdmkPT5OJpNxAO8iMCG2oRg7tjpzo/g+O1Qks=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6I2xwbRYEJQcoZjFHKkKY9jItDfAdTAC
+ E0FECBcQW8EDIkCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qaR4oP/1uZfMbj0rowGL2WGARs0wzwdFCKpqyZxjykestN+KCmjYuqlC3BITd0BO2lxnqx7Gd
+ ECLXdReTzV9PWiV4SFiB1b5dqYQDpQuaKzK4jaZHY+c7/wT4QQlQ4oQ9OclrFDX/7Fyhyec/1Pe
+ KSRiDMWxMhxIcMXA2dQpyA58PlqfuK0DwzdDNPa3f+84SGUo+h2t/FFNvCKMxcYXvWOI66ZHW5B
+ TOiSatprRPh5qlxGSY0QmM+dSReVKoiIG4EK/+v3IzIiH5YwD7wi5uHDc9puG54Bf9ed0RnFz6c
+ JSXDpBCCLKKABcjM8u8gW5L/QcFj9ETdRe9WCIZEpdyYclzMlQbicnUQbXV7kWcS8SdQ8B/Ff2H
+ Sp0WSDmNyKzJcqJESUR4S8VSoxAe9Z+RCbis0FODkKzw7IYCnia/cW98m10SsQ2AYO4P4OwrFGI
+ Bf2+yf1Pv7t3u64gpGOm2o0v9CVjSMMVOK1NDbjhbidnvbLe3IiSN4zC0uIT2gc9NTVCo0I9W1J
+ MO5uq/3wDURsGdDPDNB93sGbnmSoAIV1l//hAl6VP4FqBcLDJXld4JOgDSlPXawyKLbgokNzAja
+ pFuhAvHD354RkvB5byGJ+vND1NyKoY1X+NQtVoj+0OHCN+4q1Iy2/M+lUIMCb7pAcc58n4/aaHv
+ x3MX4bvwjG/umwMBHGxosvA==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+rk_udphy_set_typec_default_mapping() updates the available modes,
+but does not set the mode_change as required. This results in
+missing re-initialization and thus non-working DisplayPort.
+
+Fix this issue by introducing a new helper to update the available
+modes.
+
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 16 +++++++++++-----
+ 1 file changed, 11 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 97e53b933225..febc148a754e 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -619,6 +619,15 @@ static void rk_udphy_dp_hpd_event_trigger(struct rk_udphy *udphy, bool hpd)
+ 	rk_udphy_grfreg_write(udphy->vogrf, &cfg->vogrfcfg[udphy->id].hpd_trigger, hpd);
+ }
+ 
++static void rk_udphy_mode_set(struct rk_udphy *udphy, u8 mode)
++{
++	if (udphy->mode == mode)
++		return;
++
++	udphy->mode_change = true;
++	udphy->mode = mode;
++}
++
+ static void rk_udphy_set_typec_default_mapping(struct rk_udphy *udphy)
+ {
+ 	if (udphy->flip) {
+@@ -649,7 +658,7 @@ static void rk_udphy_set_typec_default_mapping(struct rk_udphy *udphy)
+ 		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 1);
+ 	}
+ 
+-	udphy->mode = UDPHY_MODE_DP_USB;
++	rk_udphy_mode_set(udphy, UDPHY_MODE_DP_USB);
+ }
+ 
+ static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+@@ -1385,10 +1394,7 @@ static int rk_udphy_typec_mux_set(struct typec_mux_dev *mux,
+ 			usleep_range(750, 800);
+ 			rk_udphy_dp_hpd_event_trigger(udphy, true);
+ 		} else if (data->status & DP_STATUS_HPD_STATE) {
+-			if (udphy->mode != mode) {
+-				udphy->mode = mode;
+-				udphy->mode_change = true;
+-			}
++			rk_udphy_mode_set(udphy, mode);
+ 			rk_udphy_dp_hpd_event_trigger(udphy, true);
+ 		} else {
+ 			rk_udphy_dp_hpd_event_trigger(udphy, false);
+
+-- 
+2.51.0
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 7A10D3624AB
+	for <linux-kernel@vger.kernel.org>; Fri, 13 Feb 2026 14:39:35 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1770993578; cv=none; b=ptB7H+25iN7mu+qLAHrypLWsw2FDGhpt5AZMfrRTDHaCV0V9Ya+iN11ON7PBT3cletRUudVUfVFVvRdFlIHNWND9SmC+MUUwChBUPsSQML0ob+TjmDEdJo+I8FvNctJ0Evp8ARYAhDZtNAMy28avcIxAGKd98CCNo7xjO7VNU50=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1770993578; c=relaxed/simple;
+	bh=+wZrIxHRM51w2Jk9G3m2sX8kdyjjY8ZoXrf0WYlfaG8=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=tL2Sl02+nsYH3+QnwxBh6q0gOnSw8W2pOklguVWobNZWLlaNDqrtL5d67CzZ0Hnz69wXYuPOxNzPT/8glU0BG5xMFiEFdUKiI6n4vmEdy/pTedW2OZUYXTJ7Hk9xOAfyFuz7XQs/ENAWkbZjFWrLpkHPDHmfnzfpdqy5pmdfNKY=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=XDH2B+0U; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="XDH2B+0U"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1770993571;
+	bh=+wZrIxHRM51w2Jk9G3m2sX8kdyjjY8ZoXrf0WYlfaG8=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=XDH2B+0UTDnqCq0pvdSKb5JTRCe/S+UcbXiFpKtTJ2EJV8SLCfxzQU/4I/2YcuEpf
+	 LNXSEjWp6VO45Bc6qtB6giBxh/fMdx9yVeqocSHL5fWMhV0zcH9JrSlEIAjFFI0poP
+	 GRwXiUGubZCYefp7r6ntPllHV/2YOaWue728lS0G6yj9C829TIjsw31OdfLUskFsZi
+	 jzn6bXbjdiKU2AlEhIHrJfA+OFd1ykf75K2Nr764lZCIXCECH9PVS8UAyJOcPzGEBT
+	 lJWSAL9zHXqEUvO8lD6XwHpR9jJ1iF8OrkqT8I9gIGTyiHFZqrWMvd6LlOkWMXRtzG
+	 p4pHPYaaDAYCA==
+Received: from jupiter.universe (dyndsl-091-248-188-214.ewe-ip-backbone.de [91.248.188.214])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange X25519 server-signature RSA-PSS (4096 bits))
+	(No client certificate requested)
+	(Authenticated sender: sre)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 6459017E35D4;
+	Fri, 13 Feb 2026 15:39:31 +0100 (CET)
+Received: by jupiter.universe (Postfix, from userid 1000)
+	id A9B6A48002C; Fri, 13 Feb 2026 15:39:30 +0100 (CET)
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+Date: Fri, 13 Feb 2026 15:39:30 +0100
+Subject: [PATCH v2 7/9] phy: rockchip: usbdp: Rename DP lane functions
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260213-rockchip-usbdp-cleanup-v2-7-b67ec225f96e@collabora.com>
+References: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+In-Reply-To: <20260213-rockchip-usbdp-cleanup-v2-0-b67ec225f96e@collabora.com>
+To: Vinod Koul <vkoul@kernel.org>, 
+ Neil Armstrong <neil.armstrong@linaro.org>, 
+ Heiko Stuebner <heiko@sntech.de>, Frank Wang <frank.wang@rock-chips.com>
+Cc: Andy Yan <andy.yan@rock-chips.com>, 
+ Yubing Zhang <yubing.zhang@rock-chips.com>, 
+ Alexey Charkov <alchark@gmail.com>, linux-phy@lists.infradead.org, 
+ linux-arm-kernel@lists.infradead.org, linux-rockchip@lists.infradead.org, 
+ linux-kernel@vger.kernel.org, kernel@collabora.com, 
+ Sebastian Reichel <sebastian.reichel@collabora.com>
+X-Mailer: b4 0.14.3
+X-Developer-Signature: v=1; a=openpgp-sha256; l=1950;
+ i=sebastian.reichel@collabora.com; h=from:subject:message-id;
+ bh=+wZrIxHRM51w2Jk9G3m2sX8kdyjjY8ZoXrf0WYlfaG8=;
+ b=owJ4nAFtApL9kA0DAAoB2O7X88g7+poByyZiAGmPN6JiP/GSoSD6cri+DYYkpisTNlOrGQfu8
+ ZpNSYpvw3YjE4kCMwQAAQoAHRYhBO9mDQdGP4tyanlUE9ju1/PIO/qaBQJpjzeiAAoJENju1/PI
+ O/qapxQQAJ7jxt8/3iBCHmR9S9g0bcIDF9+bFSXk4H7Lfhc61yQ5esy9EaA/gXHZrRlxiFlLefj
+ RELMV+h2whI0Nq/YuQVYJZ2SBteGVKPIjn36DgPwzIj3gAZZeNUp2sGbpbcGdMvsiA0vzURW2b1
+ jA9U4OG+6BfD44UT3M4K2rfPtxjj3EcuHEXbQmgkRcv44ibSAV+M/8oIlNR6ZlnZNoRNkQfl4gp
+ o92IZWuPfaKKCSSsSari3+CfQd+vreiBDaPIwljwetMCvK73cAZzxYIo+tXdLo6foPOZLdjp8Ao
+ 84045r1/UczdSVk30auyu+jzTn4r8+woleZE9kNCq6tGFy5S+9cVhcXu+NGbnMHKMxr9k2I0xXV
+ V6bEe3pBbwxDiANtgIMHzoRFFfKsGO12y6OSSdR0JcAVMeYnG4JVNzXzSEVercmkjTLXWT7J8KM
+ +eTlXsUGRlnHlySRxWiU7+5NrUDE7LOj5Iqjk639q1WMspgcB0QvHFx1wk6LigyDVgfIzHWdjQw
+ v51qH+QMnSdGVjst/NjOwsTBDPDE8hW9X0rrj71d/Q1uN4x+uHaXQ3NXTxzBKzL9Jo+o0Acc/+y
+ VpWw2OMChzUwoYbNbxt0c0k4UTIpbHvZNiJMlAj2NBxikAzQDzK82gA/gb5hlY4KUK4ATZnJb0V
+ e+J1h5ZaiFQ3xFUvYGCQp+Q==
+X-Developer-Key: i=sebastian.reichel@collabora.com; a=openpgp;
+ fpr=EF660D07463F8B726A795413D8EED7F3C83BFA9A
+
+The common prefix for DisplayPort related functions is rk_udphy_dp_
+(with a final _), so update the two DP lane functions to follow that
+scheme.
+
+Signed-off-by: Sebastian Reichel <sebastian.reichel@collabora.com>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index bf8394174294..6d7ca11b308e 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -547,7 +547,7 @@ static void rk_udphy_usb_bvalid_enable(struct rk_udphy *udphy, u8 enable)
+  * ---------------------------------------------------------------------------
+  */
+ 
+-static void rk_udphy_dplane_select(struct rk_udphy *udphy)
++static void rk_udphy_dp_lane_select(struct rk_udphy *udphy)
+ {
+ 	const struct rk_udphy_cfg *cfg = udphy->cfgs;
+ 	u32 value = 0;
+@@ -576,7 +576,7 @@ static void rk_udphy_dplane_select(struct rk_udphy *udphy)
+ 		     FIELD_PREP(DP_AUX_DOUT_SEL, udphy->dp_aux_dout_sel) | value);
+ }
+ 
+-static void rk_udphy_dplane_enable(struct rk_udphy *udphy, int dp_lanes)
++static void rk_udphy_dp_lane_enable(struct rk_udphy *udphy, int dp_lanes)
+ {
+ 	u32 val = 0;
+ 	int i;
+@@ -1072,9 +1072,9 @@ static int rk_udphy_dp_phy_power_on(struct phy *phy)
+ 	if (ret)
+ 		goto unlock;
+ 
+-	rk_udphy_dplane_enable(udphy, udphy->dp_lanes);
++	rk_udphy_dp_lane_enable(udphy, udphy->dp_lanes);
+ 
+-	rk_udphy_dplane_select(udphy);
++	rk_udphy_dp_lane_select(udphy);
+ 
+ unlock:
+ 	mutex_unlock(&udphy->mutex);
+@@ -1092,7 +1092,7 @@ static int rk_udphy_dp_phy_power_off(struct phy *phy)
+ 	struct rk_udphy *udphy = phy_get_drvdata(phy);
+ 
+ 	mutex_lock(&udphy->mutex);
+-	rk_udphy_dplane_enable(udphy, 0);
++	rk_udphy_dp_lane_enable(udphy, 0);
+ 	rk_udphy_power_off(udphy, UDPHY_MODE_DP);
+ 	mutex_unlock(&udphy->mutex);
+ 
+
+-- 
+2.51.0
+
+

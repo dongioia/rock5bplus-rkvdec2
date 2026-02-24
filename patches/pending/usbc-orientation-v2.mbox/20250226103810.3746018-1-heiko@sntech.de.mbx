@@ -1,0 +1,1357 @@
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from gloria.sntech.de (gloria.sntech.de [185.11.138.130])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id D90984642D
+	for <linux-kernel@vger.kernel.org>; Wed, 26 Feb 2025 10:38:27 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=185.11.138.130
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740566309; cv=none; b=oZUx+l+sDNGG9LoO8JcPTyttvOSsWCURV+k9PDPE0QOvlnYwEouHKg88T6dAvTfmCBhFnl21rk9+1vMDq3Q/azIMiH4VcXFgoVoo4HYlwvRFUlrXkdOWC07RkyqHZbfc/st3wfdivlzZyPXXkElhtK6aCdvuHlz39SKSBye74Wc=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740566309; c=relaxed/simple;
+	bh=yoBeeT7wY0h4mdQl0QvcLW/C/wpdmvJQzBVcir2SXjQ=;
+	h=From:To:Cc:Subject:Date:Message-ID:In-Reply-To:References:
+	 MIME-Version; b=r5Gxx10XxY6FDJCUa2R156PDhXcaszej5/oOKwAe18CIwtve8k0WJM0ck2+5HfhKz1DNld+XA7ebev2XZ5iH6jpctQAiqwKrLZ45x5goDRQY9j5giFeBrGFPotGXQ2dXLJx2p51CBOUSZv2c0PtXd+Zpn98hoa6B0fOukk5XvQA=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de; spf=pass smtp.mailfrom=sntech.de; dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b=YmCHgBkX; arc=none smtp.client-ip=185.11.138.130
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=sntech.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b="YmCHgBkX"
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; d=sntech.de;
+	s=gloria202408; h=Content-Transfer-Encoding:MIME-Version:References:
+	In-Reply-To:Message-ID:Date:Subject:Cc:To:From:Sender:Reply-To:Content-Type:
+	Content-ID:Content-Description:Resent-Date:Resent-From:Resent-Sender:
+	Resent-To:Resent-Cc:Resent-Message-ID:List-Id:List-Help:List-Unsubscribe:
+	List-Subscribe:List-Post:List-Owner:List-Archive;
+	bh=E7ifKTWBPEUJSDsZT1NjVMCuNv9V6y/kChVpAVSziP8=; b=YmCHgBkXcyIQq0R7/LVHvZEusr
+	jYVFYtAc/6h0bX6+iTi3lTNkc0qKrwDaef5YWfKx7i+G1CMYtk4hrjkxv+COn71mNG11dNsRjemyw
+	L4248+CIMZTQkQwpCT0T25pDFFsWMfNwvvP6PmrOYwF6A7XBwzsXJF1z/E1/Dw1tUvGJ9GMeI7e6t
+	PLELB6avtN3OdQk2GsaGegKBFRKz8/oUEdz/+aROG58YxiSr1hjK9b5drHSIzjuc3nxdnOArzxquj
+	nH55witQqQaw4wNYOj3+sQuW+tpRDNinq7fjgNVmpa45AFqbl96MhpMwLDHHWV70gnbASHeHv3iVj
+	eCvSuqdg==;
+Received: from i53875b47.versanet.de ([83.135.91.71] helo=localhost.localdomain)
+	by gloria.sntech.de with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.94.2)
+	(envelope-from <heiko@sntech.de>)
+	id 1tnEo3-0006aJ-0c; Wed, 26 Feb 2025 11:38:23 +0100
+From: Heiko Stuebner <heiko@sntech.de>
+To: vkoul@kernel.org,
+	kishon@kernel.org
+Cc: heiko@sntech.de,
+	linux-phy@lists.infradead.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org,
+	linux-kernel@vger.kernel.org,
+	quentin.schulz@cherry.de,
+	sebastian.reichel@collabora.com,
+	christophe.jaillet@wanadoo.fr,
+	Heiko Stuebner <heiko.stuebner@cherry.de>
+Subject: [PATCH v2 1/2] phy: rockchip: usbdp: move type-orientation-switch further down
+Date: Wed, 26 Feb 2025 11:38:09 +0100
+Message-ID: <20250226103810.3746018-2-heiko@sntech.de>
+X-Mailer: git-send-email 2.47.2
+In-Reply-To: <20250226103810.3746018-1-heiko@sntech.de>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+
+From: Heiko Stuebner <heiko.stuebner@cherry.de>
+
+Move the typec-orientation-switch functionality further down, next to
+the typec-mux code. Not only brings this the typec-related functionality
+closer together, but also the following change needs access to other
+driver functions, that are below the current position.
+
+No functional change.
+
+Signed-off-by: Heiko Stuebner <heiko.stuebner@cherry.de>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 166 +++++++++++-----------
+ 1 file changed, 83 insertions(+), 83 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 5b1e8a3806ed..960cad5b01a9 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -616,89 +616,6 @@ static void rk_udphy_dp_hpd_event_trigger(struct rk_udphy *udphy, bool hpd)
+ 	rk_udphy_grfreg_write(udphy->vogrf, &cfg->vogrfcfg[udphy->id].hpd_trigger, hpd);
+ }
+ 
+-static void rk_udphy_set_typec_default_mapping(struct rk_udphy *udphy)
+-{
+-	if (udphy->flip) {
+-		udphy->dp_lane_sel[0] = 0;
+-		udphy->dp_lane_sel[1] = 1;
+-		udphy->dp_lane_sel[2] = 3;
+-		udphy->dp_lane_sel[3] = 2;
+-		udphy->lane_mux_sel[0] = PHY_LANE_MUX_DP;
+-		udphy->lane_mux_sel[1] = PHY_LANE_MUX_DP;
+-		udphy->lane_mux_sel[2] = PHY_LANE_MUX_USB;
+-		udphy->lane_mux_sel[3] = PHY_LANE_MUX_USB;
+-		udphy->dp_aux_dout_sel = PHY_AUX_DP_DATA_POL_INVERT;
+-		udphy->dp_aux_din_sel = PHY_AUX_DP_DATA_POL_INVERT;
+-		gpiod_set_value_cansleep(udphy->sbu1_dc_gpio, 1);
+-		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 0);
+-	} else {
+-		udphy->dp_lane_sel[0] = 2;
+-		udphy->dp_lane_sel[1] = 3;
+-		udphy->dp_lane_sel[2] = 1;
+-		udphy->dp_lane_sel[3] = 0;
+-		udphy->lane_mux_sel[0] = PHY_LANE_MUX_USB;
+-		udphy->lane_mux_sel[1] = PHY_LANE_MUX_USB;
+-		udphy->lane_mux_sel[2] = PHY_LANE_MUX_DP;
+-		udphy->lane_mux_sel[3] = PHY_LANE_MUX_DP;
+-		udphy->dp_aux_dout_sel = PHY_AUX_DP_DATA_POL_NORMAL;
+-		udphy->dp_aux_din_sel = PHY_AUX_DP_DATA_POL_NORMAL;
+-		gpiod_set_value_cansleep(udphy->sbu1_dc_gpio, 0);
+-		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 1);
+-	}
+-
+-	udphy->mode = UDPHY_MODE_DP_USB;
+-}
+-
+-static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+-				 enum typec_orientation orien)
+-{
+-	struct rk_udphy *udphy = typec_switch_get_drvdata(sw);
+-
+-	mutex_lock(&udphy->mutex);
+-
+-	if (orien == TYPEC_ORIENTATION_NONE) {
+-		gpiod_set_value_cansleep(udphy->sbu1_dc_gpio, 0);
+-		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 0);
+-		/* unattached */
+-		rk_udphy_usb_bvalid_enable(udphy, false);
+-		goto unlock_ret;
+-	}
+-
+-	udphy->flip = (orien == TYPEC_ORIENTATION_REVERSE) ? true : false;
+-	rk_udphy_set_typec_default_mapping(udphy);
+-	rk_udphy_usb_bvalid_enable(udphy, true);
+-
+-unlock_ret:
+-	mutex_unlock(&udphy->mutex);
+-	return 0;
+-}
+-
+-static void rk_udphy_orien_switch_unregister(void *data)
+-{
+-	struct rk_udphy *udphy = data;
+-
+-	typec_switch_unregister(udphy->sw);
+-}
+-
+-static int rk_udphy_setup_orien_switch(struct rk_udphy *udphy)
+-{
+-	struct typec_switch_desc sw_desc = { };
+-
+-	sw_desc.drvdata = udphy;
+-	sw_desc.fwnode = dev_fwnode(udphy->dev);
+-	sw_desc.set = rk_udphy_orien_sw_set;
+-
+-	udphy->sw = typec_switch_register(udphy->dev, &sw_desc);
+-	if (IS_ERR(udphy->sw)) {
+-		dev_err(udphy->dev, "Error register typec orientation switch: %ld\n",
+-			PTR_ERR(udphy->sw));
+-		return PTR_ERR(udphy->sw);
+-	}
+-
+-	return devm_add_action_or_reset(udphy->dev,
+-					rk_udphy_orien_switch_unregister, udphy);
+-}
+-
+ static int rk_udphy_refclk_set(struct rk_udphy *udphy)
+ {
+ 	unsigned long rate;
+@@ -1323,6 +1240,89 @@ static const struct phy_ops rk_udphy_usb3_phy_ops = {
+ 	.owner		= THIS_MODULE,
+ };
+ 
++static void rk_udphy_set_typec_default_mapping(struct rk_udphy *udphy)
++{
++	if (udphy->flip) {
++		udphy->dp_lane_sel[0] = 0;
++		udphy->dp_lane_sel[1] = 1;
++		udphy->dp_lane_sel[2] = 3;
++		udphy->dp_lane_sel[3] = 2;
++		udphy->lane_mux_sel[0] = PHY_LANE_MUX_DP;
++		udphy->lane_mux_sel[1] = PHY_LANE_MUX_DP;
++		udphy->lane_mux_sel[2] = PHY_LANE_MUX_USB;
++		udphy->lane_mux_sel[3] = PHY_LANE_MUX_USB;
++		udphy->dp_aux_dout_sel = PHY_AUX_DP_DATA_POL_INVERT;
++		udphy->dp_aux_din_sel = PHY_AUX_DP_DATA_POL_INVERT;
++		gpiod_set_value_cansleep(udphy->sbu1_dc_gpio, 1);
++		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 0);
++	} else {
++		udphy->dp_lane_sel[0] = 2;
++		udphy->dp_lane_sel[1] = 3;
++		udphy->dp_lane_sel[2] = 1;
++		udphy->dp_lane_sel[3] = 0;
++		udphy->lane_mux_sel[0] = PHY_LANE_MUX_USB;
++		udphy->lane_mux_sel[1] = PHY_LANE_MUX_USB;
++		udphy->lane_mux_sel[2] = PHY_LANE_MUX_DP;
++		udphy->lane_mux_sel[3] = PHY_LANE_MUX_DP;
++		udphy->dp_aux_dout_sel = PHY_AUX_DP_DATA_POL_NORMAL;
++		udphy->dp_aux_din_sel = PHY_AUX_DP_DATA_POL_NORMAL;
++		gpiod_set_value_cansleep(udphy->sbu1_dc_gpio, 0);
++		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 1);
++	}
++
++	udphy->mode = UDPHY_MODE_DP_USB;
++}
++
++static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
++				 enum typec_orientation orien)
++{
++	struct rk_udphy *udphy = typec_switch_get_drvdata(sw);
++
++	mutex_lock(&udphy->mutex);
++
++	if (orien == TYPEC_ORIENTATION_NONE) {
++		gpiod_set_value_cansleep(udphy->sbu1_dc_gpio, 0);
++		gpiod_set_value_cansleep(udphy->sbu2_dc_gpio, 0);
++		/* unattached */
++		rk_udphy_usb_bvalid_enable(udphy, false);
++		goto unlock_ret;
++	}
++
++	udphy->flip = (orien == TYPEC_ORIENTATION_REVERSE) ? true : false;
++	rk_udphy_set_typec_default_mapping(udphy);
++	rk_udphy_usb_bvalid_enable(udphy, true);
++
++unlock_ret:
++	mutex_unlock(&udphy->mutex);
++	return 0;
++}
++
++static void rk_udphy_orien_switch_unregister(void *data)
++{
++	struct rk_udphy *udphy = data;
++
++	typec_switch_unregister(udphy->sw);
++}
++
++static int rk_udphy_setup_orien_switch(struct rk_udphy *udphy)
++{
++	struct typec_switch_desc sw_desc = { };
++
++	sw_desc.drvdata = udphy;
++	sw_desc.fwnode = dev_fwnode(udphy->dev);
++	sw_desc.set = rk_udphy_orien_sw_set;
++
++	udphy->sw = typec_switch_register(udphy->dev, &sw_desc);
++	if (IS_ERR(udphy->sw)) {
++		dev_err(udphy->dev, "Error register typec orientation switch: %ld\n",
++			PTR_ERR(udphy->sw));
++		return PTR_ERR(udphy->sw);
++	}
++
++	return devm_add_action_or_reset(udphy->dev,
++					rk_udphy_orien_switch_unregister, udphy);
++}
++
+ static int rk_udphy_typec_mux_set(struct typec_mux_dev *mux,
+ 				  struct typec_mux_state *state)
+ {
+-- 
+2.47.2
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from OSPPR02CU001.outbound.protection.outlook.com (mail-norwayeastazon11013064.outbound.protection.outlook.com [40.107.159.64])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 6A0E92153C8
+	for <linux-kernel@vger.kernel.org>; Wed, 26 Feb 2025 11:43:44 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=fail smtp.client-ip=40.107.159.64
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740570227; cv=fail; b=WUOQASu7lt+LA20nXcX+jIeTtbY3UAAFPUJga1vvfsz1k8SX4GPU5KBGR/Yd9YTd9oPekntWcDq554aztvDs6hmXZQ4DJddMQJu7a3py+293qdy6BiqgdzG3c16PZcXvC7r3s0EzMyxpB2sVdEVMnVVFa82wVXhYX2xxqhlj3Rw=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740570227; c=relaxed/simple;
+	bh=tmcv+BwmUsvpD8sGWNFEisOYeTvXtl+yni1um+EEajU=;
+	h=Message-ID:Date:Subject:To:Cc:References:From:In-Reply-To:
+	 Content-Type:MIME-Version; b=fdEiPurvjIC/TB7mjq5lCpq8r/n4b78wiaHVkAEAcjWC77JbgXQ5YD2ZeI55xdjWCc8gDlwKVcf7Ub46o+HQXcj5QeG4Smw/kSKYWM1TYyn9/Q4Eixj5QqxfpEVb/fkHVUOBvfRxXKDkjPUssSGOxNwiDF/2rx9lt5t/rjjL/pI=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=quarantine dis=none) header.from=cherry.de; spf=pass smtp.mailfrom=cherry.de; dkim=pass (1024-bit key) header.d=cherry.de header.i=@cherry.de header.b=gHldOx0q; arc=fail smtp.client-ip=40.107.159.64
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=quarantine dis=none) header.from=cherry.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=cherry.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=cherry.de header.i=@cherry.de header.b="gHldOx0q"
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=none;
+ b=KaK6DN87anPx+lz6MwABnSi9UJMqD/w0rcy/wno5aFUrXPhs9OXP2Y2QV70DWbTKXdmhMPTDwfZ4X2qz3Qf9AlmYdG4hUL34KJdNLJ1UoLS6pvoaI/9NOWVG6pYAV7CCuTUw1VfpfaIjPBtmblp403BH7AZ2DhrfiokkMEthHwPtIgf/69iiL+Z3kSLRrfMu8RLvt7GrxoJozzT2QQx4aTe6xLvk8fG6hddIjNwMdDNwGnAKSejsF33fNHEPZEXN+uqHngmhDm0uanNDSsNVa9W1WrZ9pllNPQV7SxPa1S+dgmD2QZMNC6i3fPaVpbH3DctLmWCqJIWj03UYsS4QOQ==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=ARlc+xcri0AhBumXNBXSoRsvaYTls3eVdJeFZXsDum4=;
+ b=bz311Kx2rRCnheIgepASD8UxXKdN17Q2+Ov5kzu6l7h/lBji2Ih8F8HYgTucs6Qb8u/VD3bSVqIeP8hLya1P3varbOepf1chAct//zbN4KuxTyeorP0WK7KQ10kfdXnAUsQfjE9nn0e3zDgZ8FwGDsbeCXLdn5y27CPw7jrXuBQR2m6jopyBxpyB5Ueheq6nqt6RnsDe6C3IVJqDO76msLalbDWGmUcseIv7DhxdJC2Akk4txc+sfowwQT2GKi3K96nUCcTzMhxExy1FKi0Zw5lc8/9yabK3Z+KhbXZnrpEh4LUaC4vSTDb/fjimK2tZnzbyU0dWf+MxUt1/Pyxsew==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=pass
+ smtp.mailfrom=cherry.de; dmarc=pass action=none header.from=cherry.de;
+ dkim=pass header.d=cherry.de; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=cherry.de;
+ s=selector1;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh=ARlc+xcri0AhBumXNBXSoRsvaYTls3eVdJeFZXsDum4=;
+ b=gHldOx0q0+0YIhA50USfm+OUmObD34eCWm4G6E394No5AId0lwawe1wc9xRMSNONj2gVKi5lRoyJRILDgecEanKNQIfj3TknONY2DbbGOTqv1s4023hDuFgbLjS1vDq4o5MDHSJcHWE+3u0DPXWoamvO20eqSsOFaXr9oFJ8l1I=
+Authentication-Results: dkim=none (message not signed)
+ header.d=none;dmarc=none action=none header.from=cherry.de;
+Received: from AS8PR04MB8897.eurprd04.prod.outlook.com (2603:10a6:20b:42c::20)
+ by DB8PR04MB6860.eurprd04.prod.outlook.com (2603:10a6:10:112::22) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.8466.20; Wed, 26 Feb
+ 2025 11:43:40 +0000
+Received: from AS8PR04MB8897.eurprd04.prod.outlook.com
+ ([fe80::35f6:bc7d:633:369a]) by AS8PR04MB8897.eurprd04.prod.outlook.com
+ ([fe80::35f6:bc7d:633:369a%6]) with mapi id 15.20.8489.018; Wed, 26 Feb 2025
+ 11:43:40 +0000
+Message-ID: <05f16054-13f1-4826-a2a7-2533e2a5943e@cherry.de>
+Date: Wed, 26 Feb 2025 12:43:39 +0100
+User-Agent: Mozilla Thunderbird
+Subject: Re: [PATCH v2 1/2] phy: rockchip: usbdp: move type-orientation-switch
+ further down
+To: Heiko Stuebner <heiko@sntech.de>, vkoul@kernel.org, kishon@kernel.org
+Cc: linux-phy@lists.infradead.org, linux-arm-kernel@lists.infradead.org,
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org,
+ sebastian.reichel@collabora.com, christophe.jaillet@wanadoo.fr,
+ Heiko Stuebner <heiko.stuebner@cherry.de>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+ <20250226103810.3746018-2-heiko@sntech.de>
+Content-Language: en-US
+From: Quentin Schulz <quentin.schulz@cherry.de>
+In-Reply-To: <20250226103810.3746018-2-heiko@sntech.de>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 7bit
+X-ClientProxiedBy: FR4P281CA0361.DEUP281.PROD.OUTLOOK.COM
+ (2603:10a6:d10:f8::17) To AS8PR04MB8897.eurprd04.prod.outlook.com
+ (2603:10a6:20b:42c::20)
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: AS8PR04MB8897:EE_|DB8PR04MB6860:EE_
+X-MS-Office365-Filtering-Correlation-Id: e3007c19-4260-4479-59bc-08dd565ad097
+X-MS-Exchange-SenderADCheck: 1
+X-MS-Exchange-AntiSpam-Relay: 0
+X-Microsoft-Antispam: BCL:0;ARA:13230040|376014|366016|1800799024;
+X-Microsoft-Antispam-Message-Info: 
+	=?utf-8?B?Tm1Ba2d0YkNGTThHbkR2aDRHQnVlSmNNS2EwWWVUNitBMHVUSTNraDNubmlK?=
+ =?utf-8?B?S3Z4QVRFT2IzZlB6d3MyT2FreHJlU2RNa0lMWUkvL0pEdDlQN2JYbTJ2QXBq?=
+ =?utf-8?B?T1hMcWxLckdUN1dVVURGZzdMMG0rNTRyTlhkb0M2c211Ry9yZTF5L1ZiNGVu?=
+ =?utf-8?B?NU9zZm90YWJscjVNOXRNU3g3bUU0aTk2Q2dSVnBHYndKNUEwODVsYnBJS3RD?=
+ =?utf-8?B?M2g5bnpvRVRtZkFOampXeWRRdCtDYURPUzJTWWxHVUQ5YWhzZEZTczlHbEFi?=
+ =?utf-8?B?WmtadzBGTzJsK1gvMUVUM0ExSDVkZEl3STE1TTBJK0s5NEp1UEV3bURqVmho?=
+ =?utf-8?B?ajAvSUdQZUxQR25CWHp2cS9qdGwyMXFML1l3QzRvb0RvYkVGUSs5WklnbzR5?=
+ =?utf-8?B?Mm5RQXdwdUxYNUZuRndZZXB0d3dDb2pob2MvcDU0cjJWT2NPc2dmWHlCdDVT?=
+ =?utf-8?B?T1pZT2thTGRTYUxtWUoyZUpLUk5QTUlXYjRjK09pdTlNWDNIdzRwU0oySkd6?=
+ =?utf-8?B?Qjc0SjJDcEpHN0MvbGVrcThDM0kvaDlTZmMwUkVibnZLVWQ5MDhxWnFsWU5a?=
+ =?utf-8?B?QkxBNWhOcloyZG0wbHZqakZNclI2YmtTampoSlkxMnJySzlkNk9ObDN0Vmwy?=
+ =?utf-8?B?cmJyOEhOUm5XRHJBSHorZ0JhM2dRUjhOb0h6MTd6Wk90TG5iTExOcGc2TVpM?=
+ =?utf-8?B?UTdXTmJjck1iWDNCeGJwWGo5TGt6OFhtS1Z1TmljUDJTRGR1dENGcDFLR0Fl?=
+ =?utf-8?B?M1p1MVY4OWZ4MXZsRTNrRWZMSU9ZVlR5U2x5allaV0x4bmpkcWJpaUltOWZX?=
+ =?utf-8?B?S05YSzRpQVRTUkc4MmI5bGJPZVZKaWtkZktpVHlCeHlhYW1jTGcwTnNwbUdw?=
+ =?utf-8?B?c1V0MzI1MjVpWi9PanVaak1nR0hnWlZqUkE0OXN5TTQ0M2hJSzZRa3puaVRk?=
+ =?utf-8?B?d3FPd1ZrNHlFek5hdCs4NjE5YjcxK0VhM2lHb3B2OTV0SW1KWDdzY0VkVmRS?=
+ =?utf-8?B?c090bTZBdTN0ajFRWmMzZzJVcFRBeWNCTTNHVmc4UzFqcy9VbG15L2tTUHJl?=
+ =?utf-8?B?QW9rUXhZRVRlMk1zL3lsTi8xa3N2bVhZbU1IK2VzenNuK3M3bVUxYXVWWXoy?=
+ =?utf-8?B?R1BFcUJGZzlvMmpSbzRuYXBBMVFXQ3I2NzVrYTZRUldJeDZUWTBtWlhPQWhN?=
+ =?utf-8?B?c3ZqbU9RYU9IUWNMS0xFWTFQeGh2TFRBYjlOMHFWOG1tV0xzZTNHVkIwOXgx?=
+ =?utf-8?B?WkpINGtvZ1FnVEhXcWxlbEpqYk5keTRRVkhINVhKZngxYXlCeUt2anphSGlJ?=
+ =?utf-8?B?am41L1Vtd0Z6eEpNWGpOMnhBQ2IzTkd1NXVPdTE1UEo3QlpITklGemJxTWdQ?=
+ =?utf-8?B?dEplTlZSS0p5d20zcktndmtCTUJsNDhvM2RiMWswYXVBVkNjNjhBblphUFFq?=
+ =?utf-8?B?c0Vua0lrVWpiT3ZXVHVqN3hTODRlVmttbE84c3Zsa1lGQmxhUnFWRFkzalEr?=
+ =?utf-8?B?Y3p3dG5FdzNYZUlRd0lacFdWYXhQQmpHc0J3RXBiNklHQjRNcXpaaVRLN3hj?=
+ =?utf-8?B?cEhTUmJvZEdsVlNGS0tNNG1oNlZBNmI3S2t3SG5TYmFyMk5ycTg2Q092UGJJ?=
+ =?utf-8?B?T3FtdzJ4ZUxvWmdoSkF0RDdUYUQ4QlRkNDNmQXM2eWQwYjRVVExFSVNRNjh4?=
+ =?utf-8?B?M2N5ajJLRkFHSjQybEJlRENtTUxPcEsvcURvelRsbWt5TmhHeCtGODd1b2RX?=
+ =?utf-8?B?MDdzcTdQanVyb1Jhd2tUUG4xS09kL0tRWGRhTHNZZWlOMnNtcVJqU1ZxYk9I?=
+ =?utf-8?B?UTJWTndGNmZWbW9rVTBpVVJtWHgybGRmbFJyRGZ6eUZFYnVQUEVUcUphREQ5?=
+ =?utf-8?Q?gxx5EUr08s79x?=
+X-Forefront-Antispam-Report: 
+	CIP:255.255.255.255;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:AS8PR04MB8897.eurprd04.prod.outlook.com;PTR:;CAT:NONE;SFS:(13230040)(376014)(366016)(1800799024);DIR:OUT;SFP:1101;
+X-MS-Exchange-AntiSpam-MessageData-ChunkCount: 1
+X-MS-Exchange-AntiSpam-MessageData-0: 
+	=?utf-8?B?NDNRVVRIQ21HVTR1MzZlWTNGdTMwMkE5OURpazZWZ0l5N2ZCYjdZK3lVL2ho?=
+ =?utf-8?B?REpIQzN3ejVadkw2eDBzR0NFV0xLRXQrOWdOdHREODUvc2hnUFRNdXdoU1Z4?=
+ =?utf-8?B?ZXdrMmdaaktscXF0RW03RzdDb3hvNWtKcTdnL3BXV3NCZU1qMVdPQit0U0lT?=
+ =?utf-8?B?QmwrdkJ1bjMvblBFclZZZWp1WXJybmVrMXIreTBNRzlHOTJkMWdJYlVLVlUx?=
+ =?utf-8?B?UW95ZlJxanhnNnZ6cms5VWIrVEcwUDR1eldQNEtPT1JIRDZjc0tGNHBVeWZI?=
+ =?utf-8?B?N3hmUEtCK0xCZTMyM256WkJNTWJXQm9Tb2JwdDBhY1MwZXNsdnRiQ3NXeDlP?=
+ =?utf-8?B?dFJjZ1IyZy8yMnp4czhiZzc0L0tuZDdCNG4vdFZpZXdlc1JkcmpWMlBRRUI0?=
+ =?utf-8?B?MjdTV3JOaXNGS1RYTElmSThpRHA3Zmd1VTJMdkducFp1N0Zaa0ZRUzNkWDZC?=
+ =?utf-8?B?ckdNdHd6Z3JtMklYN3J3M3ZyT3IwMzIxWWdiQlhjYmpwNXBqQkxyMWdyT3hQ?=
+ =?utf-8?B?L1V6d2t5Nm5oUUhCRU9pUTNKVkk2VEZZU2ozYzBuZ0FxZmJTVmQycXhFUHJC?=
+ =?utf-8?B?ZEV5QWdVREcraE40bERNNFdmTXhUODBWeDFNTmVVUzlxZStXOWVNa0tVMURP?=
+ =?utf-8?B?bVhtSWtoM3pjV2NITmo4SFVnOWJwWnJpU1ZIZ0RkM2cwaEc2cjZFK3E5dEh5?=
+ =?utf-8?B?cDQrQ0dPQVg0MzlQQktXYjV6N0ZvVHZUdlc3UHlHWXhEQzlEZ1BFTlJmTGhq?=
+ =?utf-8?B?b3pGdjg1bVVEQzIvUDlZWE5acHNKUjV2MjBQN3VRZ01nVDcrdDR0dG9sbVBE?=
+ =?utf-8?B?bjk4dEFHanYwT0xxNTFkb20rd05Vd1RvaWVZZ3ZtOXVzQmY4ZG1iNWJ4eVdY?=
+ =?utf-8?B?TGowOC80cC9NMW84SkNmL0w2Y2FTTWxvelBIbWQva1VTczFaT0xnRHJZQmRu?=
+ =?utf-8?B?U3BhcmJLVFpiOTZabjB0akNJVndLMXhMdGQxY3RmbW5LU29jRTFoQkxhSGVw?=
+ =?utf-8?B?S21BZGhwKzBKVXdNVTBxTTJkeWNjK2dOY1dGcDgwdmx3aHZhWjQvLzVNYWJo?=
+ =?utf-8?B?WnQ0UEU3ZmJzR2k3RFozckREZDNvY3B0b21FSWlGY2NIb1RadjBrYVRBcDlN?=
+ =?utf-8?B?K3N6OG41VS9palRKSytNalM4RHRuVC9TTXVJbmNsK1JURExVaThYZnlEN3Zv?=
+ =?utf-8?B?RkVrc2VFbkc1Y3NLQ0dzTGdjWDRHc0I2UmQrL3RDejZQM1MwNWYrVzR3b29k?=
+ =?utf-8?B?OHp6VlhJaHVxeDRkUTdjSWkvcDZqeDdhckhvQ3NJVG5RK3hFa2ZvOUFrbXl2?=
+ =?utf-8?B?SkRXYllZSDQrQ2g3Z2x6YXlIc1JaM0lGcU9UdEJldW5YZFcreGxZdmZDc0xW?=
+ =?utf-8?B?UUovaUk1bEFQN1lsczFuOXlsT1AyT1pwamhOZmVHMWZBRWdFNWZRVVlEQWlS?=
+ =?utf-8?B?Z2pIdXlJbTgwcC9keEtyeTIxQUdLZHdpKzJWWWNYRlN1OWo2aitPWWh2KzI2?=
+ =?utf-8?B?aFlzSnErbkVXOGowTm1TS1pvd011RGFuamNqTXdpVU1HdklvcU95cC82ZGdz?=
+ =?utf-8?B?aytNUCtUU1VJSTkwNUk2ZXpIKzlMU1k3UnBnbjI3b0dVRXIyeDhrL20zajh3?=
+ =?utf-8?B?K3RXaHJhS2xuWWFsRW96ODZXdkhlMUF6ejhGejlFajlJcE9YRWgrTFA4SHBi?=
+ =?utf-8?B?TjVhME9Ka2J4cCtxSDY3bnBtcklSZUVTcmpGV1MwNGlRa1Mwc2Y5alZjWTNV?=
+ =?utf-8?B?b01wTzNna083UHNLdGJhcWE2TTEvY0x2YkZGTWtaa0xkeDVETk9mbytBd3hE?=
+ =?utf-8?B?NHJVWENoQ3FNQ3M0RDRUU2ttcnVBeUlBYXpzWXRyN3kxMEliV1ZjdStWbEZj?=
+ =?utf-8?B?aW1tZGdkd2NkR3VGNFdWbW80MlVPUkRocmoxSU9wRFhQR1FUVTd1dWpnSnlk?=
+ =?utf-8?B?dDFhQ0VCY240Q2RBWS9NbUViNThUa3d1ZThsTWtBWFAvemZvTGdPMm1wMnV4?=
+ =?utf-8?B?M0dVK2FWUGdOMDRZekhoYVlrQzFnY2tRTWg2RFBPR053dGZJWWdJdUZaTEhk?=
+ =?utf-8?B?bFhZVGFMcnJqRjZpeHIxbTJqbnlJZnY4N2lyMnpkTDhWdEtVTk5DWHF2QjBE?=
+ =?utf-8?B?WkhwdmRnbVp0aFhHbWlwcWtaZEtRVmlCR0FxbGNSSElpazNhQ3BscWR1MFl4?=
+ =?utf-8?B?V0E9PQ==?=
+X-OriginatorOrg: cherry.de
+X-MS-Exchange-CrossTenant-Network-Message-Id: e3007c19-4260-4479-59bc-08dd565ad097
+X-MS-Exchange-CrossTenant-AuthSource: AS8PR04MB8897.eurprd04.prod.outlook.com
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 26 Feb 2025 11:43:40.4666
+ (UTC)
+X-MS-Exchange-CrossTenant-FromEntityHeader: Hosted
+X-MS-Exchange-CrossTenant-Id: 5e0e1b52-21b5-4e7b-83bb-514ec460677e
+X-MS-Exchange-CrossTenant-MailboxType: HOSTED
+X-MS-Exchange-CrossTenant-UserPrincipalName: YmS4T2u+kZRutd+eQ9HhZ9EcReaVtVPj0WTSJll8JmEAptzdIET6MGzROefy1Ag6xs3TpJeKIJ6tSilBpGtZJhvJdq3lLqPsfqWa50CgZJ0=
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: DB8PR04MB6860
+
+Hi Heiko,
+
+On 2/26/25 11:38 AM, Heiko Stuebner wrote:
+> From: Heiko Stuebner <heiko.stuebner@cherry.de>
+> 
+> Move the typec-orientation-switch functionality further down, next to
+> the typec-mux code. Not only brings this the typec-related functionality
+> closer together, but also the following change needs access to other
+> driver functions, that are below the current position.
+> 
+> No functional change.
+> 
+> Signed-off-by: Heiko Stuebner <heiko.stuebner@cherry.de>
+
+Checked with `meld`, the - and + diff are identical.
+
+Reviewed-by: Quentin Schulz <quentin.schulz@cherry.de>
+
+Thanks!
+Quentin
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from gloria.sntech.de (gloria.sntech.de [185.11.138.130])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 4FC891ACEA6
+	for <linux-kernel@vger.kernel.org>; Wed, 26 Feb 2025 10:38:28 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=185.11.138.130
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740566310; cv=none; b=KbHXG0Fg375czGvquav5cgAu7BcpWtJ5vlJxMyrwh/QMRgECVQlC7vGoLE67Jhh6c5PP1x6ytnKvTtA7FiPOXD/NOWQYtrl7gHsgzzEtdPQ5jpTDOVcOG3SN3EgHEOMslNN59YIxo5+rdP1dU6PFLBZxaA2WQlN9f8LNGSx0d74=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740566310; c=relaxed/simple;
+	bh=bX0Dhp/77Twr0Hq83smdM+lYe1IN/WVSkMiowXkfuvs=;
+	h=From:To:Cc:Subject:Date:Message-ID:In-Reply-To:References:
+	 MIME-Version; b=L/jG+IM94hEehF/CcX1MyPlDltR0LR8FlJLk9QG0TYybHPAijZkOGB2mwuIHYhSopaOtj0lX+vKGg1RU0swiTytQ3lEDh7Olsln9qz+GyWtkMydA0QkEjZmdHEwzaav36bHI+pH4xZADnJUIdczMylz1PaTYjuVo0ylujoG8pI0=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de; spf=pass smtp.mailfrom=sntech.de; dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b=jQC9vgkx; arc=none smtp.client-ip=185.11.138.130
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=sntech.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b="jQC9vgkx"
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; d=sntech.de;
+	s=gloria202408; h=Content-Transfer-Encoding:MIME-Version:References:
+	In-Reply-To:Message-ID:Date:Subject:Cc:To:From:Sender:Reply-To:Content-Type:
+	Content-ID:Content-Description:Resent-Date:Resent-From:Resent-Sender:
+	Resent-To:Resent-Cc:Resent-Message-ID:List-Id:List-Help:List-Unsubscribe:
+	List-Subscribe:List-Post:List-Owner:List-Archive;
+	bh=mRmd87Bt4r/gRs/8A2tyjVoJarc357y7FoApmSgOrbg=; b=jQC9vgkx1+0En9VesSDoKW11QF
+	BmNxkXGLOF8S0n62Y3KY7U7t3vdTq+yN6cRLw61ZoG/U6DLQiSBxemp0n+xUBkAEBFNhYqZ3ADFMh
+	ChXOQe9ujdrerGH8jiLvisoMfcR+rYYx/2gHsSvAnTulNvyJlQo2vUvpwolh6GIsn0gBEOMb3udSz
+	D+VmoOwmU9EMnDDXRYC22pJAm6u2WaSjq84Aucra6/hHtJrviNhxT5UFz/1CAzW8GjCzoBxnVB3uK
+	Q8f2p5lKQURAgUJZe7gbGqafZRNG4yTGclhAwSy0zoL8wullQu4u42sE3utdawakSmkMFEVCLP8cs
+	uUwjyURQ==;
+Received: from i53875b47.versanet.de ([83.135.91.71] helo=localhost.localdomain)
+	by gloria.sntech.de with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.94.2)
+	(envelope-from <heiko@sntech.de>)
+	id 1tnEo3-0006aJ-Fw; Wed, 26 Feb 2025 11:38:23 +0100
+From: Heiko Stuebner <heiko@sntech.de>
+To: vkoul@kernel.org,
+	kishon@kernel.org
+Cc: heiko@sntech.de,
+	linux-phy@lists.infradead.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org,
+	linux-kernel@vger.kernel.org,
+	quentin.schulz@cherry.de,
+	sebastian.reichel@collabora.com,
+	christophe.jaillet@wanadoo.fr,
+	Heiko Stuebner <heiko.stuebner@cherry.de>
+Subject: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on orientation-change
+Date: Wed, 26 Feb 2025 11:38:10 +0100
+Message-ID: <20250226103810.3746018-3-heiko@sntech.de>
+X-Mailer: git-send-email 2.47.2
+In-Reply-To: <20250226103810.3746018-1-heiko@sntech.de>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+
+From: Heiko Stuebner <heiko.stuebner@cherry.de>
+
+Until now the usbdp in the orientation-handler set the new lane setup in
+its internal state variables and adapted the sbu gpios as needed.
+It never actually updated the phy itself though, but relied on the
+controlling usb-controller to disable and re-enable the phy.
+
+And while on the vendor-kernel, I could see that on every unplug the dwc3
+did go to its suspend and woke up on the next device plug-in event,
+thus toggling the phy as needed, this does not happen in all cases and we
+should not rely on that behaviour.
+
+This results in the usb2 always working, as it's not affected by the
+orientation, but usb3 only working in one direction right now.
+
+So similar to how the update works in the power-on callback, just re-init
+the phy if it's already running when the orientation-event happens.
+
+Both the power-on/-off functions as well as the orientation-set callback
+work with the usbdp-mutex held, so can't conflict.
+
+The behaviour is similar to how the qcom qmp phys handle the orientaton
+re-init - by re-initting the phy.
+
+Signed-off-by: Heiko Stuebner <heiko.stuebner@cherry.de>
+---
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+index 960cad5b01a9..c07b79da5b6b 100644
+--- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
++++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+@@ -1277,6 +1277,7 @@ static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+ 				 enum typec_orientation orien)
+ {
+ 	struct rk_udphy *udphy = typec_switch_get_drvdata(sw);
++	int ret = 0;
+ 
+ 	mutex_lock(&udphy->mutex);
+ 
+@@ -1292,9 +1293,13 @@ static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+ 	rk_udphy_set_typec_default_mapping(udphy);
+ 	rk_udphy_usb_bvalid_enable(udphy, true);
+ 
++	/* re-init the phy if already on */
++	if (udphy->status != UDPHY_MODE_NONE)
++		ret = rk_udphy_init(udphy);
++
+ unlock_ret:
+ 	mutex_unlock(&udphy->mutex);
+-	return 0;
++	return ret;
+ }
+ 
+ static void rk_udphy_orien_switch_unregister(void *data)
+-- 
+2.47.2
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from gloria.sntech.de (gloria.sntech.de [185.11.138.130])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id D614C42A9D
+	for <linux-kernel@vger.kernel.org>; Wed, 26 Feb 2025 10:38:26 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=185.11.138.130
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740566308; cv=none; b=eScWozIxXv4mTEmRLS04lEqrBaiES8aZwyBdbsFXS4OgQR8P3kJO6RCtHT5qtl/LXN052Po/HEYwct2574OLEMScOLYA7MSe39wIyYBBEr37q11ytJ62iFZC+ZUvVIsCpDh4ebiSSEuuHTZDSTVgZdOU63HfwF4cfdGcxT0D2R8=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740566308; c=relaxed/simple;
+	bh=tNpEOIvOjXOOQR5E74DVxKlmjYF1Bu7KF+vF2eWUnFI=;
+	h=From:To:Cc:Subject:Date:Message-ID:MIME-Version; b=S4sUA3FgwcMZ2du5F3CteERtlZ7ZjL101bk2gk85fY/eb/vrtDkLuhi4B7F/cewt4JXj9r3RS/TcZS09jx6hicsm18jff107TMMEUEvbpTFEerspiGbeAkkRP5x7twnnUfx+WQRdt2CJ/eRgrd5fHK2ffWEwkImRYkN9y2EUEr8=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de; spf=pass smtp.mailfrom=sntech.de; dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b=IrpValUl; arc=none smtp.client-ip=185.11.138.130
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=sntech.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=sntech.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=sntech.de header.i=@sntech.de header.b="IrpValUl"
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; d=sntech.de;
+	s=gloria202408; h=Content-Transfer-Encoding:MIME-Version:Message-ID:Date:
+	Subject:Cc:To:From:Sender:Reply-To:Content-Type:Content-ID:
+	Content-Description:Resent-Date:Resent-From:Resent-Sender:Resent-To:Resent-Cc
+	:Resent-Message-ID:In-Reply-To:References:List-Id:List-Help:List-Unsubscribe:
+	List-Subscribe:List-Post:List-Owner:List-Archive;
+	bh=+UGCoWBioAMtXtHm8CAvoMnBqRSxIPHa7kTP4Y78/Mo=; b=IrpValUloRiJKw2SB7N7epThrt
+	NFi6BJUBdQ3Hz94ktQ/QHyU68jQGRFTdFYwxj+2PYDd/yk0OAqlAdi9LIZuXI8qxgCUlLnUv4CHWL
+	MDxra/vNufGVI3auC0oWJL1B0s+XyEqkVtZAXW6araCSdRkI3OCmHg0ryH6a5Bpo45XIQpDmiXFOR
+	60UTsCGPRb5lBUd3uDM9U4kas0T2a+00RZjpFxC7QeT5FGaGCH6nnl8OBWbwpU1n9Cotaw9oUHc5v
+	h85IiB31Q4A/aKXm23WdlS8yanUqPg0dxJhf4Y//fNbdi46/WKWKVwhEZHs/PdZXetjhOLMyXo39/
+	b51fq44g==;
+Received: from i53875b47.versanet.de ([83.135.91.71] helo=localhost.localdomain)
+	by gloria.sntech.de with esmtpsa  (TLS1.3) tls TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+	(Exim 4.94.2)
+	(envelope-from <heiko@sntech.de>)
+	id 1tnEo2-0006aJ-GC; Wed, 26 Feb 2025 11:38:22 +0100
+From: Heiko Stuebner <heiko@sntech.de>
+To: vkoul@kernel.org,
+	kishon@kernel.org
+Cc: heiko@sntech.de,
+	linux-phy@lists.infradead.org,
+	linux-arm-kernel@lists.infradead.org,
+	linux-rockchip@lists.infradead.org,
+	linux-kernel@vger.kernel.org,
+	quentin.schulz@cherry.de,
+	sebastian.reichel@collabora.com,
+	christophe.jaillet@wanadoo.fr
+Subject: [PATCH v2 0/2] phy: rockchip: usbdp: improve typec orientation handling
+Date: Wed, 26 Feb 2025 11:38:08 +0100
+Message-ID: <20250226103810.3746018-1-heiko@sntech.de>
+X-Mailer: git-send-email 2.47.2
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Transfer-Encoding: 8bit
+
+Reinit the phy if it's already running when a type-orientation
+event happens.
+
+changes in v2:
+- fix an error I made when splitting into code-move + re-init
+  function should still return 0 after first patch
+- use rk_udphy_init() instead of disable + setup combo
+  We don't need to disable + reenable clocks
+
+Heiko Stuebner (2):
+  phy: rockchip: usbdp: move type-orientation-switch further down
+  phy: rockchip: usbdp: re-init the phy on orientation-change
+
+ drivers/phy/rockchip/phy-rockchip-usbdp.c | 171 +++++++++++-----------
+ 1 file changed, 88 insertions(+), 83 deletions(-)
+
+-- 
+2.47.2
+
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id E0DF733E1
+	for <linux-kernel@vger.kernel.org>; Sat,  1 Mar 2025 21:19:53 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740863995; cv=pass; b=t+L6gzRkVXolooGuac0CoQgMNCodGa2hCn+ME/Bw/d06qjUn+A7ljdwVeCTP9NjJP9+oI/qjYz7hTscJix2otAUusLR07IkWU4byXfu3qwkx3wcojHeZlTDvswSVkNA415Gf0sPArRBgl0d36D4P64A/XoVrJqworXa0HOaw90E=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740863995; c=relaxed/simple;
+	bh=DiBsetxv/W6ON55bF1Fy2sUWrQIdKNTGci0bZBHTxGQ=;
+	h=Date:From:To:Cc:Subject:Message-ID:References:MIME-Version:
+	 Content-Type:Content-Disposition:In-Reply-To; b=XiXtP/RNl7iSEX8IBVrdm8abxtk3jd2ppFutBdgIwDEP3+ahwCkG17YGKizoZv+YzsuptvR/nrU1amlALAIcJmpb4T4aWoX3ppsOzVIvF45JYGTAMpsAXGOImm7J2W2FpEwDupoW+DgSL4dawpTZk/bIWJ/3Q0bU1eKsIvNEufQ=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=sebastian.reichel@collabora.com header.b=bpnWkhbr; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=sebastian.reichel@collabora.com header.b="bpnWkhbr"
+ARC-Seal: i=1; a=rsa-sha256; t=1740863974; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=JvNY9li9MKQNIVqh5YEVHVYfZj9Is0hV5BsrCAUBI7lHP9z+U8mF2RIUcLUStlqdCtTMAVCl6U1j89Sk5G1MaoPCf5qosBp05WdLbbq3Gs0xV4hkFeMlZ14Tk4s13nMkguhleoUtSO0Dpj9doIes/a4L7zmj+QEpH53zkJBd0nE=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1740863974; h=Content-Type:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=DiBsetxv/W6ON55bF1Fy2sUWrQIdKNTGci0bZBHTxGQ=; 
+	b=aF/WsvSwyRIxFvd8jUS4ijrunje55nfeKoWlFlfPr4lNZOpFmpnBs1xJz22RW3bsgBFd0U80vCIn1QoRrbF+JVZwU4cDUGT3HNK0KC4UDlWR5iQpzgh8VeyFX4KBV5NJEyVj+pbNMG0VSNBWqxHOAtPktx1nwxir/iagRCBXCeQ=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=sebastian.reichel@collabora.com;
+	dmarc=pass header.from=<sebastian.reichel@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1740863974;
+	s=zohomail; d=collabora.com; i=sebastian.reichel@collabora.com;
+	h=Date:Date:From:From:To:To:Cc:Cc:Subject:Subject:Message-ID:References:MIME-Version:Content-Type:In-Reply-To:Message-Id:Reply-To;
+	bh=DiBsetxv/W6ON55bF1Fy2sUWrQIdKNTGci0bZBHTxGQ=;
+	b=bpnWkhbrTRYhxpm40pXBs6bMBb5UqeqHWZKNswZ7cscZ6QsnIPyW+9gPMNL13nBU
+	PKe7mz93oHi84P/d3tNLFrZLwCpNROTDNcABCrCEEfZCiGPZuzDHQJqvIQxFvFwD567
+	ojxK800IEhXFl4GW/0Oj4RmioxhKgTmdz9lHmHEI=
+Received: by mx.zohomail.com with SMTPS id 1740863972988230.42996635404586;
+	Sat, 1 Mar 2025 13:19:32 -0800 (PST)
+Received: by venus (Postfix, from userid 1000)
+	id 4037118361F; Sat, 01 Mar 2025 22:19:28 +0100 (CET)
+Date: Sat, 1 Mar 2025 22:19:28 +0100
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+To: Quentin Schulz <quentin.schulz@cherry.de>
+Cc: Heiko Stuebner <heiko@sntech.de>, vkoul@kernel.org, kishon@kernel.org, 
+	linux-phy@lists.infradead.org, linux-arm-kernel@lists.infradead.org, 
+	linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, christophe.jaillet@wanadoo.fr, 
+	Heiko Stuebner <heiko.stuebner@cherry.de>
+Subject: Re: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on
+ orientation-change
+Message-ID: <dkjpudmzuuxvaotz4mx46yx7iacof7q6ck746j3rrqvlgbq3hk@6vtvy3gy3kff>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+ <20250226103810.3746018-3-heiko@sntech.de>
+ <02757b21-7599-4ee7-9f97-247b04ba646a@cherry.de>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: multipart/signed; micalg=pgp-sha512;
+	protocol="application/pgp-signature"; boundary="xtfa7lnnqa7aoiia"
+Content-Disposition: inline
+In-Reply-To: <02757b21-7599-4ee7-9f97-247b04ba646a@cherry.de>
+X-Zoho-Virus-Status: 1
+X-Zoho-AV-Stamp: zmail-av-1.4.2/240.839.39
+X-ZohoMailClient: External
+
+
+--xtfa7lnnqa7aoiia
+Content-Type: text/plain; protected-headers=v1; charset=us-ascii
+Content-Disposition: inline
+Content-Transfer-Encoding: quoted-printable
+Subject: Re: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on
+ orientation-change
+MIME-Version: 1.0
+
+Hello Quentin,
+
+On Wed, Feb 26, 2025 at 01:38:10PM +0100, Quentin Schulz wrote:
+> Unrelated to this patch (but may be triggered by this patch?), I'm wonder=
+ing
+> how flip is really handled.
+>=20
+> It seems like we have flip store the orientation of the cable, but also if
+> rockchip,dp-lane-mux is set to <0 1>. But wouldn't that break if we ignore
+> that initial flipped lane-mux whenever a USB-C cable is inserted in rever=
+se?
+> Basically, shouldn't a reserve orientation of the cable when
+> rockchip,dp-lane-mux is set to <0 1> mean "normal mux"?
+
+If a USB-C connector is involved, the TypeC controller is supposed to
+setup the lane muxing based on the connector orientation. This
+happens via the typec API and in this hardware setup the PHY should
+not have the rockchip,dp-lane-mux DT property set.
+
+The rockchip,dp-lane-mux property is required if no USB-C connector
+is involved. For example if the lanes are routed to a Displayport
+connector. In that case the lane setup is fixed in hardware and
+there is no TypeC controller involved, which could do any setup ;)
+
+-- Sebastian
+
+--xtfa7lnnqa7aoiia
+Content-Type: application/pgp-signature; name="signature.asc"
+
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAABCgAdFiEE72YNB0Y/i3JqeVQT2O7X88g7+poFAmfDedUACgkQ2O7X88g7
++poznA//SMzDIpD1hxgbwfDNoKyme+1D1x5wcO9dBkilNby+zQ5rkx37r6ZuO1o2
+ZiQYGRi2EFS7S41Ow5UF5Xc1venVA20Y9Rb/dPMn8HET80HDQPvWrAq5NawLq2s1
+wNc/O8vh0ztjBIL4oTiy+YnV1UnY3YApoyu2ZCh9KkkilOkiquB4I82VVQ8GOFI8
+y/dbgrOk+4b/2e+6o2libH4vQROza/VLGThae6yi54GfYF1+d70wpyyevEDcQ7Qj
+KKybjoooO+O9IjF+Kfpr0wMzP4mQIeEsYMiAko46iOPPAApsQVxZ8yPnhUw21PEe
+F8ZQ+lvewwsUijUZz8hM+hW9rLCoxQ42s/9EVb5vgeKERphkA22SFj2H0PDPMokj
+vvMvSTTr/84P/F2r+29UfQdB1eebo8sSiFDc+EGG099VFWVlzdLPkKVxsmyRjbXW
+YA8sVFh3PkewDgoJ6nxuJo5UkuJVepX7Xq4bGW2j1DE28oB7IgKBXdXUHOMQajvW
+EuLQl60ndqcDI0TinZYVcI3z/Z+KiuaZtWNAsnQP7fP6o7vHhmDjDi+mfZ+yN+7v
+0oCBpqHk15G/yGHeKj87Yk/hBX19xc11TFSEu6/vG3gAKrVZrlzMHZXqfrEOsnWv
+xxxAsMnKW34k0fD9gFk84UWIxAHC3HoEyYAYWDPfFElS4uCN0Zg=
+=JFVB
+-----END PGP SIGNATURE-----
+
+--xtfa7lnnqa7aoiia--
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from EUR05-AM6-obe.outbound.protection.outlook.com (mail-am6eur05on2064.outbound.protection.outlook.com [40.107.22.64])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 8DEED85931
+	for <linux-kernel@vger.kernel.org>; Wed, 26 Feb 2025 12:38:18 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=fail smtp.client-ip=40.107.22.64
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740573501; cv=fail; b=NspozuMAv8pzJNd9vpy6/vm31xYN7PprS1JW6jE3Ny+/xLqn5rpZTJYGK5fwir56I6AyUbWs7qUfj2RexipnK6TDY+R6hVxzHYe8xxdeS2y7nWgV4qKNTPGKjNCw5oP7654V05VIFnRzJ4BW2bPjMo/kvZryXnFKJeLICXFDk+c=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740573501; c=relaxed/simple;
+	bh=ylAyA0MFuvHr6l+Xbs2ix4ivfRDinfNmnEpsBYnlneE=;
+	h=Message-ID:Date:Subject:To:Cc:References:From:In-Reply-To:
+	 Content-Type:MIME-Version; b=Rxjp6nMa6XzQ+lXXm/XysVjJzxvfVMpo0Dm27AWOtaeKUtcUAYy/DNWwrMgxIu26AsRr6ePanK6MyWGhxQWesrHdJwtb0p8HSyM8mk+nZ07w/7UIdoA4dYCXWUskeZ9YZ0Rli7aCxiFooLymeV0d3SwqGrYM1ZAxWze6/QBdTIk=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=quarantine dis=none) header.from=cherry.de; spf=pass smtp.mailfrom=cherry.de; dkim=pass (1024-bit key) header.d=cherry.de header.i=@cherry.de header.b=DpRBgGkY; arc=fail smtp.client-ip=40.107.22.64
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=quarantine dis=none) header.from=cherry.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=cherry.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=cherry.de header.i=@cherry.de header.b="DpRBgGkY"
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=none;
+ b=MQO7By8+bhITxbY2FDWHytZIz/0bkLa/Mew3KhqM5OyIbtOCnpPH5bEb+UnQVmcXFD1JfedXYq6FGHmfiR/55CMBRsj8vilaNwxlM7TAUnCHYLyJ6fyBTaEF/M+L20HRIy6phHKtjUsF+xWgs33uD9l/qOzxsTd/RRa3yQOR4aRQ5l0/i5RQ2e/b4T2S9F3sVYpKCHnB3PKQu758JeiSKVKoLFxFYI58MICScKw24JVKNksk5pdVWAObnj7FPBC/Xr8EkKLh5HLTz61Dy1MlGFYC0WRtZd1t417aPKRIX6E/lu9i48bhuqrPcJWOeWQUequ7caOje2JOtt/zYi0LCg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=rvuzt1LgfD7lshsurbTr+15jFO6jCyn46ulRYyR16dg=;
+ b=HDEbXGXpieIzq/8uLJ8OuS2D/ijr2Gjoe0fBAR0vTHZ41ZZpE7ET7uEyGCh2n+u9UMVnFSNibQCmmEpbF0ujRVlUP+FWpJoRI63OkwO1S9X2xfoerIkP6tAOtLTIEjOyZjy7/cHUhWYtS4k4Gao71dhBipU76QrJKGULQzIqpZlgmKNH380IJgrWLnACiswrXCr2nxSMQk3yI1UqEgLjIvYivESSic5ahARIFQfuI2Qq39U1eWGFuVflR+UiVGOdgHcJ0hDvbOROW5eM2MRadrrs7bWaERPNqXZR2qcXgFVc0j350axPDmqv5KZGmSmogL+Q+vIN0C5dxOtWbOJ6IQ==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=pass
+ smtp.mailfrom=cherry.de; dmarc=pass action=none header.from=cherry.de;
+ dkim=pass header.d=cherry.de; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=cherry.de;
+ s=selector1;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh=rvuzt1LgfD7lshsurbTr+15jFO6jCyn46ulRYyR16dg=;
+ b=DpRBgGkYN2XFJ00FMbBoszEFGkL83YBoWpEw+Nygdfbr+IRsnU9xDXUsE4BddaAeffuR3KH/v1R1xbLpCeJCh3/xT5uh+8ZohXycYYIZshFlr1XWPMplKTq4FCkr280mUCd9s3TfBBZlUB8Qw4hh7q0rP0dEFrSoxkupUQiYQ6U=
+Authentication-Results: dkim=none (message not signed)
+ header.d=none;dmarc=none action=none header.from=cherry.de;
+Received: from AS8PR04MB8897.eurprd04.prod.outlook.com (2603:10a6:20b:42c::20)
+ by DB9PR04MB8188.eurprd04.prod.outlook.com (2603:10a6:10:25e::21) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.8466.17; Wed, 26 Feb
+ 2025 12:38:15 +0000
+Received: from AS8PR04MB8897.eurprd04.prod.outlook.com
+ ([fe80::35f6:bc7d:633:369a]) by AS8PR04MB8897.eurprd04.prod.outlook.com
+ ([fe80::35f6:bc7d:633:369a%6]) with mapi id 15.20.8489.018; Wed, 26 Feb 2025
+ 12:38:14 +0000
+Message-ID: <02757b21-7599-4ee7-9f97-247b04ba646a@cherry.de>
+Date: Wed, 26 Feb 2025 13:38:10 +0100
+User-Agent: Mozilla Thunderbird
+Subject: Re: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on
+ orientation-change
+To: Heiko Stuebner <heiko@sntech.de>, vkoul@kernel.org, kishon@kernel.org
+Cc: linux-phy@lists.infradead.org, linux-arm-kernel@lists.infradead.org,
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org,
+ sebastian.reichel@collabora.com, christophe.jaillet@wanadoo.fr,
+ Heiko Stuebner <heiko.stuebner@cherry.de>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+ <20250226103810.3746018-3-heiko@sntech.de>
+Content-Language: en-US
+From: Quentin Schulz <quentin.schulz@cherry.de>
+In-Reply-To: <20250226103810.3746018-3-heiko@sntech.de>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 7bit
+X-ClientProxiedBy: FR0P281CA0245.DEUP281.PROD.OUTLOOK.COM
+ (2603:10a6:d10:af::6) To AS8PR04MB8897.eurprd04.prod.outlook.com
+ (2603:10a6:20b:42c::20)
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: AS8PR04MB8897:EE_|DB9PR04MB8188:EE_
+X-MS-Office365-Filtering-Correlation-Id: 14429453-32c0-4d46-d0a2-08dd56626e5c
+X-MS-Exchange-SenderADCheck: 1
+X-MS-Exchange-AntiSpam-Relay: 0
+X-Microsoft-Antispam: BCL:0;ARA:13230040|376014|366016|1800799024;
+X-Microsoft-Antispam-Message-Info: 
+	=?utf-8?B?RHpnQmFFb2wrRm4wUDNWZ251anVVV1ludDVRRzFMS1c0NWtEaDh0WjEyNUdZ?=
+ =?utf-8?B?R3pGWWN3cUJ6MmhlcFlZeFNPaTVHSTE5WmRUNUEzZHUyQktXSXRNZFdWeUJW?=
+ =?utf-8?B?VWxJY2ZvVHEzNTEzbGpBd0Uyd0FxKzZ1TlUzRk1NUUZwTTVsSGRPWjVUcGdN?=
+ =?utf-8?B?RTkyY2g0QVBFZnk2SXBOTXNLM2JIbytlTVU2S2ZlL3dUTVBTM01qeWp6L093?=
+ =?utf-8?B?aDZIVnZVY3pQNnhwQmRXbGJSYkRXM2UzSlpNL3N4eXkwRUlkY3lUYWNmRDZx?=
+ =?utf-8?B?M3VIUXRXak03ZW5uMjNRN0VtT2M5b2d6NkM0Nk5sYUFwNjhyWFdOTUx0d1hD?=
+ =?utf-8?B?SDRnZndGdlVMWEEzTXFsN0kwdDFKNytsRkh3SnEwU0VJVVlnSWZCQ1A0eXdM?=
+ =?utf-8?B?c3cxd09adGZIeFlNaW9kOU1nYXdkbmFvd0tOaWRoV08vellJWmZQbUNwZU5m?=
+ =?utf-8?B?Qy81My9hOC9kcEczaTVhZHBSRUNtd3hXUjNGZ1NIUHVVWUd3dzZwRXJJSGEy?=
+ =?utf-8?B?bVJrdTJKWFRPamEzZmZidEpvdmJ5U29ramhERiswc1d2QkpoQklpakxuN1dj?=
+ =?utf-8?B?cmVBUVJtaU1jbjNFamZpQkhPc3FjY0g4YnVoRUMyYmkxM1lKQ0tuemt6eUZM?=
+ =?utf-8?B?Uk4zb3N0OE5aeGJYU3pjd0VOdEdRUXI1bkVmbCs0bm85QUMraTFrK0gvMndk?=
+ =?utf-8?B?WllNc1NtZS9MZEtKclplWWJVdTNvUlhrMHE0eGVkYmZtbm5MQkZvSlpiR0Zz?=
+ =?utf-8?B?d0tzZGFyYjFvMThxMHUzek84TXYzMlpNVlVsQmFLWkw3eWM4a2hUSUh3VkJp?=
+ =?utf-8?B?Y2pIVnBqZ0JXdThzR0NNR1hkSk5vTG9ibkxlOWFqcDV6QXliWGVnMDVicFpB?=
+ =?utf-8?B?bzl4QWxVVm5TS3FoanhnZ3FRTDV2aHNuMnQ2dk53WUZ6a3grMUd1bFlYOG5o?=
+ =?utf-8?B?OUpDWWhEVll1aDY1UXNLRG9uRjBFQkFEcGxMR1RVZTA3ZDNuenByMHFNem15?=
+ =?utf-8?B?ZW14ZWJrNUpaNnNMaERkL0tTVUZuYithVnl6eHlPVWErNFllbnNibHl1aXdJ?=
+ =?utf-8?B?OWtQbUpNV2ZVOHRUNFNJYitpaThiYURYZmN3eXg1QURBd2grMTlrbWdhVCs2?=
+ =?utf-8?B?TnVGQll1YnMrcnhobS9zZGhydlI5d0xxL3lqelRjUnVERnlJNnEzNVVOdVEw?=
+ =?utf-8?B?UzdUYXF1ODNtNWgyc0FBSjQxN1RPK0ZRbUVGaHNVUXNDREI3bmdwdlNwczl6?=
+ =?utf-8?B?K0JXR1RPRXEzdUtaTmtlQk1NdkhWOHNOU0FrTzBnbXVHOUloTGFMemcvdkVI?=
+ =?utf-8?B?akN4TnFrU0xkdXlCTmtLYUt2OWNrMms5akpINjJrZFNaYmh2WTVPU0U4SDQz?=
+ =?utf-8?B?cHpLSWZGMytJZGxMWWVZYmZpWEpId3AxaWgwV2N1dkQ4cXJRQWJ1SGV6S2xE?=
+ =?utf-8?B?bG5jSjNMUnVFemcySzZGZ09RbjgxWmphdkhTb2crR2MwdmlxT0VNb2lHWHMz?=
+ =?utf-8?B?aGgzVjJpcVkyUXJTMGFxOFFlRjBOQ2VHNm9XWXRnZ0Rlejc1aHdVSFFTTGI5?=
+ =?utf-8?B?em1XY0ZKcmxHK1pKTVZNZHhLeFVZUkc5S2RKWUFySUczQTdybDZveUVZQTRk?=
+ =?utf-8?B?TmNPQngzaU1XYTUzeEVVNklzMlV3TEl3aTRZN09vVnJTSk1nODczdGJpdDA4?=
+ =?utf-8?B?N0xiK2hSS0FjM0VFY2tORU9BL1RPbUNQMU1xdFpMUUUzTVN2akNkN2lJQlNn?=
+ =?utf-8?B?dk51QmVJWnVQVVZGTXVJNjRvTDE5UGQzaG96UWU4YzNuS0REZG5rMk9EMXRN?=
+ =?utf-8?B?dGV3d3JVS3d2QnRZNmRBRlozY3lLSUJFS05TYktOVFRpSHI1NlNYQ1pJZm5u?=
+ =?utf-8?Q?k9dOCoSJnlhyy?=
+X-Forefront-Antispam-Report: 
+	CIP:255.255.255.255;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:AS8PR04MB8897.eurprd04.prod.outlook.com;PTR:;CAT:NONE;SFS:(13230040)(376014)(366016)(1800799024);DIR:OUT;SFP:1101;
+X-MS-Exchange-AntiSpam-MessageData-ChunkCount: 1
+X-MS-Exchange-AntiSpam-MessageData-0: 
+	=?utf-8?B?cUJ0N0t1YmVsZFcrcDQ2T0RCRFZLRTExWW5kSWNGT0NmdUxVRUZ2UTNUalZH?=
+ =?utf-8?B?N21VbCswcEh2QldyUG8yS1hUaXhFUTI1WElPUWZFMkUwck5SaS9naEo2UEVj?=
+ =?utf-8?B?Rld4TEJPbjR2WEVIL2I5UXROY3p4WGR5QVI3dURhSUZUK0xrbjRhK0ZTdkNj?=
+ =?utf-8?B?a2puQ01XY3MxYjgyVlNYZERiTENrS0wxcFNXd0pJN2JjOVpZTEFVaU05ZTZR?=
+ =?utf-8?B?Z1ZheHJHSjE4dk10TDE5Y0xtR0ZPTCtQZ3NxYzVzY3J6WTlqZldzajhQakVH?=
+ =?utf-8?B?eXF4dXdXb0E5OXdadFFYb3hKbldGZkNWUS9kWi9CWHg3TVVhOXJ3Q0dSemxp?=
+ =?utf-8?B?TnA0MFlSajFUZklGM0RSQzIrUzdIRDJmb3paV2dMMzRQeStldHp1V2lKZG9T?=
+ =?utf-8?B?RC9TN1VMS2lzakVOR2szZkVCUjFEenJBb3RiaHd5bjVYU1ErTldpK1Jua1dE?=
+ =?utf-8?B?V2swL053ZGRyZHR0Q1gxQVdXdWZVNnBtV3JOSTNYYUFkbjM4dTIwSnJoaWc0?=
+ =?utf-8?B?dWFIaE91YTlPWWdGbFVacXNrQkxyY204U3pjSVpadzRhRDVUeE1zbzVxWUZX?=
+ =?utf-8?B?Tk5paFMza3Y5MStxVGtmMWVFTUFOZ3dJSkZLbC83TGNiQTZLa084c3BHVlBF?=
+ =?utf-8?B?em1SeFlsTWxiVE8zRkVzN3V2OU02cUQxSFA3ZVp4dmFSL085ZEVXR0E2djFG?=
+ =?utf-8?B?VVp1UU9IWE5jdVNEcG5mVk1ZNUp1NnFkK09WQ09hb0RRZkdSSUpPSEdJT2Uw?=
+ =?utf-8?B?aXBMQTUxK0pDcVR5aVBQaFNvL3hIdGIzaDVyS0swazB6WUxUaC9wbDZSaDJh?=
+ =?utf-8?B?Y3JRaTdkYVUxY1NMc0hCOS9hbXl4Smlrak5HMnNjcW1TcVJnWFI1TkdPQml6?=
+ =?utf-8?B?LzIwTlBmKzdtYTlZbEZwT0lNZDBHeGNlNmhlQm8xN1hBL1VucGVlM2JUL3Bh?=
+ =?utf-8?B?YmpyM1ZDT2oydXBqenhLUk5OUzcrUGRRekhhdk5OcXZ6RklaeVZFcitjNVRa?=
+ =?utf-8?B?OHBoK0d0TVE4RzBmc3lkK1ltU2RPYWhWV0RpMW8vNkYwcmoraXo4S0dDUDVL?=
+ =?utf-8?B?RG13SkwyM3dqejNwZUEzWGhlQWs3WDhhak56dnduNmlmMFdnRzhTaWREZEQ3?=
+ =?utf-8?B?R0toTmVzQWNJenhDTW51RjhHM2FabDNMWDFMRjJxK0R0L3NuSDNab3lTQVBq?=
+ =?utf-8?B?amwwSERqR0dibTVjZmtoVDhFanVIb2NqOTdDR3NNWjFEVWdHNDBIZk1CaEQ0?=
+ =?utf-8?B?eUVZbDR1K1VvcmV0cGtsZG9lbWFIbGljMURBVEo5M0xRdzM4VGpPdWZCb3RF?=
+ =?utf-8?B?bzh3dTI5Q2ZoS2FsNjhGSVRwWHAwRzZpdVVWcVh4U0RXSll6WGwwVHp4K1RT?=
+ =?utf-8?B?U3NPU0FBYXlTVUM1WHNFQ0NCY3diVGRYZ2ZDcUZKbVVBZnpYcGsxY1BLOHRC?=
+ =?utf-8?B?Yk4xRDZDQWhFVlVkbXlXY2VxVG9RRlMyVjlnSGpRYXRCbEtvUTUrNDZhWHFG?=
+ =?utf-8?B?MFArWXp2MjRpaTNiVGFremhETkc3MHZ3bXhDdlFxTnBHbk0xTmZyS3h5bzc0?=
+ =?utf-8?B?bjg5V09vblhlSjA1OFBLQ1NmVzIwV1RUdG5zR1RTQ0g5RHQ1STN3T3lRQ2tk?=
+ =?utf-8?B?L1BSYm1EVExhQnhiak4yaUhFNDB0cjZIUHYvR0ZEWGR4UVd2TVMzaXFJVmR4?=
+ =?utf-8?B?ZFdKNVVwQXdHb1FZRW0wQ21pQ3dFaGorc0lXWEdFbk8wRVB5UEZubUlnelJR?=
+ =?utf-8?B?T2pZeWVUVkYzMDI1WHZvYzZ4bEcwdGIwYUp5ZzI3OUFzeStDVGZ2dFJaUnVz?=
+ =?utf-8?B?YkQ3cGpwbDNMWEdJZFh1ZzBEMVVvb1F5NG1uMGdRdmQ0bHkzVzlPaU9qL2x4?=
+ =?utf-8?B?RklzWWdWeFlyLzRQTnIvaFYrWDBsUlZpelFtcjNYQXA1amxha0ZpV25TTis3?=
+ =?utf-8?B?bTFYNXA3Z2RTMVFYU0VZcjhndEpWbStURDJvSHlUVzh1ZERlbUNVbGxXcTl3?=
+ =?utf-8?B?NW43TE9sTTg5L2RkUWt0VjVzZ01XaDlNSkRXSWdiODY0UnN4MWV1dEUxMzRK?=
+ =?utf-8?B?QjlVNURCY1A2dWZiNU9rWWJRYko2ZEsyZVIvYkhiU2lxakFyU1kzTnFMMEJk?=
+ =?utf-8?B?aklodUtXald1MWxmS2ttUUptOG1EY2RZYVMyemhDdVdtR3BvTnZEa1kyZUdy?=
+ =?utf-8?B?UXc9PQ==?=
+X-OriginatorOrg: cherry.de
+X-MS-Exchange-CrossTenant-Network-Message-Id: 14429453-32c0-4d46-d0a2-08dd56626e5c
+X-MS-Exchange-CrossTenant-AuthSource: AS8PR04MB8897.eurprd04.prod.outlook.com
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 26 Feb 2025 12:38:14.8063
+ (UTC)
+X-MS-Exchange-CrossTenant-FromEntityHeader: Hosted
+X-MS-Exchange-CrossTenant-Id: 5e0e1b52-21b5-4e7b-83bb-514ec460677e
+X-MS-Exchange-CrossTenant-MailboxType: HOSTED
+X-MS-Exchange-CrossTenant-UserPrincipalName: ou5p6B665QZx2ts6k8yW4bMsoa5okY9Zs0KLA+kMMSmX8+mSaQbT2b9YzRxhVIL/wG+xfrN5STaenzytxzn1CWwRRee400e5qba+vV/VLG8=
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: DB9PR04MB8188
+
+Hi Heiko,
+
+On 2/26/25 11:38 AM, Heiko Stuebner wrote:
+> From: Heiko Stuebner <heiko.stuebner@cherry.de>
+> 
+> Until now the usbdp in the orientation-handler set the new lane setup in
+> its internal state variables and adapted the sbu gpios as needed.
+> It never actually updated the phy itself though, but relied on the
+> controlling usb-controller to disable and re-enable the phy.
+> 
+> And while on the vendor-kernel, I could see that on every unplug the dwc3
+> did go to its suspend and woke up on the next device plug-in event,
+> thus toggling the phy as needed, this does not happen in all cases and we
+> should not rely on that behaviour.
+> 
+> This results in the usb2 always working, as it's not affected by the
+> orientation, but usb3 only working in one direction right now.
+> 
+> So similar to how the update works in the power-on callback, just re-init
+> the phy if it's already running when the orientation-event happens.
+> 
+> Both the power-on/-off functions as well as the orientation-set callback
+> work with the usbdp-mutex held, so can't conflict.
+> 
+> The behaviour is similar to how the qcom qmp phys handle the orientaton
+> re-init - by re-initting the phy.
+> 
+> Signed-off-by: Heiko Stuebner <heiko.stuebner@cherry.de>
+
+Tested-by: Quentin Schulz <quentin.schulz@cherry.de> # RK3588 Jaguar
+
+> ---
+>   drivers/phy/rockchip/phy-rockchip-usbdp.c | 7 ++++++-
+>   1 file changed, 6 insertions(+), 1 deletion(-)
+> 
+> diff --git a/drivers/phy/rockchip/phy-rockchip-usbdp.c b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+> index 960cad5b01a9..c07b79da5b6b 100644
+> --- a/drivers/phy/rockchip/phy-rockchip-usbdp.c
+> +++ b/drivers/phy/rockchip/phy-rockchip-usbdp.c
+> @@ -1277,6 +1277,7 @@ static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+>   				 enum typec_orientation orien)
+>   {
+>   	struct rk_udphy *udphy = typec_switch_get_drvdata(sw);
+> +	int ret = 0;
+>   
+>   	mutex_lock(&udphy->mutex);
+>   
+> @@ -1292,9 +1293,13 @@ static int rk_udphy_orien_sw_set(struct typec_switch_dev *sw,
+
+Unrelated to this patch (but may be triggered by this patch?), I'm 
+wondering how flip is really handled.
+
+It seems like we have flip store the orientation of the cable, but also 
+if rockchip,dp-lane-mux is set to <0 1>. But wouldn't that break if we 
+ignore that initial flipped lane-mux whenever a USB-C cable is inserted 
+in reverse? Basically, shouldn't a reserve orientation of the cable when 
+rockchip,dp-lane-mux is set to <0 1> mean "normal mux"?
+
+Cheers,
+Quentin
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from sender4-pp-f112.zoho.com (sender4-pp-f112.zoho.com [136.143.188.112])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 9D2E518E362
+	for <linux-kernel@vger.kernel.org>; Wed,  5 Mar 2025 21:52:57 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=pass smtp.client-ip=136.143.188.112
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1741211579; cv=pass; b=F57I1Wtm+34y83/zjbSZ8kuQqGK/CbVS5ZTxZyvRn0skd9DINeevX40s6t+cSLwYItBZxKJYWGgIOTGW4206kyFBTBKEMU/BkK//FLgPjDtVGU2uDIgQ6Ag5XY8Z8sDc0tsN7kw3tWAZWol8G9A1NhDsFMTP06xgHCEqkPhUmck=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1741211579; c=relaxed/simple;
+	bh=GaMaMg3VwbCFWstimVr6jj6x7MGRDFM+mLVf73o03w8=;
+	h=Date:From:To:Cc:Subject:Message-ID:References:MIME-Version:
+	 Content-Type:Content-Disposition:In-Reply-To; b=bBZikWCzSp+uqeM8egmfoIp5J4BWcYjPsAyvxPl9pzsKfAssRRb/oyhlk1ru0ml4TUwYLhcsG9TBQOyBvgUt0FZjwJ5j9BgxLQeKpQrjF4LprkZAMzQArEP+IESWkej+K8IN8bIXkxD6dVfbqgCCPLpwoWDSjeNPlwJY1sxBaFY=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (1024-bit key) header.d=collabora.com header.i=sebastian.reichel@collabora.com header.b=cZMa76wQ; arc=pass smtp.client-ip=136.143.188.112
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=collabora.com header.i=sebastian.reichel@collabora.com header.b="cZMa76wQ"
+ARC-Seal: i=1; a=rsa-sha256; t=1741211562; cv=none; 
+	d=zohomail.com; s=zohoarc; 
+	b=bSYuxnUV/HlBSWa6+7SS5YTvWhp+Ct50cQeBrWYEQX1PzEMcsTgWTnZJIaynTXzpQga+MAFCFr7LTZRDwj380WIWlV4edsYpkysmjpmjzephoyehMA0Jvq2B+5rqbFA0a3ZxoZElJRA8bX9AT6+/C8Xukgy+YzTZxkvadZG8GVI=
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=zohomail.com; s=zohoarc; 
+	t=1741211562; h=Content-Type:Cc:Cc:Date:Date:From:From:In-Reply-To:MIME-Version:Message-ID:References:Subject:Subject:To:To:Message-Id:Reply-To; 
+	bh=GaMaMg3VwbCFWstimVr6jj6x7MGRDFM+mLVf73o03w8=; 
+	b=LmZUklc+fumaxBKpMqOD8YXBybgcx42/BGMFWi22TeQctlrvH5Ma6h/uGCzyobic0ii+IFAfkr9KDvKle+eOHuCTu6jXAWCGPD8nEfmkIimwQBKuGKfciJA1guDsvzNOKcGhTLLXzQ43ihQD/RcOGCJwrM0of8/m+M4amWFc5kw=
+ARC-Authentication-Results: i=1; mx.zohomail.com;
+	dkim=pass  header.i=collabora.com;
+	spf=pass  smtp.mailfrom=sebastian.reichel@collabora.com;
+	dmarc=pass header.from=<sebastian.reichel@collabora.com>
+DKIM-Signature: v=1; a=rsa-sha256; q=dns/txt; c=relaxed/relaxed; t=1741211562;
+	s=zohomail; d=collabora.com; i=sebastian.reichel@collabora.com;
+	h=Date:Date:From:From:To:To:Cc:Cc:Subject:Subject:Message-ID:References:MIME-Version:Content-Type:In-Reply-To:Message-Id:Reply-To;
+	bh=GaMaMg3VwbCFWstimVr6jj6x7MGRDFM+mLVf73o03w8=;
+	b=cZMa76wQUcbJQCaInUNdiMEscPAH5rlre70ucJ/is6YNhsBe7fJm67efDeBLtIHA
+	I9v+8/IfeitwCAAxAWcMrXIc/nYSc27CnMMPROr5KX9SbvK7omVMXy09oG1Jj/3dqzD
+	Zn3GRb1azwjKMPE8fYQ1iOL67GBYcNBHarZRccVk=
+Received: by mx.zohomail.com with SMTPS id 1741211559978795.5927922700267;
+	Wed, 5 Mar 2025 13:52:39 -0800 (PST)
+Received: by venus (Postfix, from userid 1000)
+	id 08608183465; Wed, 05 Mar 2025 22:52:36 +0100 (CET)
+Date: Wed, 5 Mar 2025 22:52:36 +0100
+From: Sebastian Reichel <sebastian.reichel@collabora.com>
+To: Quentin Schulz <quentin.schulz@cherry.de>
+Cc: Heiko Stuebner <heiko@sntech.de>, vkoul@kernel.org, kishon@kernel.org, 
+	linux-phy@lists.infradead.org, linux-arm-kernel@lists.infradead.org, 
+	linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org, christophe.jaillet@wanadoo.fr, 
+	Heiko Stuebner <heiko.stuebner@cherry.de>
+Subject: Re: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on
+ orientation-change
+Message-ID: <4mhobm5oxhjim6m2dwzmt63riuoruwaivmftnuaodwvplnleeg@w7yyv3zyxewe>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+ <20250226103810.3746018-3-heiko@sntech.de>
+ <02757b21-7599-4ee7-9f97-247b04ba646a@cherry.de>
+ <dkjpudmzuuxvaotz4mx46yx7iacof7q6ck746j3rrqvlgbq3hk@6vtvy3gy3kff>
+ <2af85aa0-96dc-43ea-9542-88f91b21a028@cherry.de>
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: multipart/signed; micalg=pgp-sha512;
+	protocol="application/pgp-signature"; boundary="iiki2smch4scccrq"
+Content-Disposition: inline
+In-Reply-To: <2af85aa0-96dc-43ea-9542-88f91b21a028@cherry.de>
+X-Zoho-Virus-Status: 1
+X-Zoho-AV-Stamp: zmail-av-1.4.2/241.192.19
+X-ZohoMailClient: External
+
+
+--iiki2smch4scccrq
+Content-Type: text/plain; protected-headers=v1; charset=us-ascii
+Content-Disposition: inline
+Content-Transfer-Encoding: quoted-printable
+Subject: Re: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on
+ orientation-change
+MIME-Version: 1.0
+
+Hi,
+
+On Mon, Mar 03, 2025 at 10:27:31AM +0100, Quentin Schulz wrote:
+> On 3/1/25 10:19 PM, Sebastian Reichel wrote:
+> > On Wed, Feb 26, 2025 at 01:38:10PM +0100, Quentin Schulz wrote:
+> > > Unrelated to this patch (but may be triggered by this patch?), I'm wo=
+ndering
+> > > how flip is really handled.
+> > >=20
+> > > It seems like we have flip store the orientation of the cable, but al=
+so if
+> > > rockchip,dp-lane-mux is set to <0 1>. But wouldn't that break if we i=
+gnore
+> > > that initial flipped lane-mux whenever a USB-C cable is inserted in r=
+everse?
+> > > Basically, shouldn't a reserve orientation of the cable when
+> > > rockchip,dp-lane-mux is set to <0 1> mean "normal mux"?
+> >=20
+> > If a USB-C connector is involved, the TypeC controller is supposed to
+> > setup the lane muxing based on the connector orientation. This
+> > happens via the typec API and in this hardware setup the PHY should
+> > not have the rockchip,dp-lane-mux DT property set.
+> >=20
+>=20
+> I could see some HW routing "mistake" where the USB-C connector in normal
+> orientation has DP lanes routed to RX1/TX1? Or is this expected to just be
+> faulty HW we shouldn't attempt at supporting?
+
+You mean somebody routing the RK3588 SSTX1 and SSRX1 pins to SSTX2
+and SSRX2 of the TypeC connector and vice versa and thus effectively
+inverting the orientation on their board? I would say let's worry
+about that once somebody comes up with such a cursed hardware design.
+
+Note, that rockchip,dp-lane-mux wouldn't be a good property for this
+setup either. With USB-C you don't necessarily have 2 lanes USB3 and
+2 lanes DP. You can also have 4 lanes USB3 (not supported by RK3588)
+or 4 lanes DP (should be supported by RK3588 hardware). So
+hardwiring the mux is a bad idea. Probably would require some flag
+for the TypeC orientation switch to handle the orientation
+information inverted.
+
+> > The rockchip,dp-lane-mux property is required if no USB-C connector
+> > is involved. For example if the lanes are routed to a Displayport
+> > connector. In that case the lane setup is fixed in hardware and
+> > there is no TypeC controller involved, which could do any setup ;)
+> >=20
+>=20
+> Yup I've seen that for the Rock 5 ITX and the evaluation board(s) do this.
+> Quite interesting :)
+>=20
+> Cheers,
+> Quentin
+
+Greetings,
+
+-- Sebastian
+
+--iiki2smch4scccrq
+Content-Type: application/pgp-signature; name="signature.asc"
+
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAABCgAdFiEE72YNB0Y/i3JqeVQT2O7X88g7+poFAmfIx58ACgkQ2O7X88g7
++pp5wQ//ekpa+pqaf5idL+GfqVxmJL7gdtHvObD3VNfYoGb7LNc6EE6qgaaQqaEf
+CtyGW2XxjxkaWp2uJRrpQt8jAMy6kRI/gItvrFoa7pIZQaaJoqJyFPCSp9mL+eWf
+b8FBt531ViEd7TGendoNL9cpVKmnO6UjgMKtd3dppB6K/hBcWeUljojGHjBt9uz6
+AC0RhTR2+2P+IOoqWCS5Bb5VOqkPCX3VSdWrzKN/qMqynlOAk6o0Ar/qVyUaGztQ
+ezcRh/C38WsOWVFey8xTX43yyfUg+e5axYVTYvBXcL52qlQbXwxIsiKr2kQIXpRM
+0UAhywLTgeo5ZfSTtXwidwAuX00qdGRUSlbH+0rcfB8wQESaoqhZDJ2Pr2sSgmZL
+/lubA8hOtGjQ18L8rz87qjL8bugSk8ua15WDZq8wqY3CQ3u+3eQB8A1RNZOOJqd/
+EoJ26yr4hciaGy9aaGRX4MEuMK4K5cJTIaHeOtidQvuACp96bnA9uXLB2lBdAp7S
+1Ypyu6qH0xyOsMossSUg0ud+kWHLi/FPnifWo6aBIh3lrkSmfe6d5cyvVhMFOcYb
+bHu0ArA7u9b7nyyj0Rs5G+No8s94aobpfgpUjHOSzJhhbCXy6vidrJZAzwtF1dWB
+2e7ulm4IPup6C4fNBcWnC19XJaoepWF5BskB+BkLo+/Sa9BcErY=
+=+9iz
+-----END PGP SIGNATURE-----
+
+--iiki2smch4scccrq--
+
+From mboxrd@z Thu Jan  1 00:00:00 1970
+Received: from EUR05-DB8-obe.outbound.protection.outlook.com (mail-db8eur05on2060.outbound.protection.outlook.com [40.107.20.60])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id E33011D516A
+	for <linux-kernel@vger.kernel.org>; Mon,  3 Mar 2025 09:27:36 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=fail smtp.client-ip=40.107.20.60
+ARC-Seal: i=2; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1740994060; cv=fail; b=CpeNnIAbvPgvE+ncKGws8E0qjTR2QlbTPUboTH3hzi6bGqz7mEnhNSy6NvCwXF8jcQt0hez08RVEGczBFJPDBoGL8HLxX14bga39uD3cK4NC6lujABfKtwE9bAoEIhZrErpJBg15CXBPDm99WWacsZjUjCgZnxab10HboI3oI28=
+ARC-Message-Signature: i=2; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1740994060; c=relaxed/simple;
+	bh=PqecEj70rPlN5t2PMqI451IlxmWAW7F9vC7CC4p8a+U=;
+	h=Message-ID:Date:Subject:To:Cc:References:From:In-Reply-To:
+	 Content-Type:MIME-Version; b=Wb01MqZp3hLH9FEX2IfD3tLtha7J/+EO7BtJYo66GmnNN1LCa+LKPEGogi6KbzZ76PUem01KhODLKq6+gsNM/EZqu6WYgf3MoZfMKAVrFaskyrHhqVjHgb1wsKZhVolw8McgF0LH1PxBheYNXqNdJ9RPI+1c/Rde/wB6jmAlnvw=
+ARC-Authentication-Results: i=2; smtp.subspace.kernel.org; dmarc=pass (p=quarantine dis=none) header.from=cherry.de; spf=pass smtp.mailfrom=cherry.de; dkim=pass (1024-bit key) header.d=cherry.de header.i=@cherry.de header.b=KfOBSXE3; arc=fail smtp.client-ip=40.107.20.60
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=quarantine dis=none) header.from=cherry.de
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=cherry.de
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (1024-bit key) header.d=cherry.de header.i=@cherry.de header.b="KfOBSXE3"
+ARC-Seal: i=1; a=rsa-sha256; s=arcselector10001; d=microsoft.com; cv=none;
+ b=HpteV4V0qPY53lS5D9CRVj/P8v99hxCFC9tgu5eszrra86UGYbiltGKB8k1/efAZrexYQYphBfgIDsNP7M/YihBUfXHdHfHLFPhgwJCxxaEbX7hDuoZx3tY7svi6rIpCJc2SvGGgNqJ3L+oHluPugGgqmznoYwt6yGieDuuzUSdSvhLQKNCA1U3/SeZ/gGFNqnFg6LGBjQGywwMGl7762kU7qSX1tbAr4Dgw/oF7JtJGPfTNfzQ3iOEgAF8dl0H3koOQ3Es3SqVKRcYB/Z2iKiv1pqg2sbsSJpaYSz7ZrlOBU+sMtAlEbrAkn0ABK8BzbjX8+/e9wYFaELpjlqf8Bg==
+ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=microsoft.com;
+ s=arcselector10001;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-AntiSpam-MessageData-ChunkCount:X-MS-Exchange-AntiSpam-MessageData-0:X-MS-Exchange-AntiSpam-MessageData-1;
+ bh=FAcM272slMqqpFleIjUe7shj2LaCG1puL/6aCMfQsGk=;
+ b=MpPiNvg7A0QOCq4m4ZY4sSngfEdIOM8KVgTxjnvC9W4JhFKm6P2663ItHtwtQ5kclBuYoVKIG2qP4ctC0bMmcHTyUcoXYJGbADRqQm2v7H/ImWQBDsCbyzcbUoVhL/GAMV8bA8p0O2kRCiANH3YmYFn8mxY9v6krJhe4q9dYRBdLxfxgZJkNMV5ef/t8jdF+n4f9/vVIiIFvVH9apH3xUteK5ShxUd3Y+GW4CaM+9DaZtVUrYk8x/IM1o/6kvIjfYPGttaeRhtzln6Eu4i48BZhF4AP8zeTlfo5JDIe5UHbyUH3CmGvVqbUoo0Dm+lgnRaAT1HGZHTFEI9r6ZjXoNw==
+ARC-Authentication-Results: i=1; mx.microsoft.com 1; spf=pass
+ smtp.mailfrom=cherry.de; dmarc=pass action=none header.from=cherry.de;
+ dkim=pass header.d=cherry.de; arc=none
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=cherry.de;
+ s=selector1;
+ h=From:Date:Subject:Message-ID:Content-Type:MIME-Version:X-MS-Exchange-SenderADCheck;
+ bh=FAcM272slMqqpFleIjUe7shj2LaCG1puL/6aCMfQsGk=;
+ b=KfOBSXE3f2U/ec4L/Y30kdwLfmaHrcCzhocgAkpMJ6QrCeLABEeR6zU0jj9R1jYtRTfj0hx5pglstaQUlyZbvRati45S2q/HnUfEQNxGf9JKXE76qqDw85a7xLRWo+3YHn5ae9ZNSHRj6L1ewwoRYAvoDUtgBUlSXlrkY6PgW94=
+Authentication-Results: dkim=none (message not signed)
+ header.d=none;dmarc=none action=none header.from=cherry.de;
+Received: from AS8PR04MB8897.eurprd04.prod.outlook.com (2603:10a6:20b:42c::20)
+ by PA2PR04MB10158.eurprd04.prod.outlook.com (2603:10a6:102:404::18) with
+ Microsoft SMTP Server (version=TLS1_2,
+ cipher=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384) id 15.20.8489.27; Mon, 3 Mar
+ 2025 09:27:33 +0000
+Received: from AS8PR04MB8897.eurprd04.prod.outlook.com
+ ([fe80::35f6:bc7d:633:369a]) by AS8PR04MB8897.eurprd04.prod.outlook.com
+ ([fe80::35f6:bc7d:633:369a%6]) with mapi id 15.20.8489.025; Mon, 3 Mar 2025
+ 09:27:32 +0000
+Message-ID: <2af85aa0-96dc-43ea-9542-88f91b21a028@cherry.de>
+Date: Mon, 3 Mar 2025 10:27:31 +0100
+User-Agent: Mozilla Thunderbird
+Subject: Re: [PATCH v2 2/2] phy: rockchip: usbdp: re-init the phy on
+ orientation-change
+To: Sebastian Reichel <sebastian.reichel@collabora.com>
+Cc: Heiko Stuebner <heiko@sntech.de>, vkoul@kernel.org, kishon@kernel.org,
+ linux-phy@lists.infradead.org, linux-arm-kernel@lists.infradead.org,
+ linux-rockchip@lists.infradead.org, linux-kernel@vger.kernel.org,
+ christophe.jaillet@wanadoo.fr, Heiko Stuebner <heiko.stuebner@cherry.de>
+References: <20250226103810.3746018-1-heiko@sntech.de>
+ <20250226103810.3746018-3-heiko@sntech.de>
+ <02757b21-7599-4ee7-9f97-247b04ba646a@cherry.de>
+ <dkjpudmzuuxvaotz4mx46yx7iacof7q6ck746j3rrqvlgbq3hk@6vtvy3gy3kff>
+Content-Language: en-US
+From: Quentin Schulz <quentin.schulz@cherry.de>
+In-Reply-To: <dkjpudmzuuxvaotz4mx46yx7iacof7q6ck746j3rrqvlgbq3hk@6vtvy3gy3kff>
+Content-Type: text/plain; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: 7bit
+X-ClientProxiedBy: FR2P281CA0138.DEUP281.PROD.OUTLOOK.COM
+ (2603:10a6:d10:9e::7) To AS8PR04MB8897.eurprd04.prod.outlook.com
+ (2603:10a6:20b:42c::20)
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+X-MS-PublicTrafficType: Email
+X-MS-TrafficTypeDiagnostic: AS8PR04MB8897:EE_|PA2PR04MB10158:EE_
+X-MS-Office365-Filtering-Correlation-Id: 1aa8fa80-fd0b-4917-40bc-08dd5a35a031
+X-MS-Exchange-SenderADCheck: 1
+X-MS-Exchange-AntiSpam-Relay: 0
+X-Microsoft-Antispam: BCL:0;ARA:13230040|376014|1800799024|366016;
+X-Microsoft-Antispam-Message-Info: 
+	=?utf-8?B?ZFYySFArMTgreVlNa2RkQUVOcVcrdnUrS0JFV1R3Qi95TktJaWhOSXpLL0xF?=
+ =?utf-8?B?c1ZDclJoQU5vOWl1NzBoMXY2MEsya29hclZFNitYbkZSeFBlcnJlek5lRHZ6?=
+ =?utf-8?B?M2YzdHJPTi9ObDBReDkxamdCdEovU3V1T2RiQXBuaVRKejRjYUlIck5MazdU?=
+ =?utf-8?B?K3hlRDBZK3ptdlRSREw0bWNTRllQNlRNalBEYkJaMkNPamRxTi9NSXBoRlNO?=
+ =?utf-8?B?OEVFS2xQOENIZ0puZDZzdGh3VHFOV0tXanlKK1JLcGI1cHdyVnlOS3FteCt4?=
+ =?utf-8?B?N2RtQ1ZYUjZUalppK0Z2WnZTYmwzVExKZXNkdENJTzNrNkQ2Z0JrckNoZXk2?=
+ =?utf-8?B?UmFjZUdvdHdUUmRIYjJ0K1p3d0FMY3QyVW4xa0FXWDI5aEQyL25HanB2c2M2?=
+ =?utf-8?B?U1N0L0x3MjdhYVBuK0Uxa2MrVGxKK0tLUG5ZRVFTSWt5OXZEbXJNYVdsYlYy?=
+ =?utf-8?B?aUtYRGpmVkI5bkJwQ1AzZjQzSUJFdEdMSTIvRi9hTFNjeU5uM2RiTzZuTGVq?=
+ =?utf-8?B?cnliS2haZlpZVnlEeHlLV1ROWnJzWFlzdGpGbFFYb1YwT1JCRmNQZUczVjUr?=
+ =?utf-8?B?OWx5UXFkUW1ITEJMT3ZNUXVuZGQxK2NMV24vMXNHaHNqMTRiQVoyVEJwd2s3?=
+ =?utf-8?B?TzlsY3Z4ak1FeGgrTC8zVmtyeEZTU1dCVUJFNnR0eUtzYzlrSnRTRDEwaEVB?=
+ =?utf-8?B?M3ZTZkNBTC9xYTJpWUxxcUFzc2cvSnFlTWFna01MRENVdXBiTkRDYnFocHdr?=
+ =?utf-8?B?Vkg2NHpFYWRJQmFEak1oaUh2NHdBMzFsZy9yd1M1aWRYTlprYzJrZFdBenMr?=
+ =?utf-8?B?b1NMSlpMM3B5WTE1T2RLRFpKYm11dFloakJPTCtrMkZqTXo3ZHJnOUdNdHdO?=
+ =?utf-8?B?b1RJdCtBMTZKRzhkQk4xYVFYQ21JanBOeis5MGpGSzBacW84V3A0Zm1DNUdx?=
+ =?utf-8?B?U0REdnhjYTZFdy9mSVQ4MGs1ME9HbDJsVGk0Z2F4RWRPU00xdVI3TTVFZ2hz?=
+ =?utf-8?B?OEgrWFNZbWNPV25RRi91VVlSeVNISWFZWkRlS0NWeWp2eFQyTS9FNllaamRD?=
+ =?utf-8?B?N2w4TUtndmRraDJUbTliS25EcDhJMDBhY3VUQXpJMmhUNkdGNzYwaDRhck04?=
+ =?utf-8?B?YmtaeUc2QndGemRtSndubG43WnUzVVV3MWtHQmUwZmYzbU4xQkpyVGgwck9G?=
+ =?utf-8?B?ZUFkaXQ5d2FGSWZUSFphTmZ5dSt2Si81d0Y0UnoxTUphSzJDbC8zNm8ybzFF?=
+ =?utf-8?B?bDZ5dkw1b01hMnRONWNmRnRZaGczT25MSHlTZUFPNS9JeG1SZ0JmU2xFZjl0?=
+ =?utf-8?B?YUxITi9DNzFhK20rdnNmbmhmWTdyb0FFZGlHMnNaa0M5dm9zTkdxWUhoOE0y?=
+ =?utf-8?B?a3JrZTZhNWJqVGk3NmJwNFNWa0krL0c4YW82KzI2bzBleElaWlpzMXFDMXI1?=
+ =?utf-8?B?WnVjak5DbVhXb1BSbG9PcVYzelUyOXdkaHVIS0tOdUY1cU1UNGNnQ25FRld4?=
+ =?utf-8?B?K1c5ZzlQcTNnVTE2RVQyN0RJejVPNjN1OEp1R2NmSU81OE9kQnprNEZBQ3pC?=
+ =?utf-8?B?MU04REdWWHlGczN4TEdWc0xNTFJQMEZ2NlY3M3UzMGplcGJhOUM1S1lHNS9F?=
+ =?utf-8?B?RDg0VGxxSGNUbTc2aDR5Q0dDNXdWOXJpMkx0NElleDNaWnZ4WmYvUmxQNGZN?=
+ =?utf-8?B?QzA0Qlp3TElFckNrRG1vTDZTMTMrRFFnQ2JvNzVVMmhheUFnczlxZXcxcFZ2?=
+ =?utf-8?B?bHpCaXEraU0vU3VwWVRrQ21HM1BTbHpzdlZOTHJ3S20rOUJjRE83MHAwQUVi?=
+ =?utf-8?B?U01oYVNlUW5kbXJBTE5QZ3QxSkFEWGVXVFpwWDl2T2I4ajEyWnVaQUYwU0oz?=
+ =?utf-8?Q?mvPrRf8o/ETYA?=
+X-Forefront-Antispam-Report: 
+	CIP:255.255.255.255;CTRY:;LANG:en;SCL:1;SRV:;IPV:NLI;SFV:NSPM;H:AS8PR04MB8897.eurprd04.prod.outlook.com;PTR:;CAT:NONE;SFS:(13230040)(376014)(1800799024)(366016);DIR:OUT;SFP:1101;
+X-MS-Exchange-AntiSpam-MessageData-ChunkCount: 1
+X-MS-Exchange-AntiSpam-MessageData-0: 
+	=?utf-8?B?b2Rram0xVDBIZjg2M0dSTjRIbWl1b2pBUDM4WHR6emM1eU9majZXYWVmcVNQ?=
+ =?utf-8?B?STBIMG9IYXF2a3lJQlpLY2ZoREVCZ3pKOWhTSGNvMXBSZFR0Vko5U2hQZ3RQ?=
+ =?utf-8?B?NjBmZzRNRmR5UlhuYzhsNXZBQXNTV214cGs1MWsvSVc3WU5qM0RlbW1Jalhv?=
+ =?utf-8?B?TVZVcGhHTkk5QzcwaEw3bFkzcDVNN216NnJIcXpLNmYyTU5jY3NHbkxxUXZq?=
+ =?utf-8?B?dS9vWUJGRWl0cGpUY0NsZ0FqQXNMeS9nZlptV2w5dEFsZEZCRTloalhxeW9n?=
+ =?utf-8?B?RjU5QU9JaEcwdmViY2FOdGEva3kyUUU1SStMaDk1cGNQMFZ3K1F5U0tJUFZy?=
+ =?utf-8?B?RkVkbC9yVnBWWnhRZ3M4cTkwbTJsTHJ5SmhyNDFPaFpiZklPd005YkxpS3Yz?=
+ =?utf-8?B?QlR6QS9Nd1Y5clN0dHZudklYWGJKQURkZCsxaG1XN3NYSXBXK3ZiazdRRWlW?=
+ =?utf-8?B?Tk1MaXRtSVRjeFpXWk9NWVBZZmlHcVBEc00zaXZkSEdiVFZ1b2RsTkFJSDRu?=
+ =?utf-8?B?bDhGY2hZMXFHT2lTNGI1OFpaWnkwOWlrUENnam56QTVVS1gwSm9LejZLK2lG?=
+ =?utf-8?B?UXg2WG5WZFhKcDM5bFovVnhpM2pxSDdEWlczeVV5WFgveXZNYUZoVnlLT0ta?=
+ =?utf-8?B?eTIwOFBzUnhuMGJ4Vi9HZFV2RUhvQWNwY1VReVUvTmlrUDFBRzQ3bzhLYU9N?=
+ =?utf-8?B?NHBOT3NEZW9UNmZ0bEZsZ21FMi9ONmk1U1BqL3ZFZ21FRWY3aHFESHh6N1U2?=
+ =?utf-8?B?U2tUaTVmV1VCNkU0c2ZXeTdUUkhJRGlDNmE4WU1vNGR0SFVxS2hlRGd6RW11?=
+ =?utf-8?B?T3dBcDIzS3NwelcrSXJFSkd2RHl4TElpNU5FQ1d5WndCU3VOeXkxSGpabm9r?=
+ =?utf-8?B?NGo0ZkR1WjhLNGVpcE5WUmVycWdiSEFaSU9IWDFqMmt3NXFzcEE1M3RoNkJC?=
+ =?utf-8?B?SnpOSkhQNVJrb0hwV29MaFlGeUhNam4wQlVwcXlzWjVlaGdBdUtZbGJpSWlU?=
+ =?utf-8?B?Zkc1Snl0NzdpL0xia0E1Q3VMZkZwMXR2alVJVXh3VVpuU0h0UWIzYnpSTVo0?=
+ =?utf-8?B?UnRnUHlNbXFSZjlxcHlzdGl3OXhrOGFaS0lER05qOEowSWFuVXV2UG9ZNDV1?=
+ =?utf-8?B?YXNFM1ZVeElYTjRpOHoyQzM1LzJZckYwSnJvaWc4T05YRkdRSjVzUUpSMElt?=
+ =?utf-8?B?bkhZNjF0VWgvU0s2RDNndFQ4NnFkUGZ0OG9aN2pWWm15a2NyYy9NRkh3QlJr?=
+ =?utf-8?B?dlBtWkU0RUZOVkFGVU44QTU4amM4ejNpZzN4UDRyQmdDVzBjL2NPRytWVmZE?=
+ =?utf-8?B?a2hRcFZObWFHMm9tNXBBcDEzbTdBdk5VNktjQWphZ3dPZ1lTd0s4NGZGS3Nz?=
+ =?utf-8?B?NEdUY1NSNEY2RlViNHFEMWd0anBnM1A2N3lzN2ZIWU1idlZpU3IrdFZQdG10?=
+ =?utf-8?B?NnBhR21hTUxvQjgwMDZ3eW40NEJrRHlBMW1FMGlScjdIWEdkTXhaVlhsbUVH?=
+ =?utf-8?B?amxxODloZ1dRbkJaUTRQTGNRRXdMRWFmQVFPUzg5YkMzUmZZOHhIMStINGVB?=
+ =?utf-8?B?Q1doZFkvV284dVllOWplVDRLdmZOcFF6NHBsMUR6N3NlcW5ReWxOcWwzRmpZ?=
+ =?utf-8?B?NE9VTUtOM3ZRV2VSaVJoZU1PTTV2VmFxbDRIRUIzWGE4dGRpaEpxN0RMQjNF?=
+ =?utf-8?B?c05xY200K21Zc1hPQVZWZlpPQURKdFVWSzJNSGx3N2tjWlRNOVpNeE1jdUNJ?=
+ =?utf-8?B?c0pQQ3ZRd3lvNWVqWlRGMUcwNGhoajRIcVRKRjZkTE9FcklvbEdUWjM0bzJ5?=
+ =?utf-8?B?Y3crN3dQa1lmYlJ4d2wxMnRabFVjNXVTQ3dSOXNYTjRmTU54OUFkSHpsbkwr?=
+ =?utf-8?B?SXJaUUJqL1pxTDlEMXE0SnMwNmNWTjNBSjdha0pFMmJhTUh1dGpEUGliWW9Y?=
+ =?utf-8?B?YlFLc3hYM200cHR5QXF3ZWdjampPTGxuV1Z0N014VEJaSmJQQ1BpWUN2SElW?=
+ =?utf-8?B?cG9OSFdzbndISmYvcGpuV2UvVUQzb0VZOG90M3VDMUdhS0xSY2oycTBaWmJ6?=
+ =?utf-8?B?T0loWGlRWFl4dEMxczlLekhhM3Q0MlJoRkFRZzJ2ZSt4SE5yZFljY281Tldl?=
+ =?utf-8?B?OXRIMkxnTUs1VXVWa1M5Ym0zelgzNXNBaEx3TmlBVzN3VTVReUxjYjlheWJH?=
+ =?utf-8?B?QXc9PQ==?=
+X-OriginatorOrg: cherry.de
+X-MS-Exchange-CrossTenant-Network-Message-Id: 1aa8fa80-fd0b-4917-40bc-08dd5a35a031
+X-MS-Exchange-CrossTenant-AuthSource: AS8PR04MB8897.eurprd04.prod.outlook.com
+X-MS-Exchange-CrossTenant-AuthAs: Internal
+X-MS-Exchange-CrossTenant-OriginalArrivalTime: 03 Mar 2025 09:27:32.6343
+ (UTC)
+X-MS-Exchange-CrossTenant-FromEntityHeader: Hosted
+X-MS-Exchange-CrossTenant-Id: 5e0e1b52-21b5-4e7b-83bb-514ec460677e
+X-MS-Exchange-CrossTenant-MailboxType: HOSTED
+X-MS-Exchange-CrossTenant-UserPrincipalName: urebA7n+xzR/Pg5KIXIya6o2SQDITabFUZ/RbUj/RNaGymz9VssPHdNbd4+1nlRU5M1dm1AXWVHu/FBuARcc9NMyhQt14lhsFViole6f4uI=
+X-MS-Exchange-Transport-CrossTenantHeadersStamped: PA2PR04MB10158
+
+Hi Sebastian,
+
+On 3/1/25 10:19 PM, Sebastian Reichel wrote:
+> Hello Quentin,
+> 
+> On Wed, Feb 26, 2025 at 01:38:10PM +0100, Quentin Schulz wrote:
+>> Unrelated to this patch (but may be triggered by this patch?), I'm wondering
+>> how flip is really handled.
+>>
+>> It seems like we have flip store the orientation of the cable, but also if
+>> rockchip,dp-lane-mux is set to <0 1>. But wouldn't that break if we ignore
+>> that initial flipped lane-mux whenever a USB-C cable is inserted in reverse?
+>> Basically, shouldn't a reserve orientation of the cable when
+>> rockchip,dp-lane-mux is set to <0 1> mean "normal mux"?
+> 
+> If a USB-C connector is involved, the TypeC controller is supposed to
+> setup the lane muxing based on the connector orientation. This
+> happens via the typec API and in this hardware setup the PHY should
+> not have the rockchip,dp-lane-mux DT property set.
+> 
+
+I could see some HW routing "mistake" where the USB-C connector in 
+normal orientation has DP lanes routed to RX1/TX1? Or is this expected 
+to just be faulty HW we shouldn't attempt at supporting?
+
+> The rockchip,dp-lane-mux property is required if no USB-C connector
+> is involved. For example if the lanes are routed to a Displayport
+> connector. In that case the lane setup is fixed in hardware and
+> there is no TypeC controller involved, which could do any setup ;)
+> 
+
+Yup I've seen that for the Rock 5 ITX and the evaluation board(s) do 
+this. Quite interesting :)
+
+Cheers,
+Quentin
+
