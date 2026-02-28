@@ -2,9 +2,75 @@
 
 Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, **NPU acceleration**, and more.
 
-> **Note**: The RKVDEC2/VDPU381 driver has been [merged upstream in Linux 7.0](https://lore.kernel.org/linux-media/) (media updates GIT PULL, 2026-02-11). These patches remain useful for running on the 6.19 stable series. When upgrading to 7.0+, the VPU patches can be dropped — but beware of the [HDMI 2.1 FRL regression](https://lore.kernel.org/linux-rockchip/) affecting Rock 5B in linux-next.
+> **Current**: Linux 7.0-rc1 custom kernel built, tested, and deployed on Rock 5B+. The RKVDEC2/VDPU381 driver (H.264/HEVC) is [upstream in Linux 7.0](https://lore.kernel.org/linux-media/) — only VP9 (community patch) and an HPD optimization remain as custom patches. All hardware verified working: 6/6 V4L2 devices, Panthor GPU, NPU, WiFi, HDMI.
 
 ## Changelog
+
+### 2026-02-28 — Linux 7.0-rc1
+
+Built and deployed **Linux 7.0-rc1** custom kernel. 18 of 25 patches from the 6.19.1 build are now upstream — only 2 custom patches needed.
+
+**Patch triage** (full details in [`patches/triage-7.0-rc1.md`](patches/triage-7.0-rc1.md)):
+
+| Category | Total | Upstream | Still Needed | Obsolete |
+|----------|-------|----------|-------------|----------|
+| VPU (RKVDEC2 v9) | 17 | 17 | 0 | 0 |
+| VPU (VP9 experimental) | 2 | 0 | 1 | 1 |
+| DTS (VDPU381 nodes) | 1 | 1 | 0 | 0 |
+| Display (HDMI 2.0) | 5 | 0 | 1 | 3+1 |
+| **TOTAL** | **25** | **18** | **2** | **5** |
+
+**Upstream in 7.0-rc1** (no longer applied):
+- RKVDEC2/VDPU381 v9 driver — all 17 patches ([Detlev Casanova](https://gitlab.collabora.com/detlev.casanova), [Collabora](https://www.collabora.com/))
+- DTS nodes for vdec0/vdec1/SRAM (Detlev Casanova, Collabora)
+
+**Still applied (custom patches)**:
+- **VP9 VDPU381 support** ([dvab-sarma](https://github.com/dvab-sarma), adapted — see below)
+- **HDMI HPD events optimization** ([Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea), Collabora)
+
+**No longer needed** (superseded by upstream):
+- HDMI `detect_ctx` patches (0001, 0002) — upstream took a different approach: commit `5d156a9c3d5e` "drm/bridge: Pass down connector to drm bridge detect hook" ([Andy Yan](https://lore.kernel.org/linux-rockchip/?q=Andy+Yan), Rockchip)
+- HDMI TMDS/scrambling (0003) — partially upstream via `2d7202c6f38d` "replace mode_valid with tmds_char_rate", needs rebase, skipped
+
+**VP9 patch adaptation for 7.0-rc1** — the upstream RKVDEC2 merge restructured the driver code significantly. The VP9 adapted patch (`vp9-vdpu381-adapted.patch`) applies the Makefile/header changes, but the source files (`rkvdec-vdpu381-vp9.c`, `.h`) from dvab-sarma's original patch required manual fixes to compile against the upstream register API:
+
+1. **Register struct field renames** — the upstream merge renamed register struct fields from short names to descriptive names. All 16 references in the VP9 source were updated:
+
+   | Old field | New field |
+   |-----------|-----------|
+   | `reg009.dec_mode` | `reg009_dec_mode.dec_mode` |
+   | `reg011.buf_empty_en` | `reg011_important_en.buf_empty_en` |
+   | `reg011.dec_clkgate_e` | `reg011_important_en.dec_clkgate_e` |
+   | `reg011.dec_timeout_e` | `reg011_important_en.dec_timeout_e` |
+   | `reg018.y_hor_virstride` | `reg018_y_hor_stride.y_hor_virstride` |
+   | `reg019.uv_hor_virstride` | `reg019_uv_hor_stride.uv_hor_virstride` |
+   | `reg020.y_virstride` | `reg020_y_stride.y_virstride` |
+   | `stream_len` | `reg016_stream_len` |
+   | `timeout_threshold` | `reg032_timeout_threshold` |
+
+2. **Block gating struct split** — the old `swreg_block_gating_e` field (a single 20-bit value `0xfffef`) was split into individual named bitfields in the upstream header. Replaced the single write with per-field assignments matching the upstream H.264/HEVC pattern:
+   ```c
+   // Old (dvab-sarma):
+   regs->common.reg026_block_gating_en.swreg_block_gating_e = 0xfffef;
+
+   // New (adapted for upstream):
+   regs->common.reg026_block_gating_en.inter_auto_gating_e = 1;
+   regs->common.reg026_block_gating_en.filterd_auto_gating_e = 1;
+   // ... (all gating enables set to 1, except busifd = 0)
+   ```
+
+3. **Unused variable cleanup** — removed unused `s8 delta` variable to eliminate compiler warning.
+
+**Config strategy**: Start from Panda's BredOS config (`panda_bredos_6.19.1.config`) for clean boot (`DRM_SIMPLEDRM=y`, `SYSFB_SIMPLEFB=y`), override with `DEBUG_PREEMPT=n` and static `PREEMPT=y` for performance.
+
+**Build method**: `git archive` tarball extracted inside Docker container (Linux ext4) — avoids macOS HFS+/APFS case-insensitivity conflicts with kernel headers like `ipt_ECN.h` vs `ipt_ecn.h`.
+
+**Hardware verification** (all passing):
+- 6/6 V4L2 devices: rkvdec (H.264/HEVC/VP9), hantro, AV1, vepu121, hdmi-rx, rga
+- Panthor GPU v1.7.0 (Mali-G610)
+- NPU Rocket (3 cores)
+- WiFi RTL8852BE (rtw89)
+- HDMI output, Bluetooth
 
 ### 2026-02-17 — Linux 6.19.1 stable
 
@@ -36,7 +102,7 @@ Initial release with RKVDEC2/VDPU381 v9 driver, HDMI 2.0 scrambling, VP9 communi
 
 ## What This Provides
 
-Tested and working on **Linux 6.19.1 stable** with **BredOS** (Arch Linux ARM):
+Tested and working on **Linux 7.0-rc1** and **Linux 6.19.1 stable** with **BredOS** (Arch Linux ARM):
 
 | Feature | Status | Details |
 |---------|--------|---------|
@@ -171,14 +237,15 @@ Tested and working on **Linux 6.19.1 stable** with **BredOS** (Arch Linux ARM):
 
 | File | Author(s) | Description |
 |------|-----------|-------------|
-| `patches/vpu/dvab-sarma-vp9-vdpu381.patch` | [dvab-sarma](https://github.com/dvab-sarma) (Venkata Atchuta Bheemeswara Sarma Darbha) | Original VP9 VDPU381 decoder patch |
-| `patches/vpu/vp9-vdpu381-adapted.patch` | Adapted from dvab-sarma's work | Adaptation of VP9 code to fit the v9 driver framework |
+| `patches/vpu/dvab-sarma-vp9-vdpu381.patch` | [dvab-sarma](https://github.com/dvab-sarma) (Venkata Atchuta Bheemeswara Sarma Darbha) | Original VP9 VDPU381 decoder patch (for pre-upstream driver) |
+| `patches/vpu/vp9-vdpu381-adapted.patch` | Adapted from dvab-sarma's work | Adaptation of VP9 code to fit the v9/upstream driver framework (Makefile, headers) |
 | `patches/vpu/rkvdec-vdpu381-vp9.c` | [dvab-sarma](https://github.com/dvab-sarma), [Boris Brezillon](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Boris+Brezillon) ([Collabora](https://www.collabora.com/)), [Andrzej Pietrasiewicz](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Andrzej+Pietrasiewicz) ([Collabora](https://www.collabora.com/)) | VP9 decoder backend source |
 | `patches/vpu/rkvdec-vdpu381-vp9.h` | [dvab-sarma](https://github.com/dvab-sarma) | VP9 decoder header |
 
 - **Source**: [dvab-sarma/android_kernel_rk_opi](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing) (branch `android-16.0-hwaccel-testing`)
 - VP9 Profile 0 only, up to 4K@30fps, experimental/not production-ready
 - The original VP9 backend builds on the rkvdec H.264 backend architecture by Boris Brezillon and Andrzej Pietrasiewicz (Collabora)
+- **7.0-rc1 adaptation**: the adapted patch applies the Makefile entry and header integration; the `.c` and `.h` source files are extracted from the original dvab-sarma patch and require register API fixes (struct field renames + block gating bitfield split) to compile against the upstream driver. See the [7.0-rc1 changelog](#2026-02-28--linux-70-rc1) for the full list of changes
 
 ### NPU / Rocket Driver (kernel config)
 
@@ -204,14 +271,36 @@ No kernel patches needed — audio hardware works out of the box. Configuration 
 - macOS with Docker (Apple Silicon = native arm64, no emulation)
 - Or any aarch64 Linux machine
 
-### Quick Build
+### Quick Build — Linux 7.0-rc1 (recommended)
+
+```bash
+# 1. Clone kernel source
+git clone https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git src/linux
+cd src/linux
+git checkout v7.0-rc1
+
+# 2. Apply patches (only 2 needed — RKVDEC2 H.264/HEVC is upstream!)
+git apply ../../patches/vpu/vp9-vdpu381-adapted.patch
+cp ../../patches/vpu/rkvdec-vdpu381-vp9.{c,h} drivers/media/platform/rockchip/rkvdec/
+git apply ../../patches/display/0004-drm-rockchip--dw_hdmi_qp--Do-not-send-HPD-events-for-all-connectors.patch
+
+# 3. Configure (Panda's BredOS config base + performance overrides)
+cp ../../configs/rock5b_7.0-rc1.config .config
+make ARCH=arm64 olddefconfig
+
+# 4. Build (via Docker on macOS — use tarball to avoid case-sensitivity issues)
+git archive HEAD | gzip > /tmp/linux-source.tar.gz
+# Then extract inside Docker container and build with make -j12
+```
+
+### Quick Build — Linux 6.19.1 stable
 
 ```bash
 # 1. Clone kernel source (6.19.1 stable)
 git clone --depth=1 --branch v6.19.1 \
   https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git src/linux
 
-# 2. Apply patches
+# 2. Apply patches (all 25+ patches needed)
 cd src/linux
 for p in ../../patches/vpu/v9-{01..17}.patch; do git apply "$p"; done
 git apply ../../patches/vpu/rkvdec-rps-fix.mbox
@@ -373,7 +462,7 @@ Usage: `yt https://youtube.com/watch?v=...` — plays up to 4K with RKVDEC2 hard
 
 ## Kernel Config Highlights
 
-Key options enabled in `configs/current_rkvdec2.config`:
+Key options enabled in `configs/rock5b_7.0-rc1.config` (and `configs/current_rkvdec2.config` for 6.19.1):
 
 ```
 CONFIG_VIDEO_ROCKCHIP_VDEC=m         # RKVDEC2 driver
