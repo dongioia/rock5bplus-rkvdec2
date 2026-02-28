@@ -378,10 +378,62 @@ sudo ldconfig
 
 ```ini
 # ~/.config/mpv/mpv.conf
-hwdec=v4l2request-copy
-vo=gpu
-gpu-context=auto
+
+# Hardware decode — zero-copy DMA-BUF via RKVDEC2
+hwdec=v4l2request
+
+# Video output — Vulkan via PanVK 1.4 (libplacebo renderer)
+vo=gpu-next,gpu
+gpu-api=vulkan
+gpu-context=waylandvk
+
+# Cache for streaming
+cache=yes
+demuxer-max-bytes=500M
+demuxer-max-back-bytes=200M
+
+# yt-dlp integration
+script-opts=ytdl_hook-ytdl_path=yt-dlp
+ytdl-format=bestvideo[height<=?1080]+bestaudio/best
 ```
+
+> **Fallback**: if `gpu-next` + Vulkan causes artifacts, use `vo=gpu` with `gpu-context=wayland` (OpenGL ES via Panfrost).
+
+### Open in mpv (from browser)
+
+Set up a `mpv://` protocol handler to play video URLs directly from the browser:
+
+```bash
+# 1. Install handler script
+sudo tee /usr/local/bin/open-in-mpv << 'SCRIPT'
+#!/bin/bash
+url="$1"
+url="${url#mpv://play/}"
+url="${url#mpv://}"
+url=$(python3 -c "import sys, urllib.parse; print(urllib.parse.unquote(sys.argv[1]))" "$url" 2>/dev/null || echo "$url")
+[ -z "$url" ] && exit 1
+exec mpv --force-window=immediate "$url" &>/dev/null &
+SCRIPT
+sudo chmod +x /usr/local/bin/open-in-mpv
+
+# 2. Register protocol handler
+cat > ~/.local/share/applications/open-in-mpv.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Open in mpv
+Exec=/usr/local/bin/open-in-mpv %u
+Icon=mpv
+NoDisplay=true
+MimeType=x-scheme-handler/mpv;
+EOF
+xdg-mime default open-in-mpv.desktop x-scheme-handler/mpv
+
+# 3. Add bookmarklet to browser bookmark bar:
+#    Name: "mpv"
+#    URL:  javascript:location.href='mpv://play/'+encodeURIComponent(location.href)
+```
+
+Click the bookmarklet on any YouTube/video page to play it in mpv with hardware decode.
 
 ## Performance (4K HEVC, complex content)
 
@@ -410,7 +462,7 @@ No browser on ARM64 currently supports hardware video decode via V4L2 stateless 
 
 Chromium's ANGLE backend maps well to Panfrost's OpenGL ES 3.1, providing full hardware-accelerated page rendering, compositing, and WebGL/WebGPU. Firefox's WebRender is less optimized for ARM Mali GPUs. Neither browser supports hardware video decode on mainline RK3588 — use `mpv` + `yt-dlp` for that (see below).
 
-**Note on Vulkan**: Forcing `--use-angle=vulkan` in the Flatpak sandbox falls back to llvmpipe (software Vulkan) since PanVK is not exposed inside the sandbox. The OpenGL ES path via Panfrost is the correct one and provides real hardware acceleration.
+**GPU stack in Flatpak**: The Flatpak runtime includes Panthor DRI + PanVK (Vulkan 1.4) + Panfrost (GLES 3.1). With `devices=all` and `sockets=wayland` permissions, the sandbox has full GPU access. On Wayland, Chromium gets native GPU access (no ANGLE translation layer on X11).
 
 ### Install
 
@@ -431,9 +483,9 @@ mkdir -p ~/.local/share/applications
 cat > ~/.local/share/applications/ungoogled-chromium-gpu.desktop << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=Ungoogled Chromium
-Comment=Web Browser with GPU acceleration
-Exec=flatpak run io.github.ungoogled_software.ungoogled_chromium --enable-gpu-rasterization --enable-zero-copy --ignore-gpu-blocklist
+Name=Ungoogled Chromium (GPU)
+Comment=Web Browser with Wayland + Vulkan GPU acceleration
+Exec=flatpak run io.github.ungoogled_software.ungoogled_chromium --ignore-gpu-blocklist --enable-zero-copy --ozone-platform=wayland --use-gl=egl --enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan,WaylandWindowDecorations
 Icon=io.github.ungoogled_software.ungoogled_chromium
 Categories=Network;WebBrowser;
 StartupNotify=true
@@ -441,24 +493,33 @@ EOF
 update-desktop-database ~/.local/share/applications/
 ```
 
+Flag breakdown:
+
+| Flag | Purpose |
+|------|---------|
+| `--ozone-platform=wayland` | Native Wayland — avoids XWayland + ANGLE overhead |
+| `--use-gl=egl` | EGL directly (required for Wayland) |
+| `--enable-zero-copy` | Zero-copy buffer sharing GPU ↔ compositor |
+| `Vulkan,VulkanFromANGLE,DefaultANGLEVulkan` | ANGLE rendering via PanVK Vulkan 1.4 |
+| `WaylandWindowDecorations` | Native window decorations on Wayland |
+
+> **Fallback**: if Vulkan causes crashes, remove the 3 Vulkan features and keep only `--use-gl=egl` (falls back to OpenGL ES via Panfrost).
+
 ### Verify GPU acceleration
 
 Open `chrome://gpu` — you should see:
-- **GL_RENDERER**: `ANGLE (Mesa, Mali-G610 (Panfrost), OpenGL ES 3.1 Mesa ...)`
+- **GL_RENDERER**: Mali-G610 / panfrost / panvk (not SwiftShader or llvmpipe)
 - **Canvas, Compositing, Rasterization, WebGL, WebGPU**: Hardware accelerated
 
 ### YouTube with hardware decode (bypasses browser)
 
-Since no browser supports V4L2 stateless decode, use `mpv` + `yt-dlp` for hardware-accelerated YouTube playback:
+No browser supports V4L2 stateless decode on ARM. Use `mpv` + `yt-dlp` for hardware-accelerated playback — either via the [mpv:// bookmarklet](#open-in-mpv-from-browser) or from the terminal:
 
 ```bash
-# Add to ~/.bashrc
-alias yt='mpv --ytdl-format="bestvideo[height<=2160]+bestaudio/best"'
-alias yt1080='mpv --ytdl-format="bestvideo[height<=1080]+bestaudio/best"'
-alias yta='mpv --no-video --ytdl-format="bestaudio/best"'
+mpv 'https://youtube.com/watch?v=...'
 ```
 
-Usage: `yt https://youtube.com/watch?v=...` — plays up to 4K with RKVDEC2 hardware decode.
+mpv automatically uses yt-dlp and RKVDEC2 hardware decode.
 
 ## Kernel Config Highlights
 
