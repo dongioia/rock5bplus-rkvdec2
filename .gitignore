@@ -18,7 +18,6 @@ logs/search/
 
 # AI agent setup (local only)
 .claude/
-CLAUDE.md
 Config_di_Partenza.md
 avvio_ambiente.sh
 rock5b.sh
