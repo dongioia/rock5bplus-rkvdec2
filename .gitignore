@@ -16,17 +16,24 @@ logs/uart/
 logs/test/
 logs/search/
 
-# AI agent setup (local only)
+# AI/agent tooling (local only)
 .claude/
-Config_di_Partenza.md
-avvio_ambiente.sh
-rock5b.sh
-log_avvio.txt
+CLAUDE.md
+scripts/ralph/
 scripts/perplexity_search.py
 scripts/github_monitor.py
 scripts/ghmon.sh
 scripts/run_python.sh
 scripts/search.sh
+scripts/openrouter_query.sh
+tasks/
+
+# Local workspace
+Config_di_Partenza.md
+avvio_ambiente.sh
+rock5b.sh
+log_avvio.txt
+server/
 
 # Sensitive
 *.key
