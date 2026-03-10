@@ -2,7 +2,7 @@
 title: NPU
 description: Setting up and using the Neural Processing Unit on Rockchip SoCs with BredOS
 published: false
-date: 2026-02-20T12:00:00.000Z
+date: 2026-03-10T12:00:00.000Z
 tags: npu, rk3588, ai, machine-learning
 editor: markdown
 dateCreated: 2026-02-18T09:54:15.539Z
@@ -12,10 +12,16 @@ dateCreated: 2026-02-18T09:54:15.539Z
 
 Some Rockchip SoCs include a dedicated Neural Processing Unit (`NPU`) designed to accelerate machine learning inference. The `RK3588` integrates a 6 TOPS NPU with 3 cores, capable of running quantized neural network models significantly faster than the CPU alone.
 
-Since kernel `6.18`, mainline Linux includes the open-source `Rocket` driver for the RK3588 NPU. On the userspace side, Mesa provides `Teflon`, a TensorFlow Lite delegate that sends compatible operations to the NPU hardware. Together, these allow running AI inference on BredOS without any proprietary software.
+There are **two separate software stacks** for the RK3588 NPU, each with different kernel requirements:
 
-> This guide covers the fully open-source stack (Rocket + Teflon). For the proprietary RKNN-Toolkit2 from Rockchip, see section [7. Proprietary Alternative (RKNN)](#h-7-proprietary-alternative-rknn).
-{.is-info}
+| Stack | Kernel | License | Capabilities |
+|-------|--------|---------|-------------|
+| **Rocket + Teflon** (open-source) | Mainline 6.18+ | GPL / MIT | TFLite quantized CNN inference (limited ops) |
+| **RKNN-Toolkit2** (proprietary) | Vendor BSP only | Proprietary | Full inference: YOLO, LLM, speech, multimodal |
+{.dense}
+
+> BredOS ships a **mainline kernel** by default. The open-source Rocket + Teflon stack works out of the box on BredOS kernels 6.18 and later. The proprietary RKNN-Toolkit2 requires a **vendor BSP kernel** (e.g., Rockchip's `linux-rockchip-rkr3`) which is **not available on BredOS**. See section [7. Proprietary Stack (RKNN-Toolkit2)](#h-7-proprietary-stack-rknn-toolkit2) for details.
+{.is-warning}
 
 # 2. Supported Hardware
 
@@ -26,12 +32,12 @@ Since kernel `6.18`, mainline Linux includes the open-source `Rocket` driver for
 | RK3588 / RK3588S | 3 | 6 TOPS | 6.18+ |
 {.dense}
 
-> The Rocket driver currently supports only the `RK3588` family. Support for additional Rockchip SoCs is planned upstream.
+> The Rocket driver currently supports only the `RK3588` family. Support for additional Rockchip SoCs (RK3576, RK3566/RK3568) is planned upstream.
 {.is-info}
 
 All BredOS-supported boards with an `RK3588` or `RK3588S` SoC can use the NPU. This includes the Rock 5B, Rock 5B Plus, Orange Pi 5 series, and others listed on the [supported devices](/en/table-of-supported-devices) page.
 
-# 3. Software Stack
+# 3. Software Stack (Open-Source)
 
 The open-source NPU stack has two components:
 
@@ -39,7 +45,7 @@ The open-source NPU stack has two components:
 
 The `Rocket` driver is an accelerator driver (`accel` subsystem) that manages NPU hardware: powering it on/off, allocating memory buffers, and submitting jobs. It exposes the device at `/dev/accel/accel0`.
 
-The driver was developed by Tomeu Vizoso and merged into mainline Linux `6.18`. BredOS kernels `6.18` and later include it by default.
+The driver was developed by [Tomeu Vizoso](https://blog.tomeuvizoso.net/) and merged into mainline Linux `6.18`. BredOS kernels `6.18` and later include it by default.
 
 ## 3.2 Userspace (Mesa Teflon)
 
@@ -191,9 +197,9 @@ The NPU provides roughly a 3-4x speedup for this model.
 
 # 6. Capabilities and Limitations
 
-## 6.1 What Works
+## 6.1 What the Open-Source Stack Supports
 
-The open-source stack supports the following TFLite operations on the NPU:
+The Rocket + Teflon stack supports the following TFLite operations on the NPU:
 
 - Convolutions (most configurations)
 - Tensor additions
@@ -202,31 +208,90 @@ The open-source stack supports the following TFLite operations on the NPU:
 
 Models that have been tested successfully include `MobileNetV1`, `MobileNetV2`, and `MobileDet`.
 
-## 6.2 Current Limitations
+## 6.2 Current Limitations of the Open-Source Stack
 
-- 🔸 **Quantized models only** - The NPU hardware operates on fixed-point arithmetic. Floating-point models run entirely on the CPU.
-- 🔸 **Limited operations** - Only convolution, addition, and fused ReLU are offloaded to the NPU. Unsupported operations fall back to CPU automatically.
-- 🔸 **No advanced activations** - Operations like SiLU (used in YOLOv8) are not yet implemented.
-- 🔸 **Single-core execution** - While the RK3588 has 3 NPU cores, the current driver uses only one core at a time.
-- 🔸 **CNN-focused** - The stack is optimized for convolutional neural networks. Transformer-based models are not accelerated.
-- 🔸 **Early-stage performance** - The open-source stack does not yet match the proprietary RKNN driver in throughput.
+- **Quantized models only** — The NPU hardware operates on fixed-point arithmetic. Floating-point models run entirely on the CPU.
+- **Limited operations** — Only convolution, addition, and fused ReLU are offloaded to the NPU. Unsupported operations fall back to CPU automatically.
+- **No advanced activations** — Operations like SiLU (used in YOLOv8) are not yet implemented.
+- **Single-core execution** — While the RK3588 has 3 NPU cores, the current driver uses only one core at a time.
+- **CNN-focused** — The stack is optimized for convolutional neural networks. Transformer-based models are not accelerated.
+- **Early-stage performance** — The open-source stack does not yet match the proprietary RKNN driver in throughput.
 
 > The Teflon delegate automatically falls back to CPU for unsupported operations, so models with mixed operations will still run correctly, just with partial acceleration.
 {.is-info}
 
-# 7. Proprietary Alternative (RKNN)
+# 7. Proprietary Stack (RKNN-Toolkit2)
 
-Rockchip provides `RKNN-Toolkit2`, a proprietary SDK for NPU inference that supports more operations and higher performance than the current open-source stack. It includes model conversion tools (ONNX, TensorFlow, PyTorch to RKNN format) and a runtime library.
+## 7.1 Overview
 
-However, RKNN-Toolkit2:
-- Requires the vendor kernel (`linux-rockchip-rkr3` on BredOS)
-- Is not open-source
-- Uses a proprietary binary driver
+Rockchip provides `RKNN-Toolkit2`, a proprietary SDK for NPU inference that supports significantly more operations and higher performance than the current open-source stack. It includes model conversion tools (ONNX, TensorFlow, PyTorch, TFLite to RKNN format), a C/C++ runtime library, and Python bindings.
 
-> If you need maximum NPU performance or support for complex models (YOLO, transformers), the RKNN-Toolkit2 with the vendor kernel is currently the more capable option. The open-source stack is actively improving and is the recommended long-term path.
+## 7.2 Requirements
+
+RKNN-Toolkit2 requires:
+
+- A **vendor BSP kernel** with the proprietary `rknpu.ko` driver (e.g., Rockchip's `linux-rockchip-rkr3` or `linux-rockchip-rkr4`)
+- The `rknpu2` userspace library from [rockchip-linux/rknpu2](https://github.com/rockchip-linux/rknpu2)
+- Ubuntu 20.04/22.04 or Debian is the officially supported OS
+
+> The proprietary `rknpu.ko` driver is **not included in mainline Linux** and is **not available on BredOS**. BredOS uses a mainline kernel which provides the open-source Rocket driver instead. If you need RKNN-Toolkit2, you must use a distribution that ships the vendor BSP kernel (e.g., Armbian with Rockchip BSP, Radxa's official images, or Joshua Riek's Ubuntu Rockchip).
+{.is-warning}
+
+## 7.3 Concrete Use Cases
+
+The proprietary RKNN stack enables a much wider range of AI workloads than the open-source stack. Here are concrete use cases with software:
+
+### Object Detection
+
+| Project | Model | Performance | Link |
+|---------|-------|-------------|------|
+| rknn_model_zoo | YOLOv5, v8, v10, v11 | 50+ FPS (YOLOv8n) | [airockchip/rknn_model_zoo](https://github.com/airockchip/rknn_model_zoo) |
+| rknn-cpp-yolo | YOLOv11 + RGA preproc | 25 FPS (YOLOv11s) | [yuunnn-w/rknn-cpp-yolo](https://github.com/yuunnn-w/rknn-cpp-yolo) |
+| YoloV5-NPU | YOLOv5/v6/v7/v8 | 53 FPS (YOLOv8n) | [Qengineering/YoloV5-NPU](https://github.com/Qengineering/YoloV5-NPU) |
+| ros_rknn_yolo | YOLO as ROS node | Real-time | [BluewhaleRobot/ros_rknn_yolo](https://github.com/BluewhaleRobot/ros_rknn_yolo) |
+{.dense}
+
+### LLM and Multimodal Inference
+
+Rockchip provides [rknn-llm](https://github.com/airockchip/rknn-llm), a dedicated toolkit for running large language models and vision-language models on the NPU:
+
+- **Qwen2-VL**: multimodal vision-language model running entirely on NPU
+- **DeepSeek-R1-Distill-Qwen-1.5B**: distilled reasoning model
+- **rkllm_server**: local API server for LLM inference
+- **Multimodal dialogue**: interactive text+image conversations
+
+### Speech and Audio
+
+Available in [rknn_model_zoo](https://github.com/airockchip/rknn_model_zoo):
+
+- **Whisper**: speech-to-text transcription
+- **Zipformer**: streaming speech recognition
+- **MMS-TTS**: text-to-speech synthesis
+- **Wav2Vec**: speech representation learning
+- **YamNet**: audio event classification
+
+### Other Vision Tasks
+
+- **RetinaFace**: face detection (243 FPS with mobile320 model)
+- **MobileSAM**: segment-anything on edge devices
+- **CLIP**: image-text matching and zero-shot classification
+- **PPOCR**: text detection and recognition (OCR)
+- **YOLOv8-Pose**: human pose estimation
+- **YOLOv8-OBB**: oriented bounding box detection
+
+## 7.4 When to Use Which Stack
+
+| Use Case | Recommended Stack |
+|----------|-------------------|
+| Simple CNN classification (MobileNet) | Rocket + Teflon (open-source, works on BredOS) |
+| Object detection (YOLO) | RKNN-Toolkit2 (requires vendor kernel) |
+| LLM inference on NPU | RKNN-LLM (requires vendor kernel) |
+| Speech recognition | RKNN-Toolkit2 (requires vendor kernel) |
+| Long-term mainline support | Rocket + Teflon (improving upstream) |
+{.dense}
+
+> If you need maximum NPU performance or support for complex models (YOLO, LLMs, transformers), the RKNN-Toolkit2 with a vendor BSP kernel is currently the more capable option. The open-source Rocket + Teflon stack is actively improving and is the recommended long-term path for mainline kernel users.
 {.is-info}
-
-The RKNN-Toolkit2 repository is available at [github.com/airockchip/rknn-toolkit2](https://github.com/airockchip/rknn-toolkit2).
 
 # 8. Troubleshooting
 
@@ -262,9 +327,17 @@ python3.11 --version
 
 The `tflite-runtime` package does not provide wheels for all Python versions. Python `3.11` is the latest version with confirmed support.
 
+## 8.4 RKNN-Toolkit2 Does Not Work on BredOS
+
+This is expected. RKNN-Toolkit2 requires the proprietary `rknpu.ko` driver, which is only available in vendor BSP kernels. BredOS uses a mainline kernel with the open-source Rocket driver. To use RKNN-Toolkit2, you need a distribution with a vendor kernel (see [section 7.2](#h-72-requirements)).
+
 # 9. References
 
 - [Rockchip NPU update 6: We are in mainline!](https://blog.tomeuvizoso.net/2025/07/rockchip-npu-update-6-we-are-in-mainline.html) - Tomeu Vizoso
 - [accel/rocket kernel documentation](https://docs.kernel.org/accel/rocket/index.html) - kernel.org
 - [RKNN-Toolkit2](https://github.com/airockchip/rknn-toolkit2) - Rockchip/Airockchip
+- [RKNN-LLM](https://github.com/airockchip/rknn-llm) - Rockchip/Airockchip (LLM inference on NPU)
+- [RKNN Model Zoo](https://github.com/airockchip/rknn_model_zoo) - Rockchip/Airockchip (official demos and benchmarks)
+- [rknpu2 userspace library](https://github.com/rockchip-linux/rknpu2) - Rockchip
 - [Collabora RK3588 mainline status](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/notes-for-rockchip-3588/-/blob/main/mainline-status.md) - Collabora
+- [Running mainline Linux on Rockchip: a year in review](https://www.collabora.com/news-and-blog/blog/2026/03/02/running-mainline-linux-u-boot-and-mesa-on-rockchip-a-year-in-review/) - Collabora (FOSDEM 2026)
