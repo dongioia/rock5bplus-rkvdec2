@@ -20,8 +20,8 @@ There are **two separate software stacks** for the RK3588 NPU, each with differe
 | **RKNN-Toolkit2** (proprietary) | Vendor BSP only | Proprietary | Full inference: YOLO, LLM, speech, multimodal |
 {.dense}
 
-> BredOS ships a **mainline kernel** by default. The open-source Rocket + Teflon stack works out of the box on BredOS kernels 6.18 and later. The proprietary RKNN-Toolkit2 requires a **vendor BSP kernel** (e.g., Rockchip's `linux-rockchip-rkr3`) which is **not available on BredOS**. See section [7. Proprietary Stack (RKNN-Toolkit2)](#h-7-proprietary-stack-rknn-toolkit2) for details.
-{.is-warning}
+> BredOS provides two kernel tracks: **Cutting Edge** (mainline) and **Legacy** (Rockchip BSP). The open-source Rocket + Teflon stack works on Cutting Edge kernels 6.18 and later. The proprietary RKNN-Toolkit2 requires a **BSP kernel** and works on BredOS **Legacy** images. Note that Cutting Edge (mainline) images are currently available only for a handful of boards — most boards ship with Legacy images by default. See section [7. Proprietary Stack (RKNN-Toolkit2)](#h-7-proprietary-stack-rknn-toolkit2) for details.
+{.is-info}
 
 # 2. Supported Hardware
 
@@ -230,12 +230,11 @@ Rockchip provides `RKNN-Toolkit2`, a proprietary SDK for NPU inference that supp
 
 RKNN-Toolkit2 requires:
 
-- A **vendor BSP kernel** with the proprietary `rknpu.ko` driver (e.g., Rockchip's `linux-rockchip-rkr3` or `linux-rockchip-rkr4`)
+- A **BSP kernel** with the proprietary `rknpu.ko` driver (e.g., `linux-rockchip-rkr3` or `linux-rockchip-rkr6` packages on BredOS Legacy)
 - The `rknpu2` userspace library from [rockchip-linux/rknpu2](https://github.com/rockchip-linux/rknpu2)
-- Ubuntu 20.04/22.04 or Debian is the officially supported OS
 
-> The proprietary `rknpu.ko` driver is **not included in mainline Linux** and is **not available on BredOS**. BredOS uses a mainline kernel which provides the open-source Rocket driver instead. If you need RKNN-Toolkit2, you must use a distribution that ships the vendor BSP kernel (e.g., Armbian with Rockchip BSP, Radxa's official images, or Joshua Riek's Ubuntu Rockchip).
-{.is-warning}
+> On BredOS, the proprietary `rknpu.ko` driver is available on **Legacy** (BSP) images. If you are running a **Cutting Edge** (mainline) image, the open-source Rocket driver is used instead and RKNN-Toolkit2 will not work. Check your kernel track with `uname -r` — BSP kernels show versions like `6.1.x-rkrX-bredos`, while mainline kernels show `6.19.x-bredos` or `7.x`.
+{.is-info}
 
 ## 7.3 Concrete Use Cases
 
@@ -281,13 +280,13 @@ Available in [rknn_model_zoo](https://github.com/airockchip/rknn_model_zoo):
 
 ## 7.4 When to Use Which Stack
 
-| Use Case | Recommended Stack |
-|----------|-------------------|
-| Simple CNN classification (MobileNet) | Rocket + Teflon (open-source, works on BredOS) |
-| Object detection (YOLO) | RKNN-Toolkit2 (requires vendor kernel) |
-| LLM inference on NPU | RKNN-LLM (requires vendor kernel) |
-| Speech recognition | RKNN-Toolkit2 (requires vendor kernel) |
-| Long-term mainline support | Rocket + Teflon (improving upstream) |
+| Use Case | Recommended Stack | BredOS Image |
+|----------|-------------------|--------------|
+| Simple CNN classification (MobileNet) | Rocket + Teflon (open-source) | Cutting Edge (mainline) |
+| Object detection (YOLO) | RKNN-Toolkit2 | Legacy (BSP) |
+| LLM inference on NPU | RKNN-LLM | Legacy (BSP) |
+| Speech recognition | RKNN-Toolkit2 | Legacy (BSP) |
+| Long-term mainline support | Rocket + Teflon (improving upstream) | Cutting Edge (mainline) |
 {.dense}
 
 > If you need maximum NPU performance or support for complex models (YOLO, LLMs, transformers), the RKNN-Toolkit2 with a vendor BSP kernel is currently the more capable option. The open-source Rocket + Teflon stack is actively improving and is the recommended long-term path for mainline kernel users.
@@ -327,9 +326,9 @@ python3.11 --version
 
 The `tflite-runtime` package does not provide wheels for all Python versions. Python `3.11` is the latest version with confirmed support.
 
-## 8.4 RKNN-Toolkit2 Does Not Work on BredOS
+## 8.4 RKNN-Toolkit2 Does Not Work
 
-This is expected. RKNN-Toolkit2 requires the proprietary `rknpu.ko` driver, which is only available in vendor BSP kernels. BredOS uses a mainline kernel with the open-source Rocket driver. To use RKNN-Toolkit2, you need a distribution with a vendor kernel (see [section 7.2](#h-72-requirements)).
+RKNN-Toolkit2 requires the proprietary `rknpu.ko` driver, which is only available in BSP kernels. If you are running a BredOS **Cutting Edge** (mainline) image, switch to a **Legacy** (BSP) image or use the open-source Rocket + Teflon stack instead. See [section 7.2](#h-72-requirements).
 
 # 9. References
 
