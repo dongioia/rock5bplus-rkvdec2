@@ -32,7 +32,7 @@ Built and deployed **Linux 7.0-rc3** custom kernel. Updated HDMI 2.0 patches to 
 - Ethernet: RTL8125B 1 Gbps via PCIe
 - RTC: HYM8563
 
-**Known issue**: GPU max clock is 850 MHz, not 1000 MHz. The SCMI firmware (ARM Trusted Firmware in UEFI EDK2) does not allow the voltage regulator transition needed for 900/1000 MHz OPPs. This is a firmware limitation, not a kernel issue. Affects all RK3588 boards using EDK2 UEFI.
+**GPU overclock to 1188 MHz**: Discovered and bypassed the 850 MHz firmware clock cap. The RK3588 GPU clock is controlled by BL31 firmware via SCMI, which hardcodes NPLL at 850 MHz regardless of OPP table entries. By switching the CRU clock mux from NPLL to GPLL (1188 MHz) via direct register write and raising the voltage to 1050 mV, the GPU runs stably at 1188 MHz (+40% clock, +5-16% benchmark improvement). See [GPU Clock Architecture & Overclock](#gpu-clock-architecture--overclock) for the full technical analysis and setup guide.
 
 ### 2026-02-28 — Linux 7.0-rc1
 
@@ -144,7 +144,7 @@ Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with
 | **Analog audio (3.5mm)** | Working | ES8316 codec, jack detect fix |
 | **NPU (3 cores)** | Kernel ready | Rocket driver configured (`CONFIG_DRM_ACCEL_ROCKET=m`). Open-source Teflon delegate supports basic CNN inference. Full NPU capabilities require proprietary RKNN-Toolkit2 + vendor BSP kernel (not available on BredOS). See [NPU wiki article](docs/bredos-wiki-npu-article.md) |
 | **WiFi RTL8852BE** | Working | rtw89 driver, WiFi 6 |
-| **GPU Panthor** | Working | Mali-G610 MP4, Vulkan 1.4 (PanVK), max 850 MHz (firmware limit) |
+| **GPU Panthor** | Working | Mali-G610 MP4, Vulkan 1.4 (PanVK), 1188 MHz via [GPLL overclock](#gpu-clock-architecture--overclock) (default 850 MHz) |
 | **Dual HDMI output** | Working | Upstream DW HDMI QP |
 | **Ethernet 2.5GbE** | Working | RTL8125B via PCIe |
 | **Bluetooth** | Working | RTL8852BU |
@@ -286,6 +286,144 @@ No patches needed — the open-source [Rocket](https://docs.kernel.org/accel/roc
 - `CONFIG_DRM_ACCEL_ROCKET=m` — Rocket NPU driver
 
 Requires full kernel rebuild (not just the module). The open-source stack (Rocket + [Mesa Teflon](https://docs.mesa3d.org/drivers/teflon.html)) supports basic TFLite quantized CNN inference. For full NPU capabilities (YOLO object detection, LLM inference, speech recognition), the proprietary [RKNN-Toolkit2](https://github.com/airockchip/rknn-toolkit2) + vendor BSP kernel is required. See [docs/bredos-wiki-npu-article.md](docs/bredos-wiki-npu-article.md) for a detailed comparison of both stacks.
+
+### GPU Clock Architecture & Overclock
+
+The RK3588 Mali-G610 GPU is clocked at **850 MHz** by default on all boards using EDK2 UEFI, despite the device tree OPP table listing 900 and 1000 MHz entries. This section explains why and how to bypass it.
+
+#### Why the GPU is stuck at 850 MHz
+
+The GPU clock path on mainline Linux is:
+
+```
+Kernel (devfreq) → SCMI request → BL31 firmware → PVTPLL/NPLL → CRU mux → GPU
+```
+
+1. **SCMI protocol**: The kernel's devfreq governor requests frequency changes via SCMI (System Control and Management Interface), a standardized protocol between the OS and ARM Trusted Firmware (BL31).
+
+2. **BL31 uses PVTPLL**: The BL31 firmware (part of EDK2 UEFI) uses a **PVTPLL** (Process-Voltage-Temperature Phase-Locked Loop) — a ring oscillator whose output frequency depends on voltage and silicon characteristics. The firmware programs the PVTPLL to produce the target frequency.
+
+3. **PVTPLL caps at 850 MHz**: At the default OPP voltages (825-875 mV), the PVTPLL ring oscillator cannot reach 900 MHz or above. BL31 detects this and falls back to **NPLL** (a fixed PLL) hardcoded at 850 MHz.
+
+4. **Voltage increase alone doesn't help**: Even when the OPP voltages are raised to 1000+ mV in the device tree, the kernel's `clk_round_rate()` via SCMI still returns 850 MHz. The OPP framework then selects the 850 MHz OPP entry and applies *its* voltage — creating a deadlock where high voltage is never applied because the clock never reaches a high-voltage OPP.
+
+5. **The CRU mux**: The Clock and Reset Unit (CRU) has a multiplexer at register `CLKSEL_CON(158)` (address `0xfd7c0578`) that selects the GPU clock source. BL31 sets this to NPLL (mux position 3), but it can be changed to other PLLs:
+
+   | Mux | PLL | Frequency |
+   |-----|-----|-----------|
+   | 0 | GPLL | **1188 MHz** |
+   | 1 | CPLL | 1500 MHz |
+   | 2 | AUPLL | 786 MHz |
+   | 3 | NPLL | 850 MHz (default) |
+   | 4 | SPLL | 702 MHz |
+
+#### Overclock to 1188 MHz via GPLL
+
+By switching the CRU mux from NPLL to GPLL and raising the GPU voltage to 1050 mV, the GPU runs stably at **1188 MHz** — a 40% clock increase.
+
+**Two changes are needed:**
+
+**1. Raise GPU voltage in device tree** — modify `rk3588-opp.dtsi` to set the 850 MHz OPP voltage to 1050 mV (so the OPP framework applies high voltage even when SCMI reports 850 MHz), and raise the regulator maximum in the board DTSI:
+
+```dts
+/* rk3588-opp.dtsi — GPU OPP table */
+opp-850000000 {
+    opp-hz = /bits/ 64 <850000000>;
+    opp-microvolt = <1050000 1050000 1050000>;  /* was 750000 750000 950000 */
+};
+
+/* rk3588-rock-5b-5bp-5t.dtsi — GPU voltage regulator */
+vdd_gpu_s0: dcdc-reg1 {
+    regulator-max-microvolt = <1050000>;  /* was 950000 */
+};
+```
+
+Rebuild the DTB after editing: `./scripts/build.sh dtbs 12`
+
+**2. Switch CRU mux at boot** — a Python script writes the CRU register via `/dev/mem` to select GPLL, and a systemd service keeps it applied:
+
+```bash
+# Install the overclock script
+sudo tee /usr/local/bin/gpu-gpll-overclock.py << 'SCRIPT'
+#!/usr/bin/env python3
+"""Switch GPU clock from NPLL (850 MHz) to GPLL (1188 MHz) via CRU register bypass."""
+import mmap, struct, os, time
+
+CRU_BASE = 0xfd7c0000
+CLKSEL_CON158 = 0x0578
+GPLL_MUX = 0
+
+fd = os.open('/dev/mem', os.O_RDWR | os.O_SYNC)
+m = mmap.mmap(fd, 4096, offset=CRU_BASE)
+
+# Set performance governor to prevent devfreq frequency transitions
+try:
+    with open('/sys/class/devfreq/fb000000.gpu/governor', 'w') as f:
+        f.write('performance')
+except Exception:
+    pass
+
+def switch_to_gpll():
+    m.seek(CLKSEL_CON158)
+    val = struct.unpack('<I', m.read(4))[0]
+    if (val >> 5) & 0x7 != GPLL_MUX:
+        m.seek(CLKSEL_CON158)
+        m.write(struct.pack('<I', (0x7 << 21) | (GPLL_MUX << 5)))
+        return True
+    return False
+
+switch_to_gpll()
+# Monitor loop — re-apply if devfreq/SCMI resets the mux
+while True:
+    time.sleep(5)
+    switch_to_gpll()
+SCRIPT
+sudo chmod +x /usr/local/bin/gpu-gpll-overclock.py
+
+# Install systemd service
+sudo tee /etc/systemd/system/gpu-overclock.service << 'EOF'
+[Unit]
+Description=GPU overclock: GPLL 1188 MHz via CRU mux bypass
+After=multi-user.target graphical.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/gpu-gpll-overclock.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable --now gpu-overclock.service
+```
+
+#### Benchmark results
+
+Tested with `vkmark` on Rock 5B+ (Mali-G610 MP4, PanVK Vulkan 1.4, Wayland):
+
+| Test | 850 MHz (NPLL) | 1188 MHz (GPLL) | Improvement |
+|------|:-:|:-:|:-:|
+| vertex | ~3800 | 4402 | +16% |
+| texture | ~3600 | 3965 | +10% |
+| shading (phong) | ~2700 | 3018 | +12% |
+| effect2d (blur) | ~1900 | 2099 | +10% |
+| **Overall score** | **~3800** | **~4000** | **+5%** |
+
+The modest overall improvement (+5%) is because vkmark is a lightweight benchmark that doesn't fully stress the GPU. Real-world GPU-bound workloads should benefit more from the 40% clock increase.
+
+#### Stability notes
+
+- Tested stable across multiple reboots and continuous vkmark runs
+- GPLL at 1188 MHz with 1050 mV: stable. Previous test at 1000 mV caused crashes after 2 frames
+- CPLL at 1500 MHz: not tested (would require even higher voltage and may exceed thermal limits)
+- The monitor loop is needed because devfreq/SCMI may reset the CRU mux during frequency transitions
+- To disable: `sudo systemctl disable --now gpu-overclock.service` and reboot
+
+#### Why not just modify BL31/EDK2?
+
+The BL31 firmware that controls GPU clocking is part of the [edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) UEFI build, which uses a [worproject fork of ARM Trusted Firmware](https://github.com/worproject/arm-trusted-firmware/tree/rk3588). The SCMI clock implementation delegates GPU frequency to PVTPLL hardware — reprogramming it would require modifying and reflashing the entire UEFI firmware, with risk of bricking the board. The CRU mux bypass achieves the same result safely from userspace.
 
 ### Audio Setup (PipeWire/WirePlumber configuration)
 
@@ -598,7 +736,7 @@ scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
 - **NPU**: Open-source Rocket + Teflon stack supports only quantized CNN models via TFLite (limited ops, single core). Full NPU capabilities (YOLO, LLMs, speech) require proprietary RKNN-Toolkit2 + vendor BSP kernel, which is not available on BredOS. See [NPU wiki article](docs/bredos-wiki-npu-article.md)
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
-- **GPU max clock**: 850 MHz — SCMI firmware (TF-A/BL31 in UEFI EDK2 v1.1.1) blocks 900/1000 MHz OPP transitions. Affects all RK3588 boards using EDK2 UEFI. Not fixable from kernel
+- **GPU default clock**: 850 MHz via SCMI firmware — bypassed to 1188 MHz via [GPLL overclock](#gpu-clock-architecture--overclock). Requires CRU register write + voltage increase. Not all boards may be stable at 1188 MHz
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
 - **Browser video decode**: No browser supports V4L2 stateless API — video plays in software. Use `yt-dlp` + `mpv` for hardware-accelerated playback
 
@@ -621,7 +759,7 @@ This project has contributed the following patches, issues, and analysis to the 
 | Subsystem | Status | Limit |
 |-----------|--------|-------|
 | **Video decode** (H.264, HEVC, VP9, AV1) | Fully working | VP9 is community patch (Profile 0 only) |
-| **GPU** (Panthor / Mali-G610) | Fully working | Max 850 MHz (SCMI firmware cap, not kernel) |
+| **GPU** (Panthor / Mali-G610) | Fully working | 1188 MHz via GPLL overclock (default 850 MHz, SCMI firmware cap) |
 | **HDMI 2.0** (4K@60Hz) | Fully working | Requires out-of-tree patches (Ciocaltea v4) |
 | **NPU** (6 TOPS, 3 cores) | Kernel driver ready | Open-source Teflon: basic CNN only. Full capabilities need proprietary RKNN + vendor kernel |
 | **WiFi/BT** (RTL8852BE) | Fully working | — |
