@@ -1,0 +1,116 @@
+diff --git a/src/backends/native/meta-backend-native.c b/src/backends/native/meta-backend-native.c
+index 35d6b6a..cd44847 100644
+--- a/src/backends/native/meta-backend-native.c
++++ b/src/backends/native/meta-backend-native.c
+@@ -522,6 +522,9 @@ create_gpu_from_udev_device (MetaBackendNative  *native,
+   if (meta_is_udev_device_boot_vga (device))
+     flags |= META_KMS_DEVICE_FLAG_BOOT_VGA;
+ 
++  if (meta_is_udev_device_preferred_primary (device))
++    flags |= META_KMS_DEVICE_FLAG_PREFERRED_PRIMARY;
++
+   device_path = g_udev_device_get_device_file (device);
+ 
+   kms_device = meta_kms_create_device (native->kms, device_path, flags,
+diff --git a/src/backends/native/meta-gpu-kms.c b/src/backends/native/meta-gpu-kms.c
+index a475933..c70dd29 100644
+--- a/src/backends/native/meta-gpu-kms.c
++++ b/src/backends/native/meta-gpu-kms.c
+@@ -274,6 +274,15 @@ meta_gpu_kms_is_platform_device (MetaGpuKms *gpu_kms)
+   return !!(flags & META_KMS_DEVICE_FLAG_PLATFORM_DEVICE);
+ }
+ 
++gboolean
++meta_gpu_kms_is_preferred_primary (MetaGpuKms *gpu_kms)
++{
++  MetaKmsDeviceFlag flags;
++
++  flags = meta_kms_device_get_flags (gpu_kms->kms_device);
++  return !!(flags & META_KMS_DEVICE_FLAG_PREFERRED_PRIMARY);
++}
++
+ static int
+ compare_outputs (gconstpointer one,
+                  gconstpointer two)
+diff --git a/src/backends/native/meta-gpu-kms.h b/src/backends/native/meta-gpu-kms.h
+index f14e385..d4ed92e 100644
+--- a/src/backends/native/meta-gpu-kms.h
++++ b/src/backends/native/meta-gpu-kms.h
+@@ -47,6 +47,7 @@ gboolean meta_gpu_kms_is_crtc_active (MetaGpuKms *gpu_kms,
+ 
+ gboolean meta_gpu_kms_is_boot_vga (MetaGpuKms *gpu_kms);
+ gboolean meta_gpu_kms_is_platform_device (MetaGpuKms *gpu_kms);
++gboolean meta_gpu_kms_is_preferred_primary (MetaGpuKms *gpu_kms);
+ 
+ gboolean meta_gpu_kms_wait_for_flip (MetaGpuKms *gpu_kms,
+                                      GError    **error);
+diff --git a/src/backends/native/meta-kms-types.h b/src/backends/native/meta-kms-types.h
+index ec36d22..2f99fd0 100644
+--- a/src/backends/native/meta-kms-types.h
++++ b/src/backends/native/meta-kms-types.h
+@@ -56,6 +56,7 @@ typedef enum _MetaKmsDeviceFlag
+   META_KMS_DEVICE_FLAG_NONE = 0,
+   META_KMS_DEVICE_FLAG_BOOT_VGA = 1 << 0,
+   META_KMS_DEVICE_FLAG_PLATFORM_DEVICE = 1 << 1,
++  META_KMS_DEVICE_FLAG_PREFERRED_PRIMARY = 1 << 2,
+ } MetaKmsDeviceFlag;
+ 
+ typedef enum _MetaKmsPlaneType MetaKmsPlaneType;
+diff --git a/src/backends/native/meta-renderer-native.c b/src/backends/native/meta-renderer-native.c
+index 7e75ab9..06bdaa8 100644
+--- a/src/backends/native/meta-renderer-native.c
++++ b/src/backends/native/meta-renderer-native.c
+@@ -3831,6 +3831,17 @@ choose_primary_gpu_unchecked (MetaBackend        *backend,
+    */
+   for (allow_sw = 0; allow_sw < 2; allow_sw++)
+   {
++    /* Prefer a device tagged as preferred primary via udev */
++    for (l = gpus; l; l = l->next)
++      {
++        MetaGpuKms *gpu_kms = META_GPU_KMS (l->data);
++
++        if (meta_gpu_kms_is_preferred_primary (gpu_kms) &&
++            (allow_sw == 1 ||
++             gpu_kms_is_hardware_rendering (renderer_native, gpu_kms)))
++          return gpu_kms;
++      }
++
+     /* Prefer a platform device */
+     for (l = gpus; l; l = l->next)
+       {
+diff --git a/src/backends/native/meta-udev.c b/src/backends/native/meta-udev.c
+index 2f19c8c..81f5484 100644
+--- a/src/backends/native/meta-udev.c
++++ b/src/backends/native/meta-udev.c
+@@ -74,6 +74,18 @@ meta_is_udev_device_boot_vga (GUdevDevice *device)
+   return g_udev_device_get_sysfs_attr_as_int (pci_device, "boot_vga") == 1;
+ }
+ 
++gboolean
++meta_is_udev_device_preferred_primary (GUdevDevice *device)
++{
++  const char * const * tags;
++
++  tags = g_udev_device_get_tags (device);
++  if (!tags)
++    return FALSE;
++
++  return g_strv_contains (tags, "muffin-device-preferred-primary");
++}
++
+ gboolean
+ meta_udev_is_drm_device (MetaUdev    *udev,
+                          GUdevDevice *device)
+diff --git a/src/backends/native/meta-udev.h b/src/backends/native/meta-udev.h
+index cf72acd..bccb673 100644
+--- a/src/backends/native/meta-udev.h
++++ b/src/backends/native/meta-udev.h
+@@ -32,6 +32,8 @@ gboolean meta_is_udev_device_platform_device (GUdevDevice *device);
+ 
+ gboolean meta_is_udev_device_boot_vga (GUdevDevice *device);
+ 
++gboolean meta_is_udev_device_preferred_primary (GUdevDevice *device);
++
+ gboolean meta_udev_is_drm_device (MetaUdev    *udev,
+                                   GUdevDevice *device);
+ 

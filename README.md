@@ -1,10 +1,38 @@
 # Rock 5B+ Mainline Kernel — Full Hardware Support
 
-Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, **NPU acceleration**, and more.
+Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, and more.
 
-> **Current**: Linux 7.0-rc1 custom kernel built, tested, and deployed on Rock 5B+. The RKVDEC2/VDPU381 driver (H.264/HEVC) is [upstream in Linux 7.0](https://lore.kernel.org/linux-media/) — only VP9 (community patch) and an HPD optimization remain as custom patches. All hardware verified working: 6/6 V4L2 devices, Panthor GPU, NPU, WiFi, HDMI.
+> **Current**: Linux **7.0-rc3** custom kernel built, tested, and deployed on Rock 5B+. The RKVDEC2/VDPU381 driver (H.264/HEVC) is [upstream in Linux 7.0](https://lore.kernel.org/linux-media/). 6 custom patches remain: HDMI 2.0 SCDC scrambling (v4, [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea)), VP9 (community), HPD optimization, and GPU OPP fix. All hardware verified working: 6/6 V4L2 devices, Panthor GPU 1.7.0, WiFi, HDMI 4K@60Hz, Bluetooth, audio, ethernet.
 
 ## Changelog
+
+### 2026-03-10 — Linux 7.0-rc3
+
+Built and deployed **Linux 7.0-rc3** custom kernel. Updated HDMI 2.0 patches to v4 series from Cristian Ciocaltea, added GPU OPP frequency fix.
+
+**6 patches applied** (branch `rock5b-7.0-rc3` in `src/linux/`):
+
+| Patch | Author | Description |
+|-------|--------|-------------|
+| `detect_ctx` hook (0001-0002) | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | Atomic bridge detection API for DRM |
+| SCDC scrambling (0003) | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | HDMI 2.0 high TMDS clock + scrambling (applied manually — context diverged in rc3) |
+| HPD events (0004) | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | Per-connector HPD instead of global |
+| VP9 VDPU381 | [dvab-sarma](https://github.com/dvab-sarma) (adapted) | VP9 hardware decode (community, experimental) |
+| GPU OPP fix | (config) | Frequency table fix for Mali-G610 |
+
+- **Source**: HDMI patches from [v4 series on dri-devel](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (2026-03-03)
+- **Config**: `configs/rock5b_7.0-rc3.config` (netfilter case-insensitive modules disabled for macOS build)
+
+**Hardware verification** (all passing on 7.0-rc3):
+- 6/6 V4L2 devices: rkvdec (H.264/HEVC/VP9), hantro, AV1, vepu121, hdmi-rx, rga
+- Panthor GPU v1.7.0 (Mali-G610), **850 MHz max** (SCMI firmware limit — OPP table lists 1000 MHz but TF-A/BL31 in UEFI EDK2 v1.1.1 caps actual clock)
+- WiFi RTL8852BE (rtw89), Bluetooth RTL8852BU
+- HDMI 4K@60Hz output, dual HDMI
+- Audio: 3 sound cards (HDMI 0, HDMI 1, ES8316 analog)
+- Ethernet: RTL8125B 1 Gbps via PCIe
+- RTC: HYM8563
+
+**Known issue**: GPU max clock is 850 MHz, not 1000 MHz. The SCMI firmware (ARM Trusted Firmware in UEFI EDK2) does not allow the voltage regulator transition needed for 900/1000 MHz OPPs. This is a firmware limitation, not a kernel issue. Affects all RK3588 boards using EDK2 UEFI.
 
 ### 2026-02-28 — Linux 7.0-rc1
 
@@ -68,7 +96,7 @@ Built and deployed **Linux 7.0-rc1** custom kernel. 18 of 25 patches from the 6.
 **Hardware verification** (all passing):
 - 6/6 V4L2 devices: rkvdec (H.264/HEVC/VP9), hantro, AV1, vepu121, hdmi-rx, rga
 - Panthor GPU v1.7.0 (Mali-G610)
-- NPU Rocket (3 cores)
+- NPU: DTS nodes present, Rocket driver configured (`CONFIG_DRM_ACCEL_ROCKET=m`)
 - WiFi RTL8852BE (rtw89)
 - HDMI output, Bluetooth
 
@@ -102,7 +130,7 @@ Initial release with RKVDEC2/VDPU381 v9 driver, HDMI 2.0 scrambling, VP9 communi
 
 ## What This Provides
 
-Tested and working on **Linux 7.0-rc1** and **Linux 6.19.1 stable** with **BredOS** (Arch Linux ARM):
+Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with **BredOS** (Arch Linux ARM):
 
 | Feature | Status | Details |
 |---------|--------|---------|
@@ -111,12 +139,12 @@ Tested and working on **Linux 7.0-rc1** and **Linux 6.19.1 stable** with **BredO
 | **VP9 4K decode** | Working | RKVDEC2, ~69 fps @ 4K (community patch) |
 | **AV1 decode** | Working | Hantro VPU121 (with bug fixes) |
 | **H.264 1080p decode** | Working | Hantro VPU121 (upstream) |
-| **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling + VSI/SPD InfoFrames |
+| **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling v4 (Ciocaltea, Collabora) |
 | **HDMI audio** | Working | LPCM, AC-3, E-AC-3, TrueHD via PipeWire |
 | **Analog audio (3.5mm)** | Working | ES8316 codec, jack detect fix |
-| **NPU (3 cores)** | Working | Rocket driver + Mesa Teflon, 3.8x speedup |
+| **NPU (3 cores)** | Kernel ready | Rocket driver configured (`CONFIG_DRM_ACCEL_ROCKET=m`). Open-source Teflon delegate supports basic CNN inference. Full NPU capabilities require proprietary RKNN-Toolkit2 + vendor BSP kernel (not available on BredOS). See [NPU wiki article](docs/bredos-wiki-npu-article.md) |
 | **WiFi RTL8852BE** | Working | rtw89 driver, WiFi 6 |
-| **GPU Panthor** | Working | Mali-G610 MP4, Vulkan 1.4 (PanVK) |
+| **GPU Panthor** | Working | Mali-G610 MP4, Vulkan 1.4 (PanVK), max 850 MHz (firmware limit) |
 | **Dual HDMI output** | Working | Upstream DW HDMI QP |
 | **Ethernet 2.5GbE** | Working | RTL8125B via PCIe |
 | **Bluetooth** | Working | RTL8852BU |
@@ -185,19 +213,22 @@ Tested and working on **Linux 7.0-rc1** and **Linux 6.19.1 stable** with **BredO
 - The `pm-domains.c` change is a single-line-per-domain fix: changing the last parameter of `DOMAIN_RK3588()` from `false` to `true` enables regulator supply management for VPU power domains
 - **Adaptation**: the DTS portion was adapted for Rock 5B+ specifically — the original patch targets `rk3588-evb1-v10.dts`; we added the same `domain-supply` properties to `rk3588-rock-5b-plus.dts` and created the necessary `pd_*` labels in `rk3588-base.dtsi` to make the references work
 
-### HDMI 2.0 / 4K@60Hz (4 patches)
+### HDMI 2.0 / 4K@60Hz (4 patches — v4 series)
 
 | File | Author | Description |
 |------|--------|-------------|
-| `patches/display/0001-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge: Add ->detect_ctx hook` |
-| `patches/display/0002-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge-connector: Switch to ->detect_ctx` |
-| `patches/display/0003-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw-hdmi-qp: SCDC scrambling support` — **manually adapted** (see below) |
-| `patches/display/0004-*.patch` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw_hdmi_qp: HPD events fix` |
+| `patches/display/v4-ciocaltea/0001-*.mbox` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge: Add ->detect_ctx hook` — atomic bridge detection API |
+| `patches/display/v4-ciocaltea/0002-*.mbox` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `drm/bridge-connector: Switch to ->detect_ctx` |
+| `patches/display/v4-ciocaltea/0003-*.mbox` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw-hdmi-qp: SCDC scrambling + high TMDS clock ratio` — **manually adapted** for rc3 (context diverged) |
+| `patches/display/v4-ciocaltea/0004-*.mbox` | [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea) ([Collabora](https://www.collabora.com/)) | `dw_hdmi_qp: Per-connector HPD events` |
 
-- **Source**: [v3 series on drm-misc](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (2026-01-19)
+- **Source**: v4 series on dri-devel (2026-03-03), rebased on drm-misc-next
+- **Previous**: [v3 series](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (2026-01-19, used in 7.0-rc1 and 6.19.x builds)
 - Enables 3840x2160@60Hz (594 MHz TMDS), 1920x1080@120Hz, and all HDMI 2.0 modes
-- Tested by: Maud Spierings (v1), Diederik de Haas (v1), this project (v3 on 6.19-rc8 and 6.19.1)
-- **Adaptation**: patches 1, 2, 4 applied cleanly via `git am`; patch 3 required manual adaptation — the v3 series targets `drm-misc-next` where `struct drm_connector` has a `no_hpd` field not present in 6.19.x stable; the reference was removed and the `drm_bridge_helper_reset_crtc()` call was adjusted for the stable API. See [docs/hdmi-4k60-setup.md](docs/hdmi-4k60-setup.md)
+- Tested by: Maud Spierings (v1), Diederik de Haas (v1), this project (v3 on 6.19.x, v4 on 7.0-rc3)
+- **Adaptation for 7.0-rc3**: patches 1, 2, 4 applied cleanly via `git am`; patch 3 required manual adaptation due to context divergence in `dw-hdmi-qp.c` between rc3 and drm-misc-next
+
+> **Legacy (6.19.x)**: the v3 patches (`patches/display/0001-0004-*.patch`) are still available for 6.19.x builds. See [docs/hdmi-4k60-setup.md](docs/hdmi-4k60-setup.md)
 
 ### HDMI VSI & SPD InfoFrames (adapted from v2 series)
 
@@ -249,12 +280,12 @@ Tested and working on **Linux 7.0-rc1** and **Linux 6.19.1 stable** with **BredO
 
 ### NPU / Rocket Driver (kernel config)
 
-No patches needed — the Rocket driver is included in kernel 6.18+. Just enable the config options:
+No patches needed — the open-source [Rocket](https://docs.kernel.org/accel/rocket/index.html) driver by [Tomeu Vizoso](https://blog.tomeuvizoso.net/) is included in mainline kernel 6.18+. Just enable the config options:
 
 - `CONFIG_DRM_ACCEL=y` — DRM accelerator subsystem (rebuilds `drm.ko`)
 - `CONFIG_DRM_ACCEL_ROCKET=m` — Rocket NPU driver
 
-Requires full kernel rebuild (not just the module). See [docs/npu-setup.md](docs/npu-setup.md) for userspace setup with Mesa Teflon and TFLite.
+Requires full kernel rebuild (not just the module). The open-source stack (Rocket + [Mesa Teflon](https://docs.mesa3d.org/drivers/teflon.html)) supports basic TFLite quantized CNN inference. For full NPU capabilities (YOLO object detection, LLM inference, speech recognition), the proprietary [RKNN-Toolkit2](https://github.com/airockchip/rknn-toolkit2) + vendor BSP kernel is required. See [docs/bredos-wiki-npu-article.md](docs/bredos-wiki-npu-article.md) for a detailed comparison of both stacks.
 
 ### Audio Setup (PipeWire/WirePlumber configuration)
 
@@ -271,21 +302,21 @@ No kernel patches needed — audio hardware works out of the box. Configuration 
 - macOS with Docker (Apple Silicon = native arm64, no emulation)
 - Or any aarch64 Linux machine
 
-### Quick Build — Linux 7.0-rc1 (recommended)
+### Quick Build — Linux 7.0-rc3 (recommended)
 
 ```bash
 # 1. Clone kernel source
 git clone https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git src/linux
 cd src/linux
-git checkout v7.0-rc1
+git checkout v7.0-rc3
 
-# 2. Apply patches (only 2 needed — RKVDEC2 H.264/HEVC is upstream!)
+# 2. Apply patches (6 patches: HDMI 2.0 v4 series + VP9 + GPU OPP fix)
+for p in ../../patches/display/v4-ciocaltea/000{1,2,3,4}-*.mbox; do git am "$p"; done
 git apply ../../patches/vpu/vp9-vdpu381-adapted.patch
 cp ../../patches/vpu/rkvdec-vdpu381-vp9.{c,h} drivers/media/platform/rockchip/rkvdec/
-git apply ../../patches/display/0004-drm-rockchip--dw_hdmi_qp--Do-not-send-HPD-events-for-all-connectors.patch
 
-# 3. Configure (Panda's BredOS config base + performance overrides)
-cp ../../configs/rock5b_7.0-rc1.config .config
+# 3. Configure
+cp ../../configs/rock5b_7.0-rc3.config .config
 make ARCH=arm64 olddefconfig
 
 # 4. Build (via Docker on macOS — use tarball to avoid case-sensitivity issues)
@@ -523,7 +554,7 @@ mpv automatically uses yt-dlp and RKVDEC2 hardware decode.
 
 ## Kernel Config Highlights
 
-Key options enabled in `configs/rock5b_7.0-rc1.config` (and `configs/current_rkvdec2.config` for 6.19.1):
+Key options enabled in `configs/rock5b_7.0-rc3.config` (and `configs/rock5b_7.0-rc1.config`, `configs/current_rkvdec2.config` for 6.19.1):
 
 ```
 CONFIG_VIDEO_ROCKCHIP_VDEC=m         # RKVDEC2 driver
@@ -564,12 +595,41 @@ scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
 ## Known Limitations
 
 - **VP9**: Community patch, Profile 0 only, experimental
-- **NPU**: Only quantized INT8 models via TFLite; no ONNX or PyTorch direct support yet
+- **NPU**: Open-source Rocket + Teflon stack supports only quantized CNN models via TFLite (limited ops, single core). Full NPU capabilities (YOLO, LLMs, speech) require proprietary RKNN-Toolkit2 + vendor BSP kernel, which is not available on BredOS. See [NPU wiki article](docs/bredos-wiki-npu-article.md)
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
-- **GPU max clock**: 850 MHz (firmware PVTM limit; OPP table lists 900/1000 MHz but the voltage regulator cannot supply enough)
+- **GPU max clock**: 850 MHz — SCMI firmware (TF-A/BL31 in UEFI EDK2 v1.1.1) blocks 900/1000 MHz OPP transitions. Affects all RK3588 boards using EDK2 UEFI. Not fixable from kernel
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
 - **Browser video decode**: No browser supports V4L2 stateless API — video plays in software. Use `yt-dlp` + `mpv` for hardware-accelerated playback
+
+## BredOS Upstream Contributions
+
+This project has contributed the following patches, issues, and analysis to the BredOS ecosystem:
+
+| # | Type | Target | Description | Link |
+|---|------|--------|-------------|------|
+| 1 | PR | sbc-pkgbuilds | Kernel config: `DEBUG_PREEMPT=n` + `PREEMPT_DYNAMIC=n` (~9% MT performance) | [#16](https://github.com/BredOS/sbc-pkgbuilds/pull/16) |
+| 2 | PR | sbc-pkgbuilds | Cleanup: 4 orphaned files removed | [#17](https://github.com/BredOS/sbc-pkgbuilds/pull/17) |
+| 3 | Issue | sbc-pkgbuilds | Kernel 7.0 triage: `detect_ctx` obsolete, VP9 needs adaptation | [#18](https://github.com/BredOS/sbc-pkgbuilds/issues/18) |
+| 4 | Issue | sbc-pkgbuilds | VOP2 `POST_BUF_EMPTY` IRQ fix (one-liner in `vop2_crtc_atomic_disable`) | [#19](https://github.com/BredOS/sbc-pkgbuilds/issues/19) |
+| 5 | Comment | sbc-pkgbuilds | `dtbs_install` diagnosis: missing `ARCH=arm64` on x86 host | [#8](https://github.com/BredOS/sbc-pkgbuilds/issues/8) |
+| 6 | PR | muffin (upstream) | Multi-GPU primary selection via `muffin-device-preferred-primary` udev tag | [linuxmint/muffin#811](https://github.com/linuxmint/muffin/pull/811) |
+| 7 | Issue | muffin (upstream) | Bug analysis: multi-GPU RK3588 (Mali-C510 + Mali-G610), root cause + fix | [linuxmint/muffin#812](https://github.com/linuxmint/muffin/issues/812) |
+
+### Current Hardware Support Limits (Linux 7.0-rc3 on BredOS)
+
+| Subsystem | Status | Limit |
+|-----------|--------|-------|
+| **Video decode** (H.264, HEVC, VP9, AV1) | Fully working | VP9 is community patch (Profile 0 only) |
+| **GPU** (Panthor / Mali-G610) | Fully working | Max 850 MHz (SCMI firmware cap, not kernel) |
+| **HDMI 2.0** (4K@60Hz) | Fully working | Requires out-of-tree patches (Ciocaltea v4) |
+| **NPU** (6 TOPS, 3 cores) | Kernel driver ready | Open-source Teflon: basic CNN only. Full capabilities need proprietary RKNN + vendor kernel |
+| **WiFi/BT** (RTL8852BE) | Fully working | — |
+| **Dual HDMI** | Fully working | Upstream DW HDMI QP |
+| **Ethernet** | Fully working | RTL8125B, 1 Gbps (2.5 GbE capable but not tested at 2.5G) |
+| **HDMI-RX** | Fully working | Capture via V4L2 |
+| **RGA** | Partial | RGA2 works, RGA3 no upstream driver |
+| **Dual-core VPU** | Not yet | V4L2 multi-instance ABI prepared, no scheduler |
 
 ## Credits and Acknowledgments
 
