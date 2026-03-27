@@ -1,0 +1,32 @@
+# Domini tecnici per Rock5bPlus — kernel, ARM, Rockchip, BredOS
+# Usare con: web_search.py "query" --domains-file scripts/domains-tech.txt
+
+# Kernel & Linux
+kernel.org
+lore.kernel.org
+patchwork.kernel.org
+lwn.net
+kernelnewbies.org
+
+# ARM / Rockchip
+developer.arm.com
+linux-rockchip.lists.infradead.org
+rockchip.fr
+
+# BredOS & Arch ARM
+wiki.bredos.org
+archlinuxarm.org
+wiki.archlinux.org
+
+# Hardware & SBC
+wiki.radxa.com
+wiki.friendlyelec.com
+wiki.pine64.org
+
+# Mesa / GPU
+docs.mesa3d.org
+gitlab.freedesktop.org
+
+# General tech
+stackoverflow.com
+wiki.gentoo.org
