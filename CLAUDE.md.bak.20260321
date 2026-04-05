@@ -1,0 +1,191 @@
+# CLAUDE.md — Rock5bPlus Home Lab
+
+Progetto home lab: Rock 5B+ kernel development, NucBox K8 Plus server management, infrastruttura servizi.
+
+## Infrastruttura
+
+- **Server NucBox K8 Plus** (192.168.50.96): CachyOS, AMD Ryzen 7 8845HS, 64GB DDR5, Radeon 780M 16GB VRAM, ROCm
+- **Rock 5B+** (192.168.50.157): BredOS, kernel custom 7.0-rc3, media server
+- **NAS** (192.168.50.130): storage condiviso, 89% pieno (827GB free di 8TB)
+- **Mac Mini M4 Pro**: macchina di sviluppo locale
+
+## Accesso Remoto
+
+- **Tailscale Funnel** (primario): `https://mac-mini-di-francesco-1.taila7800d.ts.net/`
+  - `/term/` → terminale web (ttyd)
+  - `/files/` → file manager (FileBrowser)
+- **Cloudflare Quick Tunnel** (backup): URL in `~/.config/cf-tunnel-url.txt`
+- **PC aziendale**: Windows 11, solo browser, accesso via Tailscale/Cloudflare
+
+## Progetti Coordinati
+
+Questo progetto coordina e supporta gli altri progetti nella home:
+
+- **Assistente_Legale** (`/Volumes/Tonio/Assistente_Legale/`): Workflow legale strutturato con RAG, n8n orchestration, redazione atti con Gemma v4
+- **PhotoLab** (`/Volumes/Tonio/PhotoLab/`): Workflow fotografico con analisi ML (Qwen3.5-9B MLX), culling, editing darktable
+- **LegalLLM-FineTuning** (`/Volumes/Tonio/LegalLLM-FineTuning/`): Fine-tuning modelli linguistici per ambito legale
+
+### PhotoLab MCP
+
+Server MCP PhotoLab installato globalmente in Claude Code. Disponibili:
+- `analyze_photo` — composizione, focus, esposizione, luce
+- `score_photo` — quality score per culling
+- `suggest_edits` — parametri darktable
+- `compare_photos` — confronto per culling
+- `detect_duplicates` — rileva duplicati
+- `generate_culling_html` — interfaccia web per culling
+- `apply_film_preset` — LUT film emulation
+
+## GPU Overclock (Rock 5B+)
+
+Il firmware SCMI (TF-A/BL31) limita la GPU a 850 MHz. Per overclock a 1188 MHz:
+- Script: `/usr/local/bin/gpu-gpll-overclock.py` (switcha CRU mux NPLL→GPLL)
+- Service: `gpu-overclock.service` per esecuzione al boot
+- Voltage: 1050 mV
+- Benchmark: vkmark ~4000 (vs ~3800 baseline)
+
+## Regola OBBLIGATORIA: Consulta la memoria PRIMA di rispondere
+
+**Ad ogni domanda o task**, prima di eseguire ricerche o scrivere codice:
+
+```
+search() in claude-mem per verificare se il tema e gia stato
+analizzato in sessioni precedenti → risparmia token e tempo
+```
+
+Questo progetto copre kernel, container, GPU, networking — temi gia analizzati in profondita nelle sessioni precedenti. La memoria contiene soluzioni validate, benchmark, workaround testati.
+
+## Path e comandi chiave
+
+- **Avvio ambiente**: `source rock5b.sh` (o alias `lab`)
+- **SSH server**: `ssh nukbox` | **SSH rock**: `ssh rock5b`
+- **Ricerca web**: `search.sh "query"` (Perplexity)
+- **Kernel build**: `build.sh` (Docker arm64) | **Deploy**: `deploy.sh`
+- **Container**: Dockge su porta 5001 (nightly)
+
+## Ricerca web
+
+### Perplexity MCP (PREFERITO)
+
+Server MCP Perplexity installato globalmente in Claude Code. 4 tool disponibili:
+- `perplexity_search` — risultati web grezzi con ranking
+- `perplexity_ask` (sonar-pro) — ricerca conversazionale con fonti
+- `perplexity_research` (sonar-deep-research) — ricerca approfondita multi-step
+- `perplexity_reason` (sonar-reasoning-pro) — ragionamento con dati web
+
+### search.sh (legacy, ancora disponibile)
+
+`search.sh "query"` wrappa `perplexity_search.py` — usa le stesse API Perplexity ma da terminale fuori Claude Code. Utile per ricerche rapide da shell senza avviare Claude.
+
+## n8n — Workflow Legale Strutturato
+
+### Architettura
+
+```
+n8n (NucBox, Docker) → SSH → Mac Mini (Claude Code Pro headless)
+Claude Code ha accesso a: Gemma v4, LanceDB, chat_rag.py, Perplexity MCP
+```
+
+### Framework di Intake Strutturato (8 Step)
+
+Ogni richiesta di redazione atto passa attraverso 8 step gestiti dall'orchestratore (Qwen 3.5 397B via OpenRouter o Opus fallback). Gemma v4 locale interviene solo alla fine come redattore.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  STEP 1: TASK (Obiettivo giuridico)                     │
+│  Campo form: tipo atto, esito vittorioso desiderato     │
+│  Es: "Comparsa di costituzione — dimostrare che il      │
+│  nesso causale e interrotto + vicinanza della prova"    │
+├─────────────────────────────────────────────────────────┤
+│  STEP 2: CONTEXT FILE (Fascicolo digitale)              │
+│  Upload: fatti_causa.md, contratto.pdf, normativa.md    │
+│  → Chunking + embedding → contesto RAG ad-hoc           │
+│  Regola: "Analizza solo i fatti documentati"            │
+├─────────────────────────────────────────────────────────┤
+│  STEP 3: REFERENCE (Stile forense personale)            │
+│  Upload: atto_modello.pdf (precedente di successo)      │
+│  → Few-shot nel prompt di Gemma (131K contesto)         │
+│  Es: "Paragrafi brevi, numerati, tono tecnico"          │
+├─────────────────────────────────────────────────────────┤
+│  STEP 4: SUCCESS BRIEF (Parametri output)               │
+│  Campi: max pagine, formato citazioni, uso grassetto    │
+│  Es: "Max 10pp, citazioni in nota, Cass. Civ. format"  │
+├─────────────────────────────────────────────────────────┤
+│  STEP 5: RULES (Vincoli deontologici e strategici)      │
+│  Template precaricati per tipo atto + regole custom     │
+│  Es: "Mai ammettere negligenza cliente"                 │
+│  Es: "Se giurisprudenza contrastante, evidenzia"        │
+│  Library: 08_Templates/ in Assistente_Legale            │
+├─────────────────────────────────────────────────────────┤
+│  STEP 6: CONVERSATION (Analisi lacune)                  │
+│  Orchestratore esamina fascicolo e genera 3-5 domande   │
+│  su fatti mancanti o vulnerabilita argomentative        │
+│  → Loop: utente risponde → nuove domande → conferma     │
+├─────────────────────────────────────────────────────────┤
+│  STEP 7: PLANNING (Strategia difensiva)                 │
+│  Orchestratore produce piano gerarchico:                │
+│  - Eccezioni processuali (ordine di priorita)           │
+│  - Eccezioni di merito                                  │
+│  - Motivazione dell'ordine scelto                       │
+├─────────────────────────────────────────────────────────┤
+│  STEP 8: ALIGNMENT (Approvazione tesi)                  │
+│  Piano in 5 punti → utente approva/modifica             │
+│  Solo dopo approvazione → redazione completa            │
+└─────────────────────────────────────────────────────────┘
+
+         ↓ Step 1-8 completati ↓
+
+┌─────────────────────────────────────────────────────────┐
+│  GEMMA v4 (Redattore locale — stile Garner)             │
+│  Input: prompt strutturato + contesto RAG + reference   │
+│  Output: bozza atto                                     │
+├─────────────────────────────────────────────────────────┤
+│  ORCHESTRATORE (Quality check)                          │
+│  - Coerenza con Rules                                   │
+│  - Anti-allucinazione citazioni                         │
+│  - Limiti DM 110/2023                                   │
+│  Output: atto finale → utente                           │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Implementazione n8n
+
+**Fase 1 (Chat Trigger):**
+- Form web con campi Step 1-5 strutturati
+- Upload file (PDF, DOCX, MD) per Step 2-3
+- SSH → `claude -p "prompt strutturato" --session-id legal`
+- Accesso remoto via Tailscale/Cloudflare
+
+**Fase 2 (Loop conversazionale):**
+- Step 6-8 come nodi n8n con loop
+- Webhook per risposte utente
+- State machine per tracciare progressione step
+
+**Fase 3 (Bot Telegram):**
+- Voice → Whisper STT → Step 1
+- File upload → Step 2-3
+- Inline keyboard per Step 8 (approva/modifica)
+
+### Costi orchestratore
+
+| Modello | Costo stimato/mese | Ruolo |
+|---------|---------------------|-------|
+| Qwen 3.5 397B (OpenRouter) | ~$2-3 | Default |
+| Opus 4.6 (fallback) | ~$5-10 | Casi critici |
+| Gemma v4 (locale) | $0 | Redattore |
+
+### Prerequisiti
+
+- [x] SSH NucBox → Mac Mini (Tailscale)
+- [x] n8n su NucBox Docker (attivo su porta 5678)
+- [x] Claude Code headless su Mac Mini
+- [x] Template Rules per tipo atto in 08_Templates/
+- [x] FastAPI wrapper per Gemma (chat_rag.py gia funziona)
+
+## Convenzioni
+
+- Kernel patches in `patches/` organizzate per subsystem
+- Configs in `configs/`
+- Logs e benchmark in `logs/`
+- Script in `scripts/`
+- Documentazione dettagliata nella memoria persistente (`memory/MEMORY.md`)
