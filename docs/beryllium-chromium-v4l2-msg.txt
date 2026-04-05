@@ -1,0 +1,26 @@
+Hey! I've been working on getting V4L2 HW video decode in Chromium on RK3588. Here's where things stand.
+
+I cross-compiled Chromium 148 on my pc with use_v4l2_codec=true and tested it on my Rock 5B+. The good news: chrome://gpu correctly lists all V4L2 decoders (H.264, HEVC, VP9, VP8, AV1) and V4L2VideoDecoder gets selected by the media pipeline. Browser is stable and fully usable.
+
+The bad news: decoded frames don't actually reach the screen. V4L2VideoDecoder is selected first, fails, then Chromium falls back to software decode (VpxVideoDecoder/Dav1dVideoDecoder). All videos end up in software decode. After a deep dive I found two driver-level blockers:
+
+1) Kernel rkvdec2 doesn't support VIDIOC_EXPBUF — can't export MMAP buffers as DMABUF
+2) Mesa Panfrost can't allocate NV12 via GBM — all YUV formats fail, only RGBA works
+
+So both possible frame delivery paths are blocked at the driver level. The Chromium side is working correctly — it detects the HW, selects it, tries to use it, and falls back gracefully when the driver can't deliver frames.
+
+The build is forward-compatible though — when either Mesa adds NV12 GBM support for Panfrost OR the kernel adds EXPBUF to rkvdec2, HW decode will light up automatically without rebuilding.
+
+I've published everything:
+  Binary: https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/chromium-v4l2-148
+  Full analysis + patch: https://github.com/dongioia/rock5bplus-rkvdec2/blob/main/docs/chromium-v4l2-rk3588-analysis.md
+  Chromium patch for crbug.com/372630272
+
+Build fixes needed (for anyone building Chromium with V4L2):
+  - MT21 destructor: move from .h to .cc (chromium-style error)
+  - Unsafe buffers: add pragma or allowlist for mt21_decompressor.cc
+  - Tip: add treat_warnings_as_errors=false to args.gn to speed up the build
+
+If anyone wants to test: just extract the tarball to /opt/chromium-v4l2/ and run the launcher script (instructions in the release notes).
+
+— Sav
