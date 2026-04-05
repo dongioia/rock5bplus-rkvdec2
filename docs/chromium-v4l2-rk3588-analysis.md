@@ -5,7 +5,7 @@
 **Platform**: Rock 5B+ (Radxa RS129-D24E0), RK3588, 24GB LPDDR5
 **Kernel**: Linux 7.0-rc3+ (mainline + rkvdec2 patches)
 **Mesa**: 26.0.4 (Panfrost GLES 3.1 + PanVK Vulkan 1.4)
-**Chromium**: 148.0.7774.0 (cross-compiled on x86_64)
+**Chromium**: Ungoogled Chromium 148.0.7774.0 (cross-compiled on x86_64, no Google services/telemetry)
 
 ---
 
