@@ -1,0 +1,183 @@
+# AArch64 multi-platform
+# Maintainer: Sav <62543096+dongioia@users.noreply.github.com>
+# Maintainer: Bill Sideris <bill88t@bredos.org>
+
+buildarch=8
+_kernel=linux-beryllium-mainline
+pkgbase=$_kernel
+pkgname=("${pkgbase}-headers" $pkgbase)
+pkgver=7.0.0rc3
+pkgrel=1
+arch=('aarch64')
+license=('GPL2')
+url="https://github.com/beryllium-org/linux-beryllium"
+pkgdesc="The Linux Kernel and modules — Beryllium mainline for RK3588"
+optdepends=('mali-G610-firmware-rkr4: Mali G610 firmware for Rockchip RK3588(S)')
+makedepends=('xmlto' 'docbook-xsl' 'kmod' 'inetutils' 'bc' 'git' 'uboot-tools' 'vboot-utils' 'dtc' 'cpio' 'dwarves')
+options=('!strip' 'ccache')
+conflicts=('linux-rockchip-mainline' 'linux-rockchip-rk3588' 'linux-rockchip' 'linux-rockchip-rkr6' 'linux-rockchip-rkr3')
+source=("git+https://github.com/beryllium-org/linux-beryllium.git#branch=7.0.y"
+        'linux.preset'
+        'config'
+        '0001-drm-bridge-detect_ctx-hook.patch'
+        '0002-drm-bridge-connector-detect_ctx.patch'
+        '0003-drm-dw-hdmi-qp-scdc-scrambling.patch'
+        '0004-drm-rockchip-hpd-event-optimization.patch'
+        '0005-media-rkvdec2-vp9-vdpu381.patch'
+        '0006-arm64-dts-rk3588-gpu-opp-voltage-fix.patch')
+md5sums=('SKIP'
+         'SKIP'
+         'SKIP'
+         'SKIP'
+         'SKIP'
+         'SKIP'
+         'SKIP'
+         'SKIP'
+         'SKIP')
+
+prepare() {
+  cd linux-beryllium
+
+  echo > .scmversion
+  echo > localversion
+
+  sed -i 's|EXTRAVERSION =|EXTRAVERSION = -beryllium|g' Makefile
+  sed -i 's|echo "+"|#echo "+"|g' scripts/setlocalversion
+
+  # Apply out-of-tree patches (pending upstream)
+  # HDMI 2.0 SCDC scrambling (Ciocaltea v4) — 4K@60Hz support
+  patch -Np1 -i "$srcdir/0001-drm-bridge-detect_ctx-hook.patch" || true
+  patch -Np1 -i "$srcdir/0002-drm-bridge-connector-detect_ctx.patch" || true
+  patch -Np1 -i "$srcdir/0003-drm-dw-hdmi-qp-scdc-scrambling.patch" || true
+  patch -Np1 -i "$srcdir/0004-drm-rockchip-hpd-event-optimization.patch" || true
+  # VP9 hardware decoder (VDPU381)
+  patch -Np1 -i "$srcdir/0005-media-rkvdec2-vp9-vdpu381.patch" || true
+  # GPU OPP voltage fix for PVTPLL stability
+  patch -Np1 -i "$srcdir/0006-arm64-dts-rk3588-gpu-opp-voltage-fix.patch" || true
+
+  cp ${srcdir}/config .config
+}
+
+build() {
+  cd linux-beryllium
+
+  # RK3588: Cortex-A76 + A55 (ARMv8.2-A)
+  # Enables HW crypto, LSE atomics, FP16, dot-product
+  export KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'
+
+  make olddefconfig prepare
+  make kernelrelease > version
+
+  unset LDFLAGS
+  make ${MAKEFLAGS} KCFLAGS="$KCFLAGS" Image Image.gz modules
+  make ${MAKEFLAGS} DTC_FLAGS="-@" dtbs
+}
+
+_package() {
+  pkgdesc="The Linux Kernel and modules — Beryllium mainline for RK3588"
+  depends=('coreutils' 'kmod' 'mkinitcpio>=0.7')
+  optdepends=('wireless-regdb: to set the correct wireless channels of your country')
+  provides=("linux-beryllium-mainline=${pkgver}" "linux")
+  backup=("etc/mkinitcpio.d/${_kernel}.preset")
+
+  cd linux-beryllium
+
+  local _version="$(<version)"
+
+  # install dtbs
+  make INSTALL_DTBS_PATH="${pkgdir}/boot/dtbs/" dtbs_install
+
+  # install modules
+  make INSTALL_MOD_PATH="$pkgdir/usr" INSTALL_MOD_STRIP=1 modules_install
+
+  # copy kernel
+  install -Dm644 arch/arm64/boot/Image "$pkgdir/usr/lib/modules/$_version/vmlinuz"
+
+  # remove build and source links
+  rm -rf "$pkgdir/usr/lib/modules/$_version"/{source,build}
+
+  # Remove weaklinks file
+  rm -f "$pkgdir/usr/lib/modules/$_version"/modules.weakdep
+
+  local _subst="
+    s|%PKGBASE%|${_kernel}|g
+  "
+
+  echo "$_kernel" | install -Dm644 /dev/stdin "$pkgdir/usr/lib/modules/$_version/pkgbase"
+
+  sed "$_subst" ../linux.preset |
+    install -Dm644 /dev/stdin "$pkgdir/etc/mkinitcpio.d/$_kernel.preset"
+}
+
+_package-headers() {
+  pkgdesc="The Linux Kernel and modules - Headers"
+  provides=("linux-headers=${pkgver}" "linux-beryllium-mainline-headers=${pkgver}")
+
+  cd linux-beryllium
+  local _version="$(<version)"
+  local builddir="$pkgdir/usr/lib/modules/$_version/build"
+
+  echo "Installing build files..."
+  install -Dt "$builddir" -m644 .config Makefile Module.symvers System.map version
+  install -Dt "$builddir/kernel" -m644 kernel/Makefile
+  install -Dt "$builddir/arch/arm64" -m644 arch/arm64/Makefile
+  cp -t "$builddir" -a scripts
+
+  mkdir -p "$builddir"/{fs/xfs,mm}
+
+  echo "Installing headers..."
+  cp -t "$builddir" -a include
+  cp -t "$builddir/arch/arm64" -a arch/arm64/include
+  install -Dt "$builddir/arch/arm64/kernel" -m644 arch/arm64/kernel/asm-offsets.s
+  mkdir -p "$builddir/arch/arm"
+  cp -t "$builddir/arch/arm" -a arch/arm/include
+
+  install -Dt "$builddir/drivers/md" -m644 drivers/md/*.h
+  install -Dt "$builddir/net/mac80211" -m644 net/mac80211/*.h
+  install -Dt "$builddir/drivers/media/i2c" -m644 drivers/media/i2c/msp3400-driver.h
+  install -Dt "$builddir/drivers/media/usb/dvb-usb" -m644 drivers/media/usb/dvb-usb/*.h
+  install -Dt "$builddir/drivers/media/dvb-frontends" -m644 drivers/media/dvb-frontends/*.h
+  install -Dt "$builddir/drivers/media/tuners" -m644 drivers/media/tuners/*.h
+  install -Dt "$builddir/drivers/iio/common/hid-sensors" -m644 drivers/iio/common/hid-sensors/*.h
+
+  echo "Installing KConfig files..."
+  find . -name 'Kconfig*' -exec install -Dm644 {} "$builddir/{}" \;
+
+  echo "Removing unneeded architectures..."
+  local arch
+  for arch in "$builddir"/arch/*/; do
+    [[ $arch = */arm64/ || $arch == */arm/ ]] && continue
+    echo "Removing $(basename "$arch")"
+    rm -r "$arch"
+  done
+
+  echo "Removing documentation..."
+  rm -r "$builddir/Documentation"
+
+  echo "Removing broken symlinks..."
+  find -L "$builddir" -type l -printf 'Removing %P\n' -delete
+
+  echo "Removing loose objects..."
+  find "$builddir" -type f -name '*.o' -printf 'Removing %P\n' -delete
+
+  echo "Stripping build tools..."
+  local file
+  while read -rd '' file; do
+    case "$(file -bi "$file")" in
+      application/x-sharedlib\;*)      strip -v $STRIP_SHARED "$file" ;;
+      application/x-archive\;*)        strip -v $STRIP_STATIC "$file" ;;
+      application/x-executable\;*)     strip -v $STRIP_BINARIES "$file" ;;
+      application/x-pie-executable\;*) strip -v $STRIP_SHARED "$file" ;;
+    esac
+  done < <(find "$builddir" -type f -perm -u+x ! -name -print0)
+
+  echo "Adding symlink..."
+  mkdir -p "$pkgdir/usr/src"
+  ln -sr "$builddir" "$pkgdir/usr/src/$_kernel"
+}
+
+for _p in ${pkgname[@]}; do
+  eval "package_${_p}() {
+    _package${_p#${_kernel}}
+  }"
+done

@@ -1,0 +1,203 @@
+Received: from bali.collaboradmins.com (bali.collaboradmins.com [148.251.105.195])
+	(using TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits))
+	(No client certificate requested)
+	by smtp.subspace.kernel.org (Postfix) with ESMTPS id 5EB7D368298
+	for <linux-kernel@vger.kernel.org>; Mon, 19 Jan 2026 13:26:02 +0000 (UTC)
+Authentication-Results: smtp.subspace.kernel.org; arc=none smtp.client-ip=148.251.105.195
+ARC-Seal: i=1; a=rsa-sha256; d=subspace.kernel.org; s=arc-20240116;
+	t=1768829163; cv=none; b=LtmdfJAeB6VSdsnW0jTbJcEfBrRJ9wTqB3VUryZLxhBvP3oOEotw/qtDqKlQnPNzv4sUnlD7fdDJLj6+wjkciuYuCjB8QcxNlEPP8xY0i2z6tnRLc2QaeQIH//7xjXj6b0vCU68/+ix6942M/Sx5wASXdh4pyltKRuw+0LSpihM=
+ARC-Message-Signature: i=1; a=rsa-sha256; d=subspace.kernel.org;
+	s=arc-20240116; t=1768829163; c=relaxed/simple;
+	bh=mpk7tWmk4toJ0PjTIc4YmZfgndoSJj/00S1bpumobzQ=;
+	h=From:Date:Subject:MIME-Version:Content-Type:Message-Id:References:
+	 In-Reply-To:To:Cc; b=b5cp5g9kBmPeJtGzBNtibjHE0enqenEl3ohvXeHsgrmeCeSmhCslARUVuL3ymMRqWLqlBeRP9dAfghhm5aEVxAnzKXcqNE780gSzFRmrEakHpEZoGJ+uz4Jc/3SczEguTCup9IdsolffLDfCIEVZNlNNNHx7vzCeswCWiJgWno8=
+ARC-Authentication-Results: i=1; smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com; spf=pass smtp.mailfrom=collabora.com; dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b=d9U3WBoS; arc=none smtp.client-ip=148.251.105.195
+Authentication-Results: smtp.subspace.kernel.org; dmarc=pass (p=none dis=none) header.from=collabora.com
+Authentication-Results: smtp.subspace.kernel.org; spf=pass smtp.mailfrom=collabora.com
+Authentication-Results: smtp.subspace.kernel.org;
+	dkim=pass (2048-bit key) header.d=collabora.com header.i=@collabora.com header.b="d9U3WBoS"
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/simple; d=collabora.com;
+	s=mail; t=1768829160;
+	bh=mpk7tWmk4toJ0PjTIc4YmZfgndoSJj/00S1bpumobzQ=;
+	h=From:Date:Subject:References:In-Reply-To:To:Cc:From;
+	b=d9U3WBoSCLe0HkqxXPdTP5x3HwHP39ycLeOf+HNWNZ09e8pysrTn20YwU9YtH7Shy
+	 DDJYPeJwcK6uqNdQP4qzAi05jNUhZ00147cQwQchAdhJl6XyHUawG3l/qcsAOyDoOk
+	 JA2Ys6KE6BOra2Ar6f+aD1R0zfdrYmYpb/hgUgwuwHWVeYogg3z1bbv/EZT6t4Rm3k
+	 aEvQms07O3lTrvQy8qzvKDzXcmYp3oskS1nJBLmBmDUyFA7T848ow27F6c8he8jQ8B
+	 fQHCA3He0eOANkuwpbvWG1LG91YQl2akRBfKqODb3UL5MFFVeUjntR07nxlyAZB0Xi
+	 xS/dFgFnI37Og==
+Received: from localhost (unknown [82.79.138.145])
+	(using TLSv1.3 with cipher TLS_AES_256_GCM_SHA384 (256/256 bits)
+	 key-exchange ECDHE (prime256v1) server-signature RSA-PSS (4096 bits) server-digest SHA256)
+	(No client certificate requested)
+	(Authenticated sender: cristicc)
+	by bali.collaboradmins.com (Postfix) with ESMTPSA id 8B33717E07FA;
+	Mon, 19 Jan 2026 14:26:00 +0100 (CET)
+From: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+Date: Mon, 19 Jan 2026 15:25:57 +0200
+Subject: [PATCH v3 1/4] drm/bridge: Add ->detect_ctx hook and
+ drm_bridge_detect_ctx()
+Precedence: bulk
+X-Mailing-List: linux-kernel@vger.kernel.org
+List-Id: <linux-kernel.vger.kernel.org>
+List-Subscribe: <mailto:linux-kernel+subscribe@vger.kernel.org>
+List-Unsubscribe: <mailto:linux-kernel+unsubscribe@vger.kernel.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 7bit
+Message-Id: <20260119-dw-hdmi-qp-scramb-v3-1-bd8611730fc1@collabora.com>
+References: <20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com>
+In-Reply-To: <20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com>
+To: Andrzej Hajda <andrzej.hajda@intel.com>,
+ Neil Armstrong <neil.armstrong@linaro.org>, Robert Foss <rfoss@kernel.org>,
+ Laurent Pinchart <Laurent.pinchart@ideasonboard.com>,
+ Jonas Karlman <jonas@kwiboo.se>, Jernej Skrabec <jernej.skrabec@gmail.com>,
+ Maarten Lankhorst <maarten.lankhorst@linux.intel.com>,
+ Maxime Ripard <mripard@kernel.org>, Thomas Zimmermann <tzimmermann@suse.de>,
+ David Airlie <airlied@gmail.com>, Simona Vetter <simona@ffwll.ch>,
+ Sandy Huang <hjc@rock-chips.com>,
+ =?utf-8?q?Heiko_St=C3=BCbner?= <heiko@sntech.de>,
+ Andy Yan <andy.yan@rock-chips.com>
+Cc: kernel@collabora.com, dri-devel@lists.freedesktop.org,
+ linux-kernel@vger.kernel.org, linux-arm-kernel@lists.infradead.org,
+ linux-rockchip@lists.infradead.org,
+ Diederik de Haas <diederik@cknow-tech.com>,
+ Maud Spierings <maud_spierings@hotmail.com>
+X-Mailer: b4 0.14.3
+
+Add an atomic variant of the ->detect callback and a new helper to call
+the hook while passing an optional drm_modeset_acquire_ctx reference.
+
+When both ->detect_ctx and ->detect are defined, the latter is ignored.
+If acquire_ctx is unset, the function takes care of the locking,
+while also handling EDEADLK.
+
+Tested-by: Diederik de Haas <diederik@cknow-tech.com>
+Tested-by: Maud Spierings <maud_spierings@hotmail.com>
+Signed-off-by: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
+---
+ drivers/gpu/drm/drm_bridge.c | 58 ++++++++++++++++++++++++++++++++++++++++++++
+ include/drm/drm_bridge.h     | 30 +++++++++++++++++++++++
+ 2 files changed, 88 insertions(+)
+
+diff --git a/drivers/gpu/drm/drm_bridge.c b/drivers/gpu/drm/drm_bridge.c
+index 6dcf8f6d3ecf..0ef12bf98011 100644
+--- a/drivers/gpu/drm/drm_bridge.c
++++ b/drivers/gpu/drm/drm_bridge.c
+@@ -1344,6 +1344,64 @@ drm_bridge_detect(struct drm_bridge *bridge, struct drm_connector *connector)
+ }
+ EXPORT_SYMBOL_GPL(drm_bridge_detect);
+ 
++/**
++ * drm_bridge_detect_ctx - check if anything is attached to the bridge output
++ * @bridge: bridge control structure
++ * @connector: attached connector
++ * @ctx: acquire_ctx, or NULL to let this function handle locking
++ *
++ * If the bridge supports output detection, as reported by the
++ * DRM_BRIDGE_OP_DETECT bridge ops flag, call &drm_bridge_funcs.detect_ctx
++ * or &drm_bridge_funcs.detect for the bridge and return the connection status.
++ * Otherwise return connector_status_unknown.
++ *
++ * When both @ctx and &drm_bridge_funcs.detect_ctx are not set, this helper
++ * function is equivalent to drm_bridge_detect() above.
++ *
++ * RETURNS:
++ * The detection status on success, or connector_status_unknown if the bridge
++ * doesn't support output detection.
++ * If @ctx is set, it might also return -EDEADLK.
++ */
++int drm_bridge_detect_ctx(struct drm_bridge *bridge,
++			  struct drm_connector *connector,
++			  struct drm_modeset_acquire_ctx *ctx)
++{
++	if (!(bridge->ops & DRM_BRIDGE_OP_DETECT))
++		return connector_status_unknown;
++
++	if (bridge->funcs->detect_ctx) {
++		struct drm_modeset_acquire_ctx br_ctx;
++		int ret;
++
++		if (ctx)
++			return bridge->funcs->detect_ctx(bridge, connector, ctx);
++
++		drm_modeset_acquire_init(&br_ctx, 0);
++retry:
++		ret = drm_modeset_lock(&connector->dev->mode_config.connection_mutex,
++				       &br_ctx);
++		if (!ret)
++			ret = bridge->funcs->detect_ctx(bridge, connector, &br_ctx);
++
++		if (ret == -EDEADLK) {
++			drm_modeset_backoff(&br_ctx);
++			goto retry;
++		}
++
++		if (ret < 0)
++			ret = connector_status_unknown;
++
++		drm_modeset_drop_locks(&br_ctx);
++		drm_modeset_acquire_fini(&br_ctx);
++
++		return ret;
++	}
++
++	return bridge->funcs->detect(bridge, connector);
++}
++EXPORT_SYMBOL_GPL(drm_bridge_detect_ctx);
++
+ /**
+  * drm_bridge_get_modes - fill all modes currently valid for the sink into the
+  * @connector
+diff --git a/include/drm/drm_bridge.h b/include/drm/drm_bridge.h
+index 73c23fece792..5f99ffe555e9 100644
+--- a/include/drm/drm_bridge.h
++++ b/include/drm/drm_bridge.h
+@@ -664,6 +664,33 @@ struct drm_bridge_funcs {
+ 	enum drm_connector_status (*detect)(struct drm_bridge *bridge,
+ 					    struct drm_connector *connector);
+ 
++	/**
++	 * @detect_ctx:
++	 *
++	 * Check if anything is attached to the bridge output.
++	 *
++	 * This callback is optional, if not implemented the bridge will be
++	 * considered as always having a component attached to its output.
++	 * Bridges that implement this callback shall set the
++	 * DRM_BRIDGE_OP_DETECT flag in their &drm_bridge->ops.
++	 *
++	 * This is the atomic version of &drm_bridge_funcs.detect.
++	 *
++	 * To avoid races against concurrent connector state updates, the
++	 * helper libraries always call this with ctx set to a valid context,
++	 * and &drm_mode_config.connection_mutex will always be locked with
++	 * the ctx parameter set to this ctx. This allows taking additional
++	 * locks as required.
++	 *
++	 * RETURNS:
++	 *
++	 * &drm_connector_status indicating the bridge output status,
++	 * or the error code returned by drm_modeset_lock(), -EDEADLK.
++	 */
++	int (*detect_ctx)(struct drm_bridge *bridge,
++			  struct drm_connector *connector,
++			  struct drm_modeset_acquire_ctx *ctx);
++
+ 	/**
+ 	 * @get_modes:
+ 	 *
+@@ -1659,6 +1686,9 @@ drm_atomic_helper_bridge_propagate_bus_fmt(struct drm_bridge *bridge,
+ 
+ enum drm_connector_status
+ drm_bridge_detect(struct drm_bridge *bridge, struct drm_connector *connector);
++int drm_bridge_detect_ctx(struct drm_bridge *bridge,
++			  struct drm_connector *connector,
++			  struct drm_modeset_acquire_ctx *ctx);
+ int drm_bridge_get_modes(struct drm_bridge *bridge,
+ 			 struct drm_connector *connector);
+ const struct drm_edid *drm_bridge_edid_read(struct drm_bridge *bridge,
+
+-- 
+2.52.0
+

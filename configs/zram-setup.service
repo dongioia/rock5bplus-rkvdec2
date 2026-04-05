@@ -1,0 +1,18 @@
+[Unit]
+Description=ZRAM swap setup (8GB, LZ4)
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+    echo lz4 > /sys/block/zram0/comp_algorithm && \
+    echo 8G > /sys/block/zram0/disksize && \
+    mkswap /dev/zram0 && \
+    swapon -p 100 /dev/zram0'
+ExecStop=/bin/bash -c '\
+    swapoff /dev/zram0 && \
+    echo 1 > /sys/block/zram0/reset'
+
+[Install]
+WantedBy=multi-user.target

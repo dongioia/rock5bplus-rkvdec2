@@ -1,0 +1,9 @@
+# Rock 5B+ I/O Scheduler Rules — Fase 1
+# Deploy to: /etc/udev/rules.d/60-ioscheduler.rules
+# mq-deadline per flash storage (meno overhead di BFQ)
+
+# eMMC and SD cards
+ACTION=="add|change", KERNEL=="mmcblk[0-9]*", ATTR{queue/scheduler}="mq-deadline"
+
+# NVMe drives (se presenti)
+ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
