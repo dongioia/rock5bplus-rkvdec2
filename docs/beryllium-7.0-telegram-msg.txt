@@ -1,0 +1,46 @@
+Hey everyone! 👋
+
+I've been doing some kernel performance tuning on my Rock 5B+ (24GB) with 7.0-rc3+ ahead of the final release, and got some pretty nice results I wanted to share. All tested incrementally with before/after benchmarks.
+
+📊 Results vs stock Beryllium 6.19.1 config:
+
+  OpenSSL SHA256 8T:  7,113 → 8,449 MB/s  (+18.8%)
+  OpenSSL AES-256 8T: 7,056 → 8,280 MB/s  (+17.3%)
+  memcpy:            11,423 → 12,125 MB/s  (+6.1%)
+  NEON copy:         12,077 → 12,476 MB/s  (+3.3%)
+  sysbench cpu/mem:  no regression
+  thermal:           +1.9°C under load (totally fine)
+
+Zero regressions on any metric. Here's what I changed:
+
+🔧 1. KCFLAGS for ARMv8.2-A (the big win)
+KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'
+RK3588 is ARMv8.2-A but we build with generic armv8-a. Targeting the real ISA enables HW crypto instructions (that's where +17% AES comes from), LSE atomics for faster locks, FP16 and dot-product. Safe for all RK3588 boards — it's the actual hardware.
+
+🔧 2. schedutil governor instead of performance
+Counterintuitive result: schedutil gives +10% on SHA256 multi-thread vs performance governor! Reason: performance locks cores at max freq, accumulates heat during sustained loads. schedutil scales dynamically, better thermal management. Also idles at 1.2 GHz instead of 2.4 GHz — nice power savings.
+Side note: beryllium-govctl overrides to performance and doesn't have schedutil as an option.
+
+🔧 3. ARM64 errata cleanup (31 → 9)
+Stock config has 31 ARM errata + Cavium/Qualcomm/HiSilicon/Fujitsu/Nvidia vendor errata. RK3588 only has A55 r2p0 and A76 r4p0. Kept only the relevant ones. I know this is tricky for a multi-SoC distro though.
+
+🔧 4. THP madvise
+Transparent Hugepages in madvise mode — apps request it explicitly, no surprises. Helps with TLB pressure on boards with lots of RAM.
+
+🔧 5. ZRAM: LZ4 instead of lzo-rle, built-in
+LZ4 is ~30% faster on ARM64 with similar compression. Also removed ZSWAP since it competes with ZRAM.
+
+🔧 6. sched-ext enabled
+CONFIG_SCHED_CLASS_EXT=y with BTF. Zero overhead unless you load a BPF scheduler. Opens the door to scx_bpfland/scx_lavd experiments. Needs dwarves (pahole) at build time.
+
+🔧 7. Debug overhead removed
+SOFTLOCKUP_DETECTOR and DETECT_HUNG_TASK off — not needed in production images.
+
+I've prepared a config fragment ready for merge_config.sh if anyone's interested. Happy to share the full diff or do more testing.
+
+A few questions:
+• Would it make sense to add schedutil to govctl?
+• Errata per-board — worth it or too fragile?
+• Any concerns about BTF/sched-ext by default?
+
+— Sav

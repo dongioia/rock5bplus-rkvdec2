@@ -67,7 +67,12 @@ TARGET="${1:-Image}"
 JOBS="${2:-$(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 12)}"
 LOGFILE="build_$(date +%Y%m%d_%H%M).log"
 
+# RK3588: Cortex-A76 (ARMv8.2-A) + Cortex-A55 (ARMv8.2-A)
+# Enables: LSE atomics (faster locks), FP16, dot-product, crypto extensions
+KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'
+
 echo "🔨 Building kernel (target: $TARGET, jobs: $JOBS)..."
+echo "   KCFLAGS: $KCFLAGS"
 echo "   Log: logs/build/$LOGFILE"
 
 docker run --rm --platform linux/arm64 \
@@ -76,6 +81,6 @@ docker run --rm --platform linux/arm64 \
     -v "$PROJ_ROOT/configs:/work/configs" \
     -v "$PROJ_ROOT/logs/build:/work/logs" \
     "$IMAGE_NAME" \
-    bash -c "cd /work/linux && make ARCH=arm64 $TARGET -j$JOBS 2>&1 | tee /work/logs/$LOGFILE"
+    bash -c "cd /work/linux && make ARCH=arm64 KCFLAGS='$KCFLAGS' $TARGET -j$JOBS 2>&1 | tee /work/logs/$LOGFILE"
 
 echo "✅ Build completata."

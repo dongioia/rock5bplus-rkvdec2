@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y \
     u-boot-tools \
     lz4 \
     zstd \
+    dwarves \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work
