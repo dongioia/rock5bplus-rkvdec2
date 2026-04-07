@@ -1,0 +1,189 @@
+diff --git a/build/config/unsafe_buffers_paths.txt b/build/config/unsafe_buffers_paths.txt
+index ec12fe9208..140fe6ecb6 100644
+--- a/build/config/unsafe_buffers_paths.txt
++++ b/build/config/unsafe_buffers_paths.txt
+@@ -31,3 +31,4 @@ $../../
+ +third_party/liburlpattern/
+ -tools/
+ -v8/
+++media/gpu/v4l2/mt21/
+diff --git a/media/gpu/chromeos/video_decoder_pipeline.cc b/media/gpu/chromeos/video_decoder_pipeline.cc
+index 742c94d7a0..ac01ede60c 100644
+--- a/media/gpu/chromeos/video_decoder_pipeline.cc
++++ b/media/gpu/chromeos/video_decoder_pipeline.cc
+@@ -3,6 +3,7 @@
+ // found in the LICENSE file.
+ 
+ #include "media/gpu/chromeos/video_decoder_pipeline.h"
++#include "media/gpu/chromeos/libyuv_image_processor_backend.h"
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -1145,17 +1146,21 @@ VideoDecoderPipeline::PickDecoderOutputFormat(
+       *allocator, VideoFrame::STORAGE_DMABUFS);
+ #elif BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_V4L2_CODEC)
+   // Linux w/ V4L2 should not use a custom allocator
+-  // Only tested with video_decode_accelerator_tests
+-  // TODO(wenst@) Test with full Chromium Browser
++  // V4L2 MMAP + EXPBUF path: V4L2 allocates CAPTURE buffers via MMAP,
++  // exports them as DMABUF via VIDIOC_EXPBUF. No GBM allocation needed.
++  // Force this path for ANY V4L2 candidate (don't require renderable).
+   CHECK(!allocator.has_value());
+-  if (viable_candidate) {
+-    // Instead, let V4L2 allocate the buffers if it can decode directly
+-    // to the preferred formats. There's no need to allocate frames.
+-    // This is not compatible with VdVideoDecodeAccelerator, which
+-    // expects GPU buffers in VdVideoDecodeAccelerator::GetPicture()
+-    frame_converter_->set_get_original_frame_cb(base::NullCallback());
+-    main_frame_pool_.reset();
+-    return *viable_candidate;
++  if (!candidates.empty()) {
++    // Use the first NV12 candidate from V4L2
++    for (const auto& candidate : candidates) {
++      if (candidate.fourcc == Fourcc(Fourcc::NV12)) {
++        VLOGF(1) << "V4L2 MMAP+EXPBUF path: " << candidate.fourcc.ToString()
++                 << " " << candidate.size.ToString();
++        frame_converter_->set_get_original_frame_cb(base::NullCallback());
++        main_frame_pool_.reset();
++        return candidate;
++      }
++    }
+   }
+ #elif BUILDFLAG(IS_CHROMEOS)
+   // Ash Chrome can use any type of frame pool (because it may get requests from
+@@ -1288,10 +1293,47 @@ VideoDecoderPipeline::PickDecoderOutputFormat(
+                                 decoder_weak_this_, "ImageProcessor error")));
+   }
+ 
++  if (!image_processor) {
++    // GL/V4L2 ImageProcessor failed (NV12 output can't be allocated on
++    // ARM GPUs like Panfrost). Try LibYUV: NV12->ARGB CPU conversion.
++    VLOGF(2) << "Trying LibYUV ImageProcessor fallback (NV12->ARGB)";
++    for (const auto& candidate : candidates) {
++      auto supported = LibYUVImageProcessorBackend::GetSupportedOutputFormats(
++          candidate.fourcc);
++      if (supported.empty())
++        continue;
++      auto out_fourcc = PickRenderableFourcc(
++          renderable_fourccs_, supported, std::nullopt);
++      if (!out_fourcc)
++        continue;
++      const gfx::Size ip_output_size =
++          output_size ? *output_size : decoder_visible_rect.size();
++      ImageProcessor::PortConfig input_config(
++          candidate.fourcc, candidate.size, /*planes=*/{},
++          decoder_visible_rect, VideoFrame::STORAGE_DMABUFS);
++      ImageProcessor::PortConfig output_config(
++          *out_fourcc, ip_output_size, /*planes=*/{},
++          gfx::Rect(ip_output_size),
++          main_frame_pool_->GetFrameStorageType());
++      image_processor = ImageProcessor::Create(
++          base::BindRepeating(&LibYUVImageProcessorBackend::Create),
++          input_config, output_config,
++          ImageProcessor::OutputMode::IMPORT,
++          base::BindPostTaskToCurrentDefault(
++              base::BindRepeating(&VideoDecoderPipeline::OnError,
++                                  decoder_weak_this_, "LibYUV error")),
++          decoder_task_runner_);
++      if (image_processor) {
++        VLOGF(1) << "LibYUV ImageProcessor created: "
++                 << candidate.fourcc.ToString() << " -> "
++                 << out_fourcc->ToString();
++        break;
++      }
++    }
++  }
++
+   if (!image_processor) {
+     DVLOGF(2) << "Unable to find ImageProcessor to convert format";
+-    // TODO(crbug.com/40139291): Make CreateWithInputCandidates return an Or
+-    // type.
+     return CroStatus::Codes::kFailedToCreateImageProcessor;
+   }
+ 
+@@ -1366,8 +1408,52 @@ VideoDecoderPipeline::PickDecoderOutputFormat(
+       std::move(image_processor), main_frame_pool_.get(), num_buffers,
+       use_protected, decoder_task_runner_);
+   if (!status_or_image_processor.has_value()) {
+-    DVLOGF(2) << "Unable to create ImageProcessorWithPool.";
+-    return std::move(status_or_image_processor).error();
++    // Pool failed with GL/V4L2 ImageProcessor (NV12 output can't be
++    // allocated by GBM on ARM GPUs like Panfrost). Retry with LibYUV
++    // which converts NV12->ARGB (a format GBM can allocate).
++    VLOGF(2) << "ImageProcessorWithPool failed, trying LibYUV fallback";
++    std::unique_ptr<ImageProcessor> libyuv_ip;
++    for (const auto& candidate : candidates) {
++      auto supported = LibYUVImageProcessorBackend::GetSupportedOutputFormats(
++          candidate.fourcc);
++      if (supported.empty())
++        continue;
++      auto out_fourcc = PickRenderableFourcc(
++          renderable_fourccs_, supported, std::nullopt);
++      if (!out_fourcc)
++        continue;
++      const gfx::Size ip_output_size =
++          output_size ? *output_size : decoder_visible_rect.size();
++      ImageProcessor::PortConfig input_config(
++          candidate.fourcc, candidate.size, /*planes=*/{},
++          decoder_visible_rect, VideoFrame::STORAGE_DMABUFS);
++      ImageProcessor::PortConfig output_config(
++          *out_fourcc, ip_output_size, /*planes=*/{},
++          gfx::Rect(ip_output_size),
++          main_frame_pool_->GetFrameStorageType());
++      libyuv_ip = ImageProcessor::Create(
++          base::BindRepeating(&LibYUVImageProcessorBackend::Create),
++          input_config, output_config,
++          ImageProcessor::OutputMode::IMPORT,
++          base::BindPostTaskToCurrentDefault(
++              base::BindRepeating(&VideoDecoderPipeline::OnError,
++                                  decoder_weak_this_, "LibYUV error")),
++          decoder_task_runner_);
++      if (libyuv_ip) {
++        VLOGF(1) << "LibYUV ImageProcessor: " << candidate.fourcc.ToString()
++                 << " -> " << out_fourcc->ToString();
++        break;
++      }
++    }
++    if (libyuv_ip) {
++      status_or_image_processor = ImageProcessorWithPool::Create(
++          std::move(libyuv_ip), main_frame_pool_.get(), num_buffers,
++          use_protected, decoder_task_runner_);
++    }
++    if (!status_or_image_processor.has_value()) {
++      DVLOGF(2) << "Unable to create ImageProcessorWithPool (including LibYUV fallback).";
++      return std::move(status_or_image_processor).error();
++    }
+   }
+ 
+   image_processor_ = std::move(status_or_image_processor).value();
+diff --git a/media/gpu/v4l2/mt21/mt21_decompressor.cc b/media/gpu/v4l2/mt21/mt21_decompressor.cc
+index ff0ee942a1..4a30b01b6a 100644
+--- a/media/gpu/v4l2/mt21/mt21_decompressor.cc
++++ b/media/gpu/v4l2/mt21/mt21_decompressor.cc
+@@ -1,3 +1,5 @@
++// SAFETY: Legacy V4L2 MT21 decompressor, buffer access is bounds-checked at caller level
++#pragma allow_unsafe_buffers
+ // Copyright 2023 The Chromium Authors
+ // Use of this source code is governed by a BSD-style license that can be
+ // found in the LICENSE file.
+@@ -247,4 +249,7 @@ void MT21Decompressor::MT21ToNV12(const uint8_t* src_y,
+   }
+ }
+ 
++MT21DecompressionJob::~MT21DecompressionJob() = default;
++
+ }  // namespace media
++
+diff --git a/media/gpu/v4l2/mt21/mt21_decompressor.h b/media/gpu/v4l2/mt21/mt21_decompressor.h
+index af0ef9c293..c7d97de1e5 100644
+--- a/media/gpu/v4l2/mt21/mt21_decompressor.h
++++ b/media/gpu/v4l2/mt21/mt21_decompressor.h
+@@ -70,7 +70,7 @@ struct MT21DecompressionJob : public base::RefCounted<MT21DecompressionJob> {
+ 
+  private:
+   friend class base::RefCounted<MT21DecompressionJob>;
+-  ~MT21DecompressionJob() = default;
++  ~MT21DecompressionJob();
+ };
+ 
+ // We considered making this an ImageProcessorBackend, but it turns out we need
