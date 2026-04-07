@@ -1,6 +1,7 @@
 # Chromium V4L2 Stateless HW Video Decode on RK3588 — Full Analysis
 
-**Date**: 2026-04-05
+**Date**: 2026-04-07 (updated)
+**Original date**: 2026-04-05
 **Author**: Sav (dongioia)
 **Platform**: Rock 5B+ (Radxa RS129-D24E0), RK3588, 24GB LPDDR5
 **Kernel**: Linux 7.0-rc3+ (mainline + rkvdec2 patches)
@@ -295,31 +296,40 @@ NV12 GBM buffer allocation support for Panfrost (Mali-G610 on RK3588). This woul
 
 ## 9. User-Facing Summary: What Works and What Doesn't
 
-### WORKS
-- Browser launches and is fully usable for daily browsing
-- GPU-accelerated page rendering (Panfrost GLES 3.1 via ANGLE)
-- WebGL hardware accelerated
-- WebGPU hardware accelerated
-- Video playback (YouTube, etc.) — plays via software decode fallback
-- chrome://gpu correctly lists all V4L2 HW decoders (H.264, HEVC, VP9, VP8, AV1)
-- V4L2VideoDecoder is selected by the media pipeline
-- Proprietary codecs (H.264, HEVC) enabled
-- Stable — no crashes with Fix 3 applied
+### WORKS (as of 2026-04-07)
+- **H.264 V4L2 HW decode** — V4L2VideoDecoder decodes H.264 in hardware via rkvdec2
+- **HEVC V4L2 HW decode** — available via rkvdec2 (same pipeline, not yet tested on YouTube)
+- **YouTube H.264** — works with h264ify extension (blocks VP9/AV1, forces H.264)
+- **720p playback** — smooth with HW decode (~13ms/frame LibYUV conversion)
+- **Resolution changes** — 720p↔1080p work without crash
+- Browser fully usable, GPU-accelerated rendering, WebGL, WebGPU
+- chrome://gpu lists H.264 + HEVC HW decoders via rkvdec2
+- Kernel stable — zero oops after VP9 VDPU381 fix
+- Chromium closes normally
 
-### DOESN'T WORK (YET)
-- **HW video decode frames don't reach the screen** — V4L2 decoder produces frames but they can't be passed to the GPU compositor. Two driver-level blockers:
-  1. Kernel rkvdec2: no VIDIOC_EXPBUF support (can't export MMAP buffers as DMABUF)
-  2. Mesa Panfrost: no NV12 GBM allocation (can't create YUV buffers for GPU)
-- Videos play in **software decode** (VpxVideoDecoder for VP9, Dav1dVideoDecoder for AV1, FFmpegVideoDecoder for H.264) — functional but CPU-intensive
-- Vulkan not usable in Chromium (PanVK maxTextureDimension3D < 2048, Ozone/Wayland incompatibility)
+### LIMITATIONS
+- **1080p stutters** — LibYUV CPU conversion takes 23.7ms/frame (over budget for 30fps)
+- **YouTube needs h264ify** — without it, YouTube serves VP9/AV1 which fall to software decode
+- **VP9 HW decode disabled** on rkvdec2 (kernel crash fix — out-of-tree code had NULL ptr bug)
+- VP9 still available via hantro (lower performance, 1080p max)
+- Vulkan not usable in Chromium (PanVK limits too low)
 - Video encode: software only
+- Direct Rendering Display Compositor: disabled (Android-only feature, not a bug)
 
-### EXPECTED RESOLUTION
-When either of these upstream changes lands, HW decode will automatically start working:
-- **Mesa**: NV12 GBM allocation support for Panfrost → unblocks DMABUF import path
-- **Kernel**: VIDIOC_EXPBUF in rkvdec2 → unblocks MMAP export path
+### PERFORMANCE PATH (Current → Future)
+```
+Current:  V4L2 HW decode → LibYUV NV12→ARGB (CPU, 23ms@1080p) → compositor
+                            ↑ bottleneck
 
-The Chromium build with Fix 3 is forward-compatible — no rebuild needed when the driver support arrives.
+Future:   V4L2 HW decode → EGL NV12 DMABUF import → GPU YUV→RGB → compositor
+          (zero-copy, ~0ms overhead)
+          Requires: Mesa single-BO NV12 with correct plane offsets
+```
+
+### HOW TO GET ZERO-COPY (next step)
+Mesa needs to allocate NV12 as a single GBM BO with Y plane at offset 0 and UV plane at
+offset = stride * height. Currently allocates two separate BOs (separate inodes, both offset=0).
+EGL can't import two separate BOs as one NV12 surface. Fix in `panfrost_resource_create`.
 
 ## 10. Reproduction
 

@@ -1,0 +1,321 @@
+diff --git a/src/gallium/drivers/panfrost/pan_resource.c b/src/gallium/drivers/panfrost/pan_resource.c
+index 6ec7f5b..1e62593 100644
+--- a/src/gallium/drivers/panfrost/pan_resource.c
++++ b/src/gallium/drivers/panfrost/pan_resource.c
+@@ -450,7 +450,19 @@ panfrost_resource_get_handle(struct pipe_screen *pscreen,
+                              struct winsys_handle *handle, unsigned usage)
+ {
+    struct panfrost_device *dev = pan_device(pscreen);
+-   struct panfrost_resource *rsrc = pan_resource(pt);
++
++   /* For multi-plane YUV (NV12), walk the ->next chain to find the
++    * correct plane's resource. Each plane is a separate pipe_resource
++    * linked via ->next (Y plane -> UV plane). This mirrors the pattern
++    * used in panfrost_resource_get_param with util_resource_at_index. */
++   struct panfrost_resource *rsrc;
++   if (handle->plane > 0 && pt->next) {
++      rsrc = pan_resource(util_resource_at_index(pt, handle->plane));
++      handle->plane = 0;
++   } else {
++      rsrc = pan_resource(pt);
++   }
++
+    struct renderonly_scanout *scanout;
+ 
+    if (handle->plane >= ARRAY_SIZE(rsrc->image.planes) ||
+@@ -1177,6 +1189,41 @@ static struct pipe_resource *
+ panfrost_resource_create(struct pipe_screen *screen,
+                          const struct pipe_resource *template)
+ {
++   unsigned num_planes = util_format_get_num_planes(template->format);
++
++   /* Multi-plane YUV formats (e.g. NV12) need each plane allocated
++    * separately and linked via pipe_resource->next. This enables GBM
++    * allocation of YUV buffers for V4L2 video decode on ARM GPUs. */
++   if (num_planes > 1) {
++      struct pipe_resource *prev = NULL;
++
++      for (int i = num_planes - 1; i >= 0; i--) {
++         struct pipe_resource tmpl = *template;
++         tmpl.format = util_format_get_plane_format(template->format, i);
++         tmpl.width0 = util_format_get_plane_width(template->format, i,
++                                                    template->width0);
++         tmpl.height0 = util_format_get_plane_height(template->format, i,
++                                                      template->height0);
++         tmpl.next = prev;
++
++         struct pipe_resource *plane =
++            panfrost_resource_create_with_modifier(screen, &tmpl,
++                                                   DRM_FORMAT_MOD_LINEAR, i);
++         if (!plane) {
++            /* TODO: clean up previously allocated planes */
++            return NULL;
++         }
++
++         prev = plane;
++      }
++
++      /* prev is now the Y plane (i=0), with ->next pointing to UV plane.
++       * Set the top-level format to NV12 so the DRI layer knows this
++       * is a multi-plane YUV resource. */
++      prev->format = template->format;
++      return prev;
++   }
++
+    return panfrost_resource_create_with_modifier(screen, template,
+                                                  DRM_FORMAT_MOD_INVALID, 0);
+ }
+diff --git a/src/gallium/drivers/panfrost/pan_screen.c b/src/gallium/drivers/panfrost/pan_screen.c
+index 6ba4c7d..38c7804 100644
+--- a/src/gallium/drivers/panfrost/pan_screen.c
++++ b/src/gallium/drivers/panfrost/pan_screen.c
+@@ -152,81 +152,6 @@ get_max_msaa(struct panfrost_device *dev, enum pipe_format format)
+  * \param format  the format to test
+  * \param type  one of PIPE_TEXTURE, PIPE_SURFACE
+  */
+-static bool
+-panfrost_is_format_supported(struct pipe_screen *screen,
+-                             enum pipe_format format,
+-                             enum pipe_texture_target target,
+-                             unsigned sample_count,
+-                             unsigned storage_sample_count, unsigned bind)
+-{
+-   struct panfrost_device *dev = pan_device(screen);
+-
+-   unsigned max_msaa = get_max_msaa(dev, format);
+-   if (!util_is_power_of_two_or_zero(sample_count) ||
+-       MAX2(sample_count, 1) > max_msaa)
+-      return false;
+-
+-   if (sample_count == 2 && dev->arch < 12)
+-      return false;
+-
+-   if (MAX2(sample_count, 1) != MAX2(storage_sample_count, 1))
+-      return false;
+-
+-   /* Z16 causes dEQP failures on t720 */
+-   if (format == PIPE_FORMAT_Z16_UNORM && dev->arch <= 4)
+-      return false;
+-
+-   /* Check we support the format with the given bind */
+-
+-   unsigned pan_bind_flags = pipe_to_pan_bind_flags(bind);
+-   struct pan_format fmt = dev->formats[format];
+-   unsigned fmt_bind_flags = fmt.bind;
+-
+-   /* Also check that compressed texture formats are supported on this
+-    * particular chip. They may not be depending on system integration
+-    * differences. */
+-
+-   bool supported =
+-      !util_format_is_compressed(format) ||
+-      panfrost_supports_compressed_format(dev, fmt.texfeat_bit);
+-
+-   if (!supported)
+-      return false;
+-
+-   if (bind & PIPE_BIND_DEPTH_STENCIL) {
+-      /* On panfrost, S8_UINT is actually stored as X8S8_UINT, which
+-       * causes us headaches when we try to bind it as DEPTH_STENCIL;
+-       * the gallium driver doesn't handle this correctly. So reject
+-       * it for now.
+-       */
+-      switch (format) {
+-      case PIPE_FORMAT_S8_UINT:
+-         fmt_bind_flags &= ~PAN_BIND_DEPTH_STENCIL;
+-         break;
+-      default:
+-         /* no other special handling required yet */
+-         break;
+-      }
+-   }
+-
+-   return MALI_EXTRACT_INDEX(fmt.hw) &&
+-      ((pan_bind_flags & ~fmt_bind_flags) == 0);
+-}
+-
+-static void
+-panfrost_query_compression_rates(struct pipe_screen *screen,
+-                                 enum pipe_format format, int max,
+-                                 uint32_t *rates, int *count)
+-{
+-   struct panfrost_device *dev = pan_device(screen);
+-
+-   if (!dev->has_afrc) {
+-      *count = 0;
+-      return;
+-   }
+-
+-   *count = pan_afrc_query_rates(format, max, rates);
+-}
+ 
+ struct panfrost_yuv_format_lowering {
+    unsigned nres;
+@@ -365,6 +290,93 @@ panfrost_lower_yuv_format(struct panfrost_device *dev,
+    return (struct panfrost_yuv_format_lowering){0};
+ }
+ 
++static bool
++panfrost_is_format_supported(struct pipe_screen *screen,
++                             enum pipe_format format,
++                             enum pipe_texture_target target,
++                             unsigned sample_count,
++                             unsigned storage_sample_count, unsigned bind)
++{
++   struct panfrost_device *dev = pan_device(screen);
++
++   unsigned max_msaa = get_max_msaa(dev, format);
++   if (!util_is_power_of_two_or_zero(sample_count) ||
++       MAX2(sample_count, 1) > max_msaa)
++      return false;
++
++   if (sample_count == 2 && dev->arch < 12)
++      return false;
++
++   if (MAX2(sample_count, 1) != MAX2(storage_sample_count, 1))
++      return false;
++
++   /* Z16 causes dEQP failures on t720 */
++   if (format == PIPE_FORMAT_Z16_UNORM && dev->arch <= 4)
++      return false;
++
++   /* Check we support the format with the given bind */
++
++   unsigned pan_bind_flags = pipe_to_pan_bind_flags(bind);
++   struct pan_format fmt = dev->formats[format];
++   unsigned fmt_bind_flags = fmt.bind;
++
++   /* Also check that compressed texture formats are supported on this
++    * particular chip. They may not be depending on system integration
++    * differences. */
++
++   bool supported =
++      !util_format_is_compressed(format) ||
++      panfrost_supports_compressed_format(dev, fmt.texfeat_bit);
++
++   if (!supported)
++      return false;
++
++   if (bind & PIPE_BIND_DEPTH_STENCIL) {
++      /* On panfrost, S8_UINT is actually stored as X8S8_UINT, which
++       * causes us headaches when we try to bind it as DEPTH_STENCIL;
++       * the gallium driver doesn't handle this correctly. So reject
++       * it for now.
++       */
++      switch (format) {
++      case PIPE_FORMAT_S8_UINT:
++         fmt_bind_flags &= ~PAN_BIND_DEPTH_STENCIL;
++         break;
++      default:
++         /* no other special handling required yet */
++         break;
++      }
++   }
++
++
++
++
++   /* YUV formats (NV12) lowered to HW formats. Allow for GBM. */
++   if (util_format_is_yuv(format)) {
++      struct panfrost_yuv_format_lowering yuv =
++         panfrost_lower_yuv_format(dev, format);
++      return yuv.nres >= 1;
++   }
++
++   return MALI_EXTRACT_INDEX(fmt.hw) &&
++      ((pan_bind_flags & ~fmt_bind_flags) == 0);
++}
++
++static void
++panfrost_query_compression_rates(struct pipe_screen *screen,
++                                 enum pipe_format format, int max,
++                                 uint32_t *rates, int *count)
++{
++   struct panfrost_device *dev = pan_device(screen);
++
++   if (!dev->has_afrc) {
++      *count = 0;
++      return;
++   }
++
++   *count = pan_afrc_query_rates(format, max, rates);
++}
++
++
+ /* We always support linear and tiled operations, both external and internal.
+  * We support AFBC for a subset of formats, and colourspace transform for a
+  * subset of those. */
+diff --git a/src/gallium/frontends/dri/dri2.c b/src/gallium/frontends/dri/dri2.c
+index 96800e8..9a2821d 100644
+--- a/src/gallium/frontends/dri/dri2.c
++++ b/src/gallium/frontends/dri/dri2.c
+@@ -958,6 +958,12 @@ dri_create_image(struct dri_screen *screen,
+    unsigned tex_usage = 0;
+    unsigned count = _count;
+ 
++   /* For YUV formats (NV12 etc), dri_format is __DRI_IMAGE_FORMAT_NONE
++    * so the format lookup fails. The pipe_format is passed as 'format'
++    * from gbm_dri_bo_create. Try matching by pipe_format directly. */
++   if (!map)
++      map = dri2_get_mapping_by_pipe_format(format);
++
+    if (!map)
+       return NULL;
+ 
+@@ -1326,6 +1332,9 @@ dri2_from_planar(struct dri_image *image, int plane, void *loaderPrivate)
+       img->texture->screen->resource_changed(img->texture->screen,
+                                              img->texture);
+ 
++   /* For multi-plane YUV (NV12), keep the root texture reference intact.
++    * The plane index is passed through to resource_get_handle which
++    * traverses the ->next chain to find the correct plane's resource. */
+    img->plane = plane;
+    return img;
+ }
+diff --git a/src/gallium/frontends/dri/dri_helpers.c b/src/gallium/frontends/dri/dri_helpers.c
+index 9cf6d73..f2e39a5 100644
+--- a/src/gallium/frontends/dri/dri_helpers.c
++++ b/src/gallium/frontends/dri/dri_helpers.c
+@@ -737,6 +737,16 @@ dri2_get_mapping_by_format(int format)
+    return NULL;
+ }
+ 
++const struct dri2_format_mapping *
++dri2_get_mapping_by_pipe_format(enum pipe_format format)
++{
++   for (unsigned i = 0; i < ARRAY_SIZE(dri2_format_table); i++) {
++      if (dri2_format_table[i].pipe_format == format)
++         return &dri2_format_table[i];
++   }
++   return NULL;
++}
++
+ static enum pipe_format
+ alt_pipe_format(enum pipe_format yuv_fmt)
+ {
+diff --git a/src/gallium/frontends/dri/dri_helpers.h b/src/gallium/frontends/dri/dri_helpers.h
+index 7258dc3..a106dbe 100644
+--- a/src/gallium/frontends/dri/dri_helpers.h
++++ b/src/gallium/frontends/dri/dri_helpers.h
+@@ -46,6 +46,9 @@ dri2_get_mapping_by_fourcc(int fourcc);
+ const struct dri2_format_mapping *
+ dri2_get_mapping_by_format(int format);
+ 
++const struct dri2_format_mapping *
++dri2_get_mapping_by_pipe_format(enum pipe_format format);
++
+ bool
+ dri2_yuv_dma_buf_supported(struct dri_screen *screen,
+                            const struct dri2_format_mapping *map);
+diff --git a/src/gbm/backends/dri/gbm_dri.c b/src/gbm/backends/dri/gbm_dri.c
+index 6640f16..c500c85 100644
+--- a/src/gbm/backends/dri/gbm_dri.c
++++ b/src/gbm/backends/dri/gbm_dri.c
+@@ -345,6 +345,7 @@ static const struct gbm_dri_visual gbm_dri_visuals_table[] = {
+    { GBM_FORMAT_ABGR16161616, PIPE_FORMAT_R16G16B16A16_UNORM },
+    { GBM_FORMAT_XBGR16161616F, PIPE_FORMAT_R16G16B16X16_FLOAT },
+    { GBM_FORMAT_ABGR16161616F, PIPE_FORMAT_R16G16B16A16_FLOAT },
++   { GBM_FORMAT_NV12, PIPE_FORMAT_NV12 },
+    { DRM_FORMAT_R16F,          PIPE_FORMAT_R16_FLOAT },
+    { DRM_FORMAT_R32F,          PIPE_FORMAT_R32_FLOAT },
+    { DRM_FORMAT_GR1616F,       PIPE_FORMAT_R16G16_FLOAT },
