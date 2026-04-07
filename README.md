@@ -132,7 +132,7 @@ Built and deployed **Linux 7.0-rc1** custom kernel. 18 of 25 patches from the 6.
 
 3. **Unused variable cleanup** — removed unused `s8 delta` variable to eliminate compiler warning.
 
-**Config strategy**: Start from Panda's BredOS config (`panda_bredos_6.19.1.config`) for clean boot (`DRM_SIMPLEDRM=y`, `SYSFB_SIMPLEFB=y`), override with `DEBUG_PREEMPT=n` and static `PREEMPT=y` for performance.
+**Config strategy**: Start from Panda's Beryllium OS config (`panda_bredos_6.19.1.config`) for clean boot (`DRM_SIMPLEDRM=y`, `SYSFB_SIMPLEFB=y`), override with `DEBUG_PREEMPT=n` and static `PREEMPT=y` for performance.
 
 **Build method**: `git archive` tarball extracted inside Docker container (Linux ext4) — avoids macOS HFS+/APFS case-insensitivity conflicts with kernel headers like `ipt_ECN.h` vs `ipt_ecn.h`.
 
@@ -173,7 +173,7 @@ Initial release with RKVDEC2/VDPU381 v9 driver, HDMI 2.0 scrambling, VP9 communi
 
 ## What This Provides
 
-Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with **BredOS** (Arch Linux ARM):
+Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with **Beryllium OS** (Arch Linux ARM):
 
 | Feature | Status | Details |
 |---------|--------|---------|
@@ -185,7 +185,7 @@ Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with
 | **HDMI 2.0 4K@60Hz** | Working | SCDC scrambling v4 (Ciocaltea, Collabora) |
 | **HDMI audio** | Working | LPCM, AC-3, E-AC-3, TrueHD via PipeWire |
 | **Analog audio (3.5mm)** | Working | ES8316 codec, jack detect fix |
-| **NPU (3 cores)** | Kernel ready | Rocket driver configured (`CONFIG_DRM_ACCEL_ROCKET=m`). Open-source Teflon delegate supports basic CNN inference. Full NPU capabilities require proprietary RKNN-Toolkit2 + vendor BSP kernel (not available on BredOS). See [NPU wiki article](docs/bredos-wiki-npu-article.md) |
+| **NPU (3 cores)** | Kernel ready | Rocket driver configured (`CONFIG_DRM_ACCEL_ROCKET=m`). Open-source Teflon delegate supports basic CNN inference. Full NPU capabilities require proprietary RKNN-Toolkit2 + vendor BSP kernel (not available on Beryllium OS). See [NPU wiki article](docs/bredos-wiki-npu-article.md) |
 | **WiFi RTL8852BE** | Working | rtw89 driver, WiFi 6 |
 | **GPU Panthor** | Working | Mali-G610 MP4, Vulkan 1.4 (PanVK), 1188 MHz via [GPLL overclock](#gpu-clock-architecture--overclock) (default 850 MHz) |
 | **Dual HDMI output** | Working | Upstream DW HDMI QP |
@@ -198,7 +198,7 @@ Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with
 - **Board**: Radxa Rock 5B+ (RS129-D24E0 rev v1.207)
 - **SoC**: Rockchip RK3588
 - **RAM**: 24GB LPDDR5
-- **OS**: BredOS (Arch Linux ARM), UEFI + GRUB
+- **OS**: Beryllium OS (Arch Linux ARM), UEFI + GRUB
 
 ## Patches
 
@@ -563,7 +563,7 @@ ssh $USER@$BOARD "sudo mkinitcpio -k $KVER -g /boot/initramfs-linux-custom.img &
 
 ## FFmpeg with v4l2-request
 
-Stock FFmpeg doesn't support v4l2-request. On **BredOS**, install the pre-built package from the BredOS repository:
+Stock FFmpeg doesn't support v4l2-request. On **Beryllium OS**, install the pre-built package from the Beryllium OS repository:
 
 ```bash
 sudo pacman -S ffmpeg-v4l2-requests
@@ -824,16 +824,16 @@ scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
 ## Known Limitations
 
 - **VP9**: Community patch, Profile 0 only, experimental
-- **NPU**: Open-source Rocket + Teflon stack supports only quantized CNN models via TFLite (limited ops, single core). Full NPU capabilities (YOLO, LLMs, speech) require proprietary RKNN-Toolkit2 + vendor BSP kernel, which is not available on BredOS. See [NPU wiki article](docs/bredos-wiki-npu-article.md)
+- **NPU**: Open-source Rocket + Teflon stack supports only quantized CNN models via TFLite (limited ops, single core). Full NPU capabilities (YOLO, LLMs, speech) require proprietary RKNN-Toolkit2 + vendor BSP kernel, which is not available on Beryllium OS. See [NPU wiki article](docs/bredos-wiki-npu-article.md)
 - **Dual-core VPU**: ABI prepared but no V4L2 scheduler yet
 - **RGA3**: No upstream driver (RGA2 works)
 - **GPU default clock**: 850 MHz via SCMI firmware — bypassed to 1188 MHz via [GPLL overclock](#gpu-clock-architecture--overclock). Requires CRU register write + voltage increase. Not all boards may be stable at 1188 MHz
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
 - **Browser video decode**: Our custom Chromium V4L2 build supports H.264/HEVC/VP9 hardware decode (zero-copy via MMAP+EXPBUF). VP9 works up to 1080p (artifacts at 2K+). YouTube may need h264ify to prefer H.264 over AV1. For best all-codec HW decode, use `yt-dlp` + `mpv`
 
-## BredOS Upstream Contributions
+## Beryllium OS Upstream Contributions
 
-This project has contributed the following patches, issues, and analysis to the BredOS ecosystem:
+This project has contributed the following patches, issues, and analysis to the Beryllium OS ecosystem:
 
 | # | Type | Target | Description | Link |
 |---|------|--------|-------------|------|
@@ -845,7 +845,7 @@ This project has contributed the following patches, issues, and analysis to the 
 | 6 | PR | muffin (upstream) | Multi-GPU primary selection via `muffin-device-preferred-primary` udev tag | [linuxmint/muffin#811](https://github.com/linuxmint/muffin/pull/811) |
 | 7 | Issue | muffin (upstream) | Bug analysis: multi-GPU RK3588 (Mali-C510 + Mali-G610), root cause + fix | [linuxmint/muffin#812](https://github.com/linuxmint/muffin/issues/812) |
 
-### Current Hardware Support Limits (Linux 7.0-rc3 on BredOS)
+### Current Hardware Support Limits (Linux 7.0-rc3 on Beryllium OS)
 
 | Subsystem | Status | Limit |
 |-----------|--------|-------|
@@ -896,7 +896,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 - **[Jonas Karlman (Kwiboo)](https://github.com/Kwiboo)** — Author and maintainer of the [FFmpeg v4l2-request patches](https://github.com/Kwiboo/FFmpeg), which enable V4L2 stateless hardware decoding in FFmpeg. Essential for using RKVDEC2 with mpv and other FFmpeg-based players.
 
-- **[NoDiskNoFun](https://github.com/BredOS/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests)** — Packaged `ffmpeg-v4l2-requests` for the BredOS repository, making V4L2-request FFmpeg available as a simple `pacman -S` install for BredOS users.
+- **[NoDiskNoFun](https://github.com/BredOS/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests)** — Packaged `ffmpeg-v4l2-requests` for the Beryllium OS repository, making V4L2-request FFmpeg available as a simple `pacman -S` install for Beryllium OS users.
 
 ### Rockchip Mainline Enablement
 
@@ -910,7 +910,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 ### Distribution and Community
 
-- **[BredOS](https://bredos.org/)** — Arch Linux ARM distribution optimized for ARM SBCs, providing the base OS and community support. [Wiki](https://wiki.bredos.org/) | [Discord](https://discord.gg/jwhxuyKXaa)
+- **[Beryllium OS](https://beryllium.gr/)** — Arch Linux ARM distribution optimized for ARM SBCs, providing the base OS and community support. [Wiki](https://wiki.beryllium.gr/) | [Discord](https://discord.gg/jwhxuyKXaa)
 
 - **[7Ji](https://github.com/7Ji-PKGBUILDs)** — Maintainer of `linux-aarch64-7ji` kernel packages for Arch Linux ARM, providing pre-built mainline kernels with ARM SBC patches.
 
@@ -927,7 +927,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 - FFmpeg v4l2-request: [github.com/Kwiboo/FFmpeg](https://github.com/Kwiboo/FFmpeg)
 - Collabora RK3588 status: [gitlab.collabora.com](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/notes-for-rockchip-3588/-/blob/main/mainline-status.md)
 - PINE64 HW Decoding wiki: [wiki.pine64.org](https://wiki.pine64.org/wiki/Mainline_Hardware_Decoding)
-- BredOS wiki: [wiki.bredos.org](https://wiki.bredos.org)
+- Beryllium OS wiki: [wiki.beryllium.gr](https://wiki.beryllium.gr)
 
 ## License
 
