@@ -6,6 +6,17 @@ Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+
 
 ## Changelog
 
+### 2026-04-07 — VP9 VDPU381 Fixed + Zero-Copy HW Decode
+
+**VP9 hardware decode restored!** Root cause of the kernel crash was a **stale `.o` file** — the VP9 source file (`rkvdec-vdpu381-vp9.c`) was missing from the kernel tree while the Makefile referenced it, causing an old object file compiled against different headers to be linked. Fixed by adding the source files directly to the kernel tree and doing a clean rebuild.
+
+- VP9 VDPU381 works up to 1080p (artifacts at 2K+)
+- H.264, HEVC, VP9 all available via rkvdec2 zero-copy (MMAP+EXPBUF)
+- Zero kernel oops
+- Source added to [linux-beryllium 7.0.y](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y)
+
+**EXPBUF discovery**: our earlier EXPBUF test had the **wrong ioctl number** (`0xc014560d` instead of `0xc0405610`). EXPBUF was always supported by rkvdec2 — the entire Mesa NV12 GBM work was unnecessary for the zero-copy path!
+
 ### 2026-04-07 — Chromium V4L2 Zero-Copy HW Decode
 
 **First working V4L2 hardware video decode in Chromium on RK3588 mainline kernel.**
@@ -296,9 +307,9 @@ Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with
 - The mode_valid callback prevents the display pipeline from attempting unsupported resolutions. The ratelimited logging prevents dmesg flooding during transient display timeouts (e.g., port_mux or layer config)
 - **Adaptation**: both patches applied cleanly to `rockchip_drm_vop2.c` and `rockchip_vop2_reg.c`; no modifications needed
 
-### VP9 Support (community, experimental — DISABLED)
+### VP9 Support (community, experimental — RE-ENABLED)
 
-> **Warning**: VP9 VDPU381 is **disabled** in the current kernel build. The out-of-tree VP9 code causes a NULL pointer dereference in `rkvdec_vp9_start` when used with `V4L2_MEMORY_DMABUF` buffers, crashing the kernel and destabilizing the GPU/desktop. VP9 has been removed from `vdpu381_coded_fmts[]` in `rkvdec.c`. VP9 hardware decode is still available via hantro (`/dev/video2`) at lower performance (up to 1080p). Upstream VP9 VDPU381 support is listed as "future work" by Collabora.
+> **Status**: VP9 VDPU381 is **working** up to 1080p. Visual artifacts at 2K and above. The previous kernel crash was caused by a **stale object file** — the source file was missing from the tree while the Makefile referenced it, causing an old `.o` compiled against different headers to be linked (struct layout mismatch → `ctx->dev` read as value `1` instead of pointer → NULL deref). Fixed by adding source files to the kernel tree and clean rebuild.
 
 | File | Author(s) | Description |
 |------|-----------|-------------|
@@ -722,7 +733,8 @@ We built a custom Chromium 148 with V4L2 stateless hardware video decode enabled
 | Video decode | Software (CPU) | **Hardware (V4L2 rkvdec2)** |
 | H.264 decode | FFmpeg software | **rkvdec2 zero-copy** |
 | HEVC decode | Not available | **rkvdec2 zero-copy** |
-| VP9/AV1 | Software | Software (VP9 HW disabled, kernel bug) |
+| VP9 | Software | **Hardware (rkvdec2, up to 1080p)** |
+| AV1 | Software | Software |
 | 1080p video | High CPU, may stutter | **Smooth, low CPU** |
 | GPU rendering | Full (ANGLE) | Full (ANGLE) |
 | Chrome Web Store | No (ungoogled) | Yes |
@@ -757,7 +769,7 @@ sudo chmod +x /usr/local/bin/chromium-v4l2
 
 **Verify**: open `chrome://media-internals`, play a video, check `kVideoDecoderName: V4L2VideoDecoder` and `kIsPlatformVideoDecoder: true`.
 
-**Kernel requirement**: VP9 VDPU381 must be disabled in the kernel (out-of-tree code causes a NULL pointer crash). Our kernel build has this fix. See [full analysis](docs/chromium-v4l2-rk3588-analysis.md) and [Chromium patch](docs/chromium-v4l2-rk3588-v3-zerocopy.patch).
+**Kernel requirement**: VP9 VDPU381 source files must be in the kernel tree (not applied as patch at build time — causes stale `.o` crash). Our [linux-beryllium 7.0.y](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) tree has them. VP9 works up to 1080p (artifacts at 2K+). See [full analysis](docs/chromium-v4l2-rk3588-analysis.md).
 
 ### YouTube with hardware decode (bypasses browser)
 
@@ -817,7 +829,7 @@ scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
 - **RGA3**: No upstream driver (RGA2 works)
 - **GPU default clock**: 850 MHz via SCMI firmware — bypassed to 1188 MHz via [GPLL overclock](#gpu-clock-architecture--overclock). Requires CRU register write + voltage increase. Not all boards may be stable at 1188 MHz
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
-- **Browser video decode**: Our custom Chromium V4L2 build supports H.264/HEVC hardware decode (zero-copy). YouTube requires h264ify extension. VP9/AV1 play in software. For best all-codec HW decode, use `yt-dlp` + `mpv`
+- **Browser video decode**: Our custom Chromium V4L2 build supports H.264/HEVC/VP9 hardware decode (zero-copy via MMAP+EXPBUF). VP9 works up to 1080p (artifacts at 2K+). YouTube may need h264ify to prefer H.264 over AV1. For best all-codec HW decode, use `yt-dlp` + `mpv`
 
 ## BredOS Upstream Contributions
 
