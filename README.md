@@ -616,7 +616,7 @@ Click the bookmarklet on any YouTube/video page to play it in mpv with hardware 
 
 ### Why Ungoogled Chromium over Firefox/LibreWolf
 
-No browser on ARM64 currently supports hardware video decode via V4L2 stateless API (the method used by RKVDEC2 on mainline kernels). However, Chromium and Firefox differ significantly in GPU acceleration:
+We have two browser options: stock Ungoogled Chromium (Flatpak, no HW video decode) and our custom Chromium V4L2 build (with H.264/HEVC hardware decode). Firefox lacks V4L2 support entirely on ARM64.
 
 | Feature | Ungoogled Chromium (Flatpak) | Firefox / LibreWolf |
 |---------|:---:|:---:|
@@ -625,15 +625,15 @@ No browser on ARM64 currently supports hardware video decode via V4L2 stateless 
 | WebGL | Hardware accelerated | Hardware accelerated |
 | WebGPU | Hardware accelerated | Not supported |
 | Zero-copy compositing | Supported | Not supported |
-| Video decode | Software (V4L2 stateless not supported) | Software (V4L2 stateless not supported) |
+| Video decode | Software only | Software only (see Option B for HW decode) |
 | Wayland | Native (Ozone) | Native |
 | Flatpak (bundled libs) | Available, always up to date | Available |
 
-Chromium's ANGLE backend maps well to Panfrost's OpenGL ES 3.1, providing full hardware-accelerated page rendering, compositing, and WebGL/WebGPU. Firefox's WebRender is less optimized for ARM Mali GPUs. Neither browser supports hardware video decode on mainline RK3588 — use `mpv` + `yt-dlp` for that (see below).
+Chromium's ANGLE backend maps well to Panfrost's OpenGL ES 3.1, providing full hardware-accelerated page rendering, compositing, and WebGL/WebGPU. Firefox's WebRender is less optimized for ARM Mali GPUs. For hardware video decode in the browser, use our custom Chromium V4L2 build (Option B below).
 
 **GPU stack in Flatpak**: The Flatpak runtime includes Panthor DRI + PanVK (Vulkan 1.4) + Panfrost (GLES 3.1). With `devices=all` and `sockets=wayland` permissions, the sandbox has full GPU access. On Wayland, Chromium gets native GPU access (no ANGLE translation layer on X11).
 
-### Install
+### Option A: Ungoogled Chromium Flatpak — no hardware video decode
 
 ```bash
 # Install Flatpak and add Flathub
@@ -680,9 +680,55 @@ Open `chrome://gpu` — you should see:
 - **GL_RENDERER**: Mali-G610 / panfrost / panvk (not SwiftShader or llvmpipe)
 - **Canvas, Compositing, Rasterization, WebGL, WebGPU**: Hardware accelerated
 
+### Option B: Chromium V4L2 — with hardware video decode
+
+We built a custom Chromium 148 with V4L2 stateless hardware video decode enabled. Unlike the Flatpak version (software-only video), this build decodes H.264 and HEVC in hardware via rkvdec2 using a **zero-copy MMAP+EXPBUF path** — decoded frames go directly from the V4L2 decoder to the GPU compositor as DMABUF, with no CPU conversion.
+
+| | Flatpak Chromium (Option A) | Chromium V4L2 (Option B) |
+|---|---|---|
+| Video decode | Software (CPU) | **Hardware (V4L2 rkvdec2)** |
+| H.264 decode | FFmpeg software | **rkvdec2 zero-copy** |
+| HEVC decode | Not available | **rkvdec2 zero-copy** |
+| VP9/AV1 | Software | Software (VP9 HW disabled, kernel bug) |
+| 1080p video | High CPU, may stutter | **Smooth, low CPU** |
+| GPU rendering | Full (ANGLE) | Full (ANGLE) |
+| Chrome Web Store | No (ungoogled) | Yes |
+| YouTube | Direct | **Needs h264ify extension** |
+| Install method | Flatpak | Manual (tarball) |
+
+**Download and install:**
+
+```bash
+# Download from GitHub releases
+wget https://github.com/dongioia/rock5bplus-rkvdec2/releases/download/chromium-v4l2-148/chromium-v4l2-148.0.7774.0-arm64-rk3588.tar.gz
+
+# Install
+sudo mkdir -p /opt/chromium-v4l2
+sudo tar xzf chromium-v4l2-148.0.7774.0-arm64-rk3588.tar.gz -C /opt/chromium-v4l2/
+sudo chown root:root /opt/chromium-v4l2/chrome_sandbox
+sudo chmod 4755 /opt/chromium-v4l2/chrome_sandbox
+
+# Create launcher
+sudo tee /usr/local/bin/chromium-v4l2 > /dev/null << 'EOF'
+#!/bin/bash
+export CHROME_DEVEL_SANDBOX=/opt/chromium-v4l2/chrome_sandbox
+exec /opt/chromium-v4l2/chrome \
+  --enable-features=AcceleratedVideoDecoder,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL \
+  --enable-gpu-rasterization --enable-zero-copy \
+  --ozone-platform-hint=auto --ignore-gpu-blocklist "$@"
+EOF
+sudo chmod +x /usr/local/bin/chromium-v4l2
+```
+
+**Required: install h264ify for YouTube.** YouTube serves VP9/AV1 by default (software decode). Install [enhanced h264ify](https://chromewebstore.google.com/detail/enhanced-h264ify/mmfacbnpmpncbhalpkcgihmijjhmplcb) from Chrome Web Store to force H.264 hardware decode.
+
+**Verify**: open `chrome://media-internals`, play a video, check `kVideoDecoderName: V4L2VideoDecoder` and `kIsPlatformVideoDecoder: true`.
+
+**Kernel requirement**: VP9 VDPU381 must be disabled in the kernel (out-of-tree code causes a NULL pointer crash). Our kernel build has this fix. See [full analysis](docs/chromium-v4l2-rk3588-analysis.md) and [Chromium patch](docs/chromium-v4l2-rk3588-v3-zerocopy.patch).
+
 ### YouTube with hardware decode (bypasses browser)
 
-No browser supports V4L2 stateless decode on ARM. Use `mpv` + `yt-dlp` for hardware-accelerated playback — either via the [mpv:// bookmarklet](#open-in-mpv-from-browser) or from the terminal:
+For the best video experience, `mpv` + `yt-dlp` still provides the highest quality hardware decode (all codecs including VP9 and AV1). Use it via the [mpv:// bookmarklet](#open-in-mpv-from-browser) or from the terminal:
 
 ```bash
 mpv 'https://youtube.com/watch?v=...'
@@ -738,7 +784,7 @@ scp your-logo.png $USER@$BOARD:~/.config/fastfetch/logo.png
 - **RGA3**: No upstream driver (RGA2 works)
 - **GPU default clock**: 850 MHz via SCMI firmware — bypassed to 1188 MHz via [GPLL overclock](#gpu-clock-architecture--overclock). Requires CRU register write + voltage increase. Not all boards may be stable at 1188 MHz
 - **HDMI audio UCM fix**: May need re-applying after `alsa-ucm-conf` package updates
-- **Browser video decode**: No browser supports V4L2 stateless API — video plays in software. Use `yt-dlp` + `mpv` for hardware-accelerated playback
+- **Browser video decode**: Our custom Chromium V4L2 build supports H.264/HEVC hardware decode (zero-copy). YouTube requires h264ify extension. VP9/AV1 play in software. For best all-codec HW decode, use `yt-dlp` + `mpv`
 
 ## BredOS Upstream Contributions
 
