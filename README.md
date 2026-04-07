@@ -738,7 +738,7 @@ We built a custom Chromium 148 with V4L2 stateless hardware video decode enabled
 | 1080p video | High CPU, may stutter | **Smooth, low CPU** |
 | GPU rendering | Full (ANGLE) | Full (ANGLE) |
 | Chrome Web Store | No (ungoogled) | Yes |
-| YouTube | Direct | **Needs h264ify extension** |
+| YouTube | Direct | Direct (VP9 HW decode) |
 | Install method | Flatpak | Manual (tarball) |
 
 **Download and install:**
@@ -765,7 +765,7 @@ EOF
 sudo chmod +x /usr/local/bin/chromium-v4l2
 ```
 
-**Required: install h264ify for YouTube.** YouTube serves VP9/AV1 by default (software decode). Install [enhanced h264ify](https://chromewebstore.google.com/detail/enhanced-h264ify/mmfacbnpmpncbhalpkcgihmijjhmplcb) from Chrome Web Store to force H.264 hardware decode.
+> **Note**: VP9 hardware decode works up to 1080p. At 2K and above, visual artifacts appear (limitation of the community VP9 VDPU381 code). For best quality at high resolutions, install [enhanced h264ify](https://chromewebstore.google.com/detail/enhanced-h264ify/mmfacbnpmpncbhalpkcgihmijjhmplcb) to force H.264 which has no resolution limit.
 
 **Verify**: open `chrome://media-internals`, play a video, check `kVideoDecoderName: V4L2VideoDecoder` and `kIsPlatformVideoDecoder: true`.
 
