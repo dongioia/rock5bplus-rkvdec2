@@ -6,6 +6,38 @@ Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+
 
 ## Changelog
 
+### 2026-04-07 — Chromium V4L2 Zero-Copy HW Decode
+
+**First working V4L2 hardware video decode in Chromium on RK3588 mainline kernel.**
+
+- Custom Chromium 148 cross-compiled with `use_v4l2_codec=true`
+- **Zero-copy path**: V4L2 MMAP → VIDIOC_EXPBUF → DMABUF → compositor (no CPU conversion)
+- H.264 and HEVC hardware decode via rkvdec2
+- 1080p smooth playback, YouTube with h264ify extension
+- LibYUV NV12→ARGB fallback for GPUs that can't import NV12 DMABUF
+- Binary + patch: [GitHub Release](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/chromium-v4l2-148)
+
+### 2026-04-05 — Kernel 7.0-rc3 Performance Optimization
+
+**Benchmarked kernel config optimizations**: +18.8% SHA256, +17.3% AES, +6.1% memcpy.
+
+- `KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'` — enables HW crypto, LSE atomics, FP16, dotprod
+- `schedutil` governor default — better sustained throughput than `performance` under thermal pressure
+- THP madvise, ZRAM LZ4 built-in, ZSWAP available
+- sched-ext + BTF enabled (BPF schedulers ready)
+- ARM64 errata reduced 31→9 (only A55/A76/Rockchip)
+- Debug overhead removed (softlockup, hung_task)
+- Branch `7.0.y` pushed to [beryllium-org/linux-beryllium](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y)
+
+### 2026-04-06 — Kernel VP9 VDPU381 Fix
+
+**VP9 VDPU381 disabled** in rkvdec2 — out-of-tree VP9 code (D.V.A.B. Sarma) caused NULL pointer dereference in `rkvdec_vp9_start` when used with V4L2_MEMORY_DMABUF. Crash corrupted GPU memory, destabilized desktop.
+
+- Removed VP9 from `vdpu381_coded_fmts[]` in `rkvdec.c`
+- H.264 and HEVC remain (upstream, tested by Collabora)
+- VP9 still available via hantro (`/dev/video2`) at lower performance
+- Zero kernel oops since fix
+
 ### 2026-03-10 — Linux 7.0-rc3
 
 Built and deployed **Linux 7.0-rc3** custom kernel. Updated HDMI 2.0 patches to v4 series from Cristian Ciocaltea, added GPU OPP frequency fix.
@@ -264,7 +296,9 @@ Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with
 - The mode_valid callback prevents the display pipeline from attempting unsupported resolutions. The ratelimited logging prevents dmesg flooding during transient display timeouts (e.g., port_mux or layer config)
 - **Adaptation**: both patches applied cleanly to `rockchip_drm_vop2.c` and `rockchip_vop2_reg.c`; no modifications needed
 
-### VP9 Support (community, experimental)
+### VP9 Support (community, experimental — DISABLED)
+
+> **Warning**: VP9 VDPU381 is **disabled** in the current kernel build. The out-of-tree VP9 code causes a NULL pointer dereference in `rkvdec_vp9_start` when used with `V4L2_MEMORY_DMABUF` buffers, crashing the kernel and destabilizing the GPU/desktop. VP9 has been removed from `vdpu381_coded_fmts[]` in `rkvdec.c`. VP9 hardware decode is still available via hantro (`/dev/video2`) at lower performance (up to 1080p). Upstream VP9 VDPU381 support is listed as "future work" by Collabora.
 
 | File | Author(s) | Description |
 |------|-----------|-------------|
@@ -275,8 +309,7 @@ Tested and working on **Linux 7.0-rc3**, **7.0-rc1**, and **6.19.1 stable** with
 
 - **Source**: [dvab-sarma/android_kernel_rk_opi](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing) (branch `android-16.0-hwaccel-testing`)
 - VP9 Profile 0 only, up to 4K@30fps, experimental/not production-ready
-- The original VP9 backend builds on the rkvdec H.264 backend architecture by Boris Brezillon and Andrzej Pietrasiewicz (Collabora)
-- **7.0-rc1 adaptation**: the adapted patch applies the Makefile entry and header integration; the `.c` and `.h` source files are extracted from the original dvab-sarma patch and require register API fixes (struct field renames + block gating bitfield split) to compile against the upstream driver. See the [7.0-rc1 changelog](#2026-02-28--linux-70-rc1) for the full list of changes
+- **DISABLED (2026-04-06)**: NULL pointer dereference at `rkvdec_vp9_start+0x54` when V4L2 uses DMABUF memory type. The crash (`x21=1`, should be a struct pointer) corrupts GPU memory. Removed from `vdpu381_coded_fmts[]` until upstream VP9 VDPU381 support lands from Collabora
 
 ### NPU / Rocket Driver (kernel config)
 
