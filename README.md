@@ -910,7 +910,7 @@ This project builds entirely on the outstanding work of the upstream Linux kerne
 
 ### Distribution and Community
 
-- **[Beryllium OS](https://beryllium.gr/)** — Arch Linux ARM distribution optimized for ARM SBCs, providing the base OS and community support. [Wiki](https://wiki.beryllium.gr/) | [Discord](https://discord.gg/jwhxuyKXaa)
+- **[Beryllium OS](https://beryllium.gr/)** — Arch Linux ARM distribution optimized for ARM SBCs, providing the base OS and community support. [Wiki](https://wiki.beryllium.gr/) | [Discord](https://discord.com/channels/954056266722979851)
 
 - **[7Ji](https://github.com/7Ji-PKGBUILDs)** — Maintainer of `linux-aarch64-7ji` kernel packages for Arch Linux ARM, providing pre-built mainline kernels with ARM SBC patches.
 
