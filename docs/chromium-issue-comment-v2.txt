@@ -1,0 +1,27 @@
+Update on V4L2 stateless HW decode on RK3588 (Panfrost/Panthor) — it works now!
+
+Following up on my previous comment. After extensive testing, I got V4L2 H.264 hardware decode working on RK3588 (Rock 5B+, Mali-G610 via Panthor kernel driver, Mesa 26.0.4 Panfrost userspace, kernel 7.0-rc3+).
+
+What works:
+- V4L2VideoDecoder correctly selected for H.264 (kIsPlatformVideoDecoder: true)
+- HEVC also available via rkvdec2
+- Resolution changes (720p<->1080p) work without crash
+- YouTube playback works with h264ify extension
+
+The key fix: a LibYUV ImageProcessor fallback in PickDecoderOutputFormat().
+
+The problem is that on ARM GPUs with Panfrost, the GL ImageProcessor backend produces NV12 output, but the frame pool can't allocate NV12 buffers via GBM (Panfrost doesn't support NV12 GBM allocation). The pool initialization fails silently and the whole pipeline falls back to software decode.
+
+The fix adds a LibYUV fallback that tries NV12->ARGB conversion (CPU-based) when ImageProcessorWithPool::Create() fails with the GL backend. ARGB is a format that GBM/Panfrost can allocate, so the pool succeeds and HW-decoded frames reach the compositor.
+
+Performance: LibYUV NV12->ARGB takes ~13ms/frame at 720p (smooth) and ~23ms/frame at 1080p (stutters at 30fps). The proper fix would be zero-copy EGL NV12 DMABUF import, but that requires Mesa changes (single-BO NV12 with correct plane offsets — currently Mesa allocates two separate BOs).
+
+Additional build fixes for Chromium 148 with use_v4l2_codec=true:
+1. media/gpu/v4l2/mt21/mt21_decompressor.h — move destructor to .cc (chromium-style)
+2. media/gpu/v4l2/mt21/mt21_decompressor.cc — add #pragma allow_unsafe_buffers
+3. build/config/unsafe_buffers_paths.txt — add +media/gpu/v4l2/mt21/
+4. args.gn: treat_warnings_as_errors = false (recommended for ARM64 cross-compile)
+
+Kernel note: VP9 VDPU381 support (out-of-tree, from D.V.A.B. Sarma) causes a NULL pointer dereference in rkvdec_vp9_start when used with V4L2_MEMORY_DMABUF. We removed VP9 from vdpu381_coded_fmts until upstream VP9 support lands.
+
+Patch attached (5 files, 189 lines). Full analysis: https://github.com/dongioia/rock5bplus-rkvdec2/blob/main/docs/chromium-v4l2-rk3588-analysis.md
