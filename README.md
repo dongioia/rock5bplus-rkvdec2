@@ -2,7 +2,7 @@
 
 Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hardware video decode, HDMI 2.0 4K@60Hz, HDMI audio, GPU overclock, and an RK3588-aware Chromium build.
 
-> **Status (2026-05)**: Linux **7.0-rc3** custom kernel running on Rock 5B+. The RKVDEC2/VDPU381 driver (H.264/HEVC) is upstream in Linux 7.0; only HDMI 2.0 scrambling, VP9 (community), HPD optimization and a GPU OPP fix are still applied. **Chromium 147.0.7727.116-2** with the VP9 Mali Valhall artifact fix is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2). A full Linux 7.0 final rebase exists but ships with an upstream Panthor MCU regression and is not the default boot entry.
+> **Status (2026-05)**: Linux **7.0** final running on Rock 5B+ (`7.0.0+ #6 SMP PREEMPT`, panthor 1.8.0, MCU stable). Full 128-commit stack on top of v7.0 lives in [beryllium-org/linux-beryllium `7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) — Collabora HDMI QP scrambling v4, Frattaroli color-format, Reichel USBDP/DP/PCIe-suspend, Pueschel RGA3, Casanova V4L2 stateless tracing, Riesch RK3588 vicap, Cawston Rocket NPU, plus VP9 VDPU381 (community, with altref + IOMMU fault fix). RKVDEC2/VDPU381 (H.264/HEVC), RPS fix, DTS nodes, RKVDEC stack/AV1/VOP2/VPU-PD fixes are all upstream in 7.0 and dropped from the local stack. **Chromium 147.0.7727.116-2** with the VP9 Mali Valhall artifact fix is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2). **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
 
 ## What works
 
@@ -11,49 +11,49 @@ Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hard
 | H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). VP9 community, Profile 0 |
 | HDMI 2.0 4K@60Hz | ✅ | SCDC scrambling v4 (Ciocaltea, Collabora) |
 | HDMI audio + analog (ES8316) | ✅ | PipeWire + UCM tweak |
-| GPU Panthor / Mali-G610 | ✅ | Vulkan 1.4 PanVK; 1188 MHz via [GPLL overclock](#gpu-overclock-1188-mhz) (default 850 MHz) |
+| GPU Panthor / Mali-G610 | ✅ | Vulkan 1.4 PanVK; 850 MHz default. [1188 MHz GPLL overclock](#gpu-overclock-1188-mhz-disabled) currently disabled (kernel panic on current stack) |
 | Dual HDMI, Ethernet 2.5GbE, WiFi 6 (RTL8852BE), Bluetooth, HDMI-RX | ✅ | All mainline |
 | NPU (3 cores) | ⚠️ kernel ready | Open-source Rocket+Teflon: basic CNN. Full ops need proprietary RKNN+BSP |
 | RGA3 | ❌ | No upstream driver (RGA2 works) |
 
-## Active patches (Linux 7.0-rc3)
+## Active patches (Linux 7.0 final)
 
-The RKVDEC2/VDPU381 v9 series, RPS fix, DTS nodes, RKVDEC stack fixes, AV1 fixes, VOP2 fixes and VPU power domain fix are all **upstream in Linux 7.0** and no longer applied. Only the patches below are still needed:
+RKVDEC2/VDPU381 v9, RPS fix, DTS nodes, RKVDEC stack fixes, AV1 fixes, VOP2 fixes and VPU power-domain fix are all **upstream in Linux 7.0** and no longer applied. Production deployment uses [beryllium-org/linux-beryllium `7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) — 128 commits on top of v7.0 grouped as:
 
-| Patch | Author | Purpose |
+| Series | Author | Purpose |
 |---|---|---|
-| `patches/display/v4-ciocaltea/0001..0004-*.mbox` | [Cristian Ciocaltea](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (Collabora) | DW HDMI QP `detect_ctx` + SCDC scrambling + per-connector HPD → enables 4K@60Hz, 1080p@120Hz, all HDMI 2.0 modes. Patch 0003 needs manual context fixup against rc3 |
-| `patches/vpu/vp9-vdpu381-adapted.patch` + `rkvdec-vdpu381-vp9.{c,h}` | [dvab-sarma](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing) (community), adapted | VP9 VDPU381 hardware decode (Profile 0). Source files copied into the tree — applying as a patch leaves a stale `.o` and crashes |
-| GPU OPP fix (config) | this repo | Mali-G610 frequency table fix; required for the [1188 MHz overclock](#gpu-overclock-1188-mhz) |
+| HDMI QP scrambling v4 (4 patches) | [Cristian Ciocaltea](https://lore.kernel.org/r/20260119-dw-hdmi-qp-scramb-v3-0-bd8611730fc1@collabora.com/) (Collabora) | `detect_ctx` + SCDC scrambling + per-connector HPD → 4K@60Hz, 1080p@120Hz, all HDMI 2.0 modes |
+| Frattaroli color-format (cherry-pick from `fratti/hdmi-yuv-experiments`) | [Sebastian Frattaroli](https://lore.kernel.org/linux-rockchip/?q=Frattaroli) (Collabora) | DRM_COLOR_FORMAT naming + enum conversion DRM/HDMI_COLORSPACE |
+| USBDP cleanup, DP, PCIe system suspend, USB-C orientation | [Sebastian Reichel](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Sebastian+Reichel) (Collabora) | RK3588 USBDP/DP/PCIe enablement |
+| RGA3 support (27 patches) | [Lukas Pueschel](https://lore.kernel.org/linux-rockchip/?q=Pueschel) | RGA3 mainline driver |
+| V4L2 stateless tracing (11 patches via `--3way`) | [Detlev Casanova](https://gitlab.collabora.com/detlev.casanova) (Collabora) | Stateless decoder tracing |
+| RK3588 vicap + rkcif fixes (11 patches) | [Heiko Riesch](https://lore.kernel.org/linux-rockchip/?q=Riesch) | CSI2/CSI4 capture nodes |
+| Rocket NPU clean base (5 patches) | [Tomeu Vizoso](https://gitlab.freedesktop.org/tomeu) | NPU driver cleanup |
+| VP9 VDPU381 (community) | [dvab-sarma](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing), adapted | VP9 hardware decode Profile 0 + altref vscale + IOMMU fault fix. Source files copied into the tree — applying as a patch leaves a stale `.o` and crashes |
+| Beryllium defconfig | this repo | Kernel config + build flags |
 
-Linux config: [`configs/rock5b_7.0-rc3.config`](configs/rock5b_7.0-rc3.config) (netfilter case-insensitive modules disabled for macOS build).
+The historical rc3 patches (`patches/display/v4-ciocaltea/`, `patches/vpu/vp9-vdpu381-adapted.patch`, `patches/vpu/rkvdec-vdpu381-vp9.{c,h}`) and `configs/rock5b_7.0-rc3.config` are kept here as reference for anyone rebuilding off mainline 7.0-rc3 directly.
 
 ## Build
 
-Apple Silicon Mac (Docker, native arm64) or any aarch64 Linux box:
+Apple Silicon Mac (Docker, native arm64) or any aarch64 Linux box. Production build uses the Beryllium 7.0.y branch directly:
 
 ```bash
-# 1. Kernel source
-git clone https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git src/linux
-cd src/linux && git checkout v7.0-rc3
-
-# 2. Apply active patches
-for p in ../../patches/display/v4-ciocaltea/000{1,2,3,4}-*.mbox; do git am "$p"; done
-git apply ../../patches/vpu/vp9-vdpu381-adapted.patch
-cp ../../patches/vpu/rkvdec-vdpu381-vp9.{c,h} drivers/media/platform/rockchip/rkvdec/
-
-# 3. Configure + build (Docker on macOS, or native ARM)
-cp ../../configs/rock5b_7.0-rc3.config .config
+git clone -b 7.0.y https://github.com/beryllium-org/linux-beryllium.git src/linux
+cd src/linux
+cp ../../configs/rock5b_7.0.config .config   # falls back to beryllium-org config if absent
 make ARCH=arm64 olddefconfig
-../../scripts/build.sh Image 12     # or: make -j$(nproc) Image modules dtbs
+../../scripts/build.sh Image 12               # or: make -j$(nproc) Image modules dtbs
 ```
 
 `scripts/build.sh setup` builds the Docker image once. On macOS the script uses a `git archive` tarball inside the container to dodge HFS+/APFS case-insensitivity collisions (e.g. `ipt_ECN.h` vs `ipt_ecn.h`).
 
+To reproduce the rc3-era stack from this repo instead (smaller patch set, no RGA3/vicap/etc.), check out `v7.0-rc3` and apply the patches under `patches/display/v4-ciocaltea/` + `patches/vpu/` with the rc3 config.
+
 ## Deploy to Rock 5B+
 
 ```bash
-BOARD=<ip> USER=<user> KVER=7.0.0-rc3-custom
+BOARD=<ip> USER=<user> KVER=7.0.0+
 
 scp src/linux/arch/arm64/boot/Image $USER@$BOARD:/tmp/
 scp src/linux/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-plus.dtb $USER@$BOARD:/tmp/
@@ -68,7 +68,9 @@ ssh $USER@$BOARD "sudo rsync -a /tmp/modules/ /usr/lib/modules/$KVER/ \
   && sudo grub-mkconfig -o /boot/grub/grub.cfg"
 ```
 
-## GPU overclock (1188 MHz)
+## GPU overclock (1188 MHz, disabled)
+
+> ⚠️ **Currently disabled.** After the 2026-04-20 pacman update (Mesa 26.0.5, vulkan-panfrost 26.0.5, xorg-server 21.1.22) the 1188 MHz GPLL service triggers panthor MCU `status=fatal` + page faults at AS0 within ~40 s of boot, on every kernel tested (6.19.1-bredos, 7.0.0-rc3+, 7.0 final). Mesa/firmware/UEFI downgrades did not recover. Disable with `sudo systemctl disable --now gpu-overclock.service && sudo reboot`. The instructions below are kept for future re-enable on a known-stable Mesa+firmware combo.
 
 The RK3588 GPU is capped at 850 MHz on EDK2 UEFI: BL31 hardcodes NPLL via SCMI even though the OPP table lists 900/1000 MHz. Bypass: switch the CRU mux at `0xfd7c0578` (CLKSEL_CON158) from NPLL (3) to GPLL (0 → 1188 MHz) and raise GPU voltage to 1050 mV in DTS.
 
@@ -114,9 +116,7 @@ EOF
 sudo systemctl enable --now gpu-overclock.service
 ```
 
-The monitor loop is required because devfreq/SCMI may reset the mux during transitions. To revert: `sudo systemctl disable --now gpu-overclock.service`. The 1188 MHz GPLL setting is stable at 1050 mV; 1000 mV crashes within frames. Modifying BL31/EDK2 directly would mean rebuilding [edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) UEFI — the userspace mux bypass achieves the same result without reflashing.
-
-> Disabled by default on the rock5b after a `pacman -Syu` triggered Panthor MCU faults — re-enable only on a known-stable kernel/firmware combo.
+The monitor loop is required because devfreq/SCMI may reset the mux during transitions. The 1188 MHz GPLL setting was stable at 1050 mV pre-2026-04-20 (1000 mV crashed within frames). Modifying BL31/EDK2 directly would mean rebuilding [edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) UEFI — the userspace mux bypass achieves the same result without reflashing.
 
 ## Chromium with hardware video decode
 
@@ -235,9 +235,17 @@ Eight-layer bisect (kernel rkvdec → V4L2VideoDecoder → EGL DMABUF binding ×
 
 Ungoogled-chromium 147 from upstream PKGBUILD plus our RK3588 mods (NV12 forced renderable in `gpu_mojo_media_client_linux.cc`). Pacman package + binary published as [v147.0.7727.116-1](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-1). Issue [ungoogled-chromium-archlinux#330](https://github.com/ungoogled-software/ungoogled-chromium-archlinux/issues/330) opened. Firefox/LibreWolf/WebKitGTK paths to HW decode all ruled out (rockchip-vaapi+MPP, mpp-dkms, V4L2 stateless missing).
 
-### 2026-04-20 — Linux 7.0 final built (Panthor MCU regression)
+### 2026-04-25 — Linux 7.0 final stable (panthor 1.8)
 
-Full rebase of 128 commits onto v7.0 (HDMI QP v4, Frattaroli color-format, Reichel USBDP+DP+PCIe suspend, Pueschel RGA3, Casanova V4L2 stateless tracing, Riesch RK3588 vicap, Cawston Rocket NPU, Beryllium defconfig, VP9 with altref + IOMMU fault fix). Kernel `7.0.0+` deploys clean (51 MB Image, 3538 modules, 6/6 V4L2 devices, HDMI 4K@60Hz). **Upstream regression**: Panthor MCU boots `status=fatal` (`tick_work`, `queue_run_job` warnings, page faults) — reproduced on stock v7.0; our patches don't touch panthor. GRUB stays on `linux-7.0-rc3-custom`; a real `v7.0-rc3..v7.0` bisect over `panthor/`, `scheduler/`, `dma-buf/` is pending.
+Rebuilt 7.0.y stack (`#6 SMP PREEMPT Sat Apr 25 10:12:45 UTC 2026`). Panthor 1.8.0 driver replaces 1.7.0 — the rc3→final MCU regression seen on 2026-04-20 is gone, MCU boots clean, no `tick_work`/`queue_run_job` warnings, no page faults at AS0. Kernel `7.0.0+` is now the default GRUB entry; rc3-custom kept as fallback boot option.
+
+### 2026-04-21 — GPU overclock disabled (kernel panic on current stack)
+
+`gpu-overclock.service` (1188 MHz GPLL via CRU mux bypass, 1050 mV) became unstable after the 2026-04-20 pacman update (Mesa 26.0.4→26.0.5, vulkan-panfrost 26.0.5, xorg-server 21.1.22). Symptom on every kernel tried (6.19.1-bredos, 7.0.0-rc3+, 7.0 final): `panthor fb000000.gpu: Failed to boot MCU (status=fatal)` + unhandled page faults at AS0 within ~40 s, MCU unrecoverable. Investigations that did not help: downgrade Mesa/vulkan-panfrost back to 26.0.4, downgrade `linux-firmware{,-other,-whence}` (md5 of MCU FW identical between 20260309 and 20260410), restore the FIT image (EDK2/BL31/OP-TEE) via SD recovery. Service disabled, GPU back to stock OPP. Re-enable only after voltage curve / CRU mux sequence revisit.
+
+### 2026-04-20 — Linux 7.0 final initial build
+
+First rebase of 128 commits onto v7.0 (HDMI QP v4, Frattaroli color-format, Reichel USBDP+DP+PCIe suspend, Pueschel RGA3, Casanova V4L2 stateless tracing, Riesch RK3588 vicap, Cawston Rocket NPU, Beryllium defconfig, VP9 with altref + IOMMU fault fix). Kernel `7.0.0+` deploys clean (51 MB Image, 3538 modules, 6/6 V4L2 devices, HDMI 4K@60Hz). At this point panthor 1.7.0 was hitting MCU fatal vs rc3 — fixed by the panthor 1.8 rebuild on 04-25.
 
 ### 2026-04-07 — VP9 VDPU381 fixed + zero-copy HW decode in Chromium
 
