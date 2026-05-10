@@ -53,11 +53,11 @@ journalctl -k | grep rocket
 # rocket fdad0000.npu: Rockchip NPU core 2 version: 1179210309
 ```
 
-## Userspace Setup (BredOS)
+## Userspace Setup (Beryllium OS)
 
 ### Prerequisites
 
-BredOS with Mesa >= 25.3 already includes `libteflon.so`:
+Beryllium OS with Mesa >= 25.3 already includes `libteflon.so`:
 
 ```bash
 ls -la /usr/lib/libteflon.so

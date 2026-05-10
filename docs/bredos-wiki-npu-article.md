@@ -1,6 +1,6 @@
 ---
 title: NPU
-description: Setting up and using the Neural Processing Unit on Rockchip SoCs with BredOS
+description: Setting up and using the Neural Processing Unit on Rockchip SoCs with Beryllium OS
 published: false
 date: 2026-03-10T12:00:00.000Z
 tags: npu, rk3588, ai, machine-learning
@@ -20,7 +20,7 @@ There are **two separate software stacks** for the RK3588 NPU, each with differe
 | **RKNN-Toolkit2** (proprietary) | Vendor BSP only | Proprietary | Full inference: YOLO, LLM, speech, multimodal |
 {.dense}
 
-> BredOS provides two kernel tracks: **Cutting Edge** (mainline) and **Legacy** (Rockchip BSP). The open-source Rocket + Teflon stack works on Cutting Edge kernels 6.18 and later. The proprietary RKNN-Toolkit2 requires a **BSP kernel** and works on BredOS **Legacy** images. Note that Cutting Edge (mainline) images are currently available only for a handful of boards — most boards ship with Legacy images by default. See section [7. Proprietary Stack (RKNN-Toolkit2)](#h-7-proprietary-stack-rknn-toolkit2) for details.
+> Beryllium provides two kernel tracks: **Cutting Edge** (mainline) and **Legacy** (Rockchip BSP). The open-source Rocket + Teflon stack works on Cutting Edge kernels 6.18 and later. The proprietary RKNN-Toolkit2 requires a **BSP kernel** and works on Beryllium OS **Legacy** images. Note that Cutting Edge (mainline) images are currently available only for a handful of boards — most boards ship with Legacy images by default. See section [7. Proprietary Stack (RKNN-Toolkit2)](#h-7-proprietary-stack-rknn-toolkit2) for details.
 {.is-info}
 
 # 2. Supported Hardware
@@ -35,7 +35,7 @@ There are **two separate software stacks** for the RK3588 NPU, each with differe
 > The Rocket driver currently supports only the `RK3588` family. Support for additional Rockchip SoCs (RK3576, RK3566/RK3568) is planned upstream.
 {.is-info}
 
-All BredOS-supported boards with an `RK3588` or `RK3588S` SoC can use the NPU. This includes the Rock 5B, Rock 5B Plus, Orange Pi 5 series, and others listed on the [supported devices](/en/table-of-supported-devices) page.
+All Beryllium-supported boards with an `RK3588` or `RK3588S` SoC can use the NPU. This includes the Rock 5B, Rock 5B Plus, Orange Pi 5 series, and others listed on the [supported devices](/en/table-of-supported-devices) page.
 
 # 3. Software Stack (Open-Source)
 
@@ -45,13 +45,13 @@ The open-source NPU stack has two components:
 
 The `Rocket` driver is an accelerator driver (`accel` subsystem) that manages NPU hardware: powering it on/off, allocating memory buffers, and submitting jobs. It exposes the device at `/dev/accel/accel0`.
 
-The driver was developed by [Tomeu Vizoso](https://blog.tomeuvizoso.net/) and merged into mainline Linux `6.18`. BredOS kernels `6.18` and later include it by default.
+The driver was developed by [Tomeu Vizoso](https://blog.tomeuvizoso.net/) and merged into mainline Linux `6.18`. Beryllium kernels `6.18` and later include it by default.
 
 ## 3.2 Userspace (Mesa Teflon)
 
 `Teflon` is a TensorFlow Lite external delegate included in Mesa. It translates TFLite model operations into NPU jobs via the Rocket Gallium driver.
 
-BredOS ships Mesa with Teflon support built-in. The delegate library is located at `/usr/lib/libteflon.so`.
+Beryllium ships Mesa with Teflon support built-in. The delegate library is located at `/usr/lib/libteflon.so`.
 
 # 4. Setup
 
@@ -77,12 +77,12 @@ sudo modprobe rocket
 ls -l /dev/accel/accel0
 ```
 
-> If `/dev/accel/accel0` does not exist, your kernel may be older than `6.18` or missing the `CONFIG_DRM_ACCEL_ROCKET` option. Update to a recent BredOS kernel.
+> If `/dev/accel/accel0` does not exist, your kernel may be older than `6.18` or missing the `CONFIG_DRM_ACCEL_ROCKET` option. Update to a recent Beryllium kernel.
 {.is-warning}
 
 ## 4.2 Install Userspace Packages
 
-The NPU inference stack requires `Python 3.11`, `tflite-runtime`, and `numpy`. BredOS currently ships Python `3.14` as the system default, but `tflite-runtime` only provides wheels up to Python `3.11`.
+The NPU inference stack requires `Python 3.11`, `tflite-runtime`, and `numpy`. Beryllium currently ships Python `3.14` as the system default, but `tflite-runtime` only provides wheels up to Python `3.11`.
 
 - Install Python 3.11 and pip:
 
@@ -230,10 +230,10 @@ Rockchip provides `RKNN-Toolkit2`, a proprietary SDK for NPU inference that supp
 
 RKNN-Toolkit2 requires:
 
-- A **BSP kernel** with the proprietary `rknpu.ko` driver (e.g., `linux-rockchip-rkr3` or `linux-rockchip-rkr6` packages on BredOS Legacy)
+- A **BSP kernel** with the proprietary `rknpu.ko` driver (e.g., `linux-rockchip-rkr3` or `linux-rockchip-rkr6` packages on Beryllium Legacy)
 - The `rknpu2` userspace library from [rockchip-linux/rknpu2](https://github.com/rockchip-linux/rknpu2)
 
-> On BredOS, the proprietary `rknpu.ko` driver is available on **Legacy** (BSP) images. If you are running a **Cutting Edge** (mainline) image, the open-source Rocket driver is used instead and RKNN-Toolkit2 will not work. Check your kernel track with `uname -r` — BSP kernels show versions like `6.1.x-rkrX-bredos`, while mainline kernels show `6.19.x-bredos` or `7.x`.
+> On Beryllium OS, the proprietary `rknpu.ko` driver is available on **Legacy** (BSP) images. If you are running a **Cutting Edge** (mainline) image, the open-source Rocket driver is used instead and RKNN-Toolkit2 will not work. Check your kernel track with `uname -r` — BSP kernels show versions like `6.1.x-rkrX-beryllium`, while mainline kernels show `6.19.x-beryllium` or `7.x`.
 {.is-info}
 
 ## 7.3 Concrete Use Cases
@@ -280,7 +280,7 @@ Available in [rknn_model_zoo](https://github.com/airockchip/rknn_model_zoo):
 
 ## 7.4 When to Use Which Stack
 
-| Use Case | Recommended Stack | BredOS Image |
+| Use Case | Recommended Stack | Beryllium OS Image |
 |----------|-------------------|--------------|
 | Simple CNN classification (MobileNet) | Rocket + Teflon (open-source) | Cutting Edge (mainline) |
 | Object detection (YOLO) | RKNN-Toolkit2 | Legacy (BSP) |
@@ -312,7 +312,7 @@ The output should show `CONFIG_DRM_ACCEL_ROCKET=m` or `CONFIG_DRM_ACCEL_ROCKET=y
 pacman -Ql mesa | grep teflon
 ```
 
-If `libteflon.so` is not listed, the installed Mesa version may not include Teflon. Update Mesa or check the BredOS repositories for an updated package.
+If `libteflon.so` is not listed, the installed Mesa version may not include Teflon. Update Mesa or check the Beryllium repositories for an updated package.
 
 ## 8.3 tflite-runtime Installation Fails
 
@@ -328,7 +328,7 @@ The `tflite-runtime` package does not provide wheels for all Python versions. Py
 
 ## 8.4 RKNN-Toolkit2 Does Not Work
 
-RKNN-Toolkit2 requires the proprietary `rknpu.ko` driver, which is only available in BSP kernels. If you are running a BredOS **Cutting Edge** (mainline) image, switch to a **Legacy** (BSP) image or use the open-source Rocket + Teflon stack instead. See [section 7.2](#h-72-requirements).
+RKNN-Toolkit2 requires the proprietary `rknpu.ko` driver, which is only available in BSP kernels. If you are running a Beryllium OS **Cutting Edge** (mainline) image, switch to a **Legacy** (BSP) image or use the open-source Rocket + Teflon stack instead. See [section 7.2](#h-72-requirements).
 
 # 9. References
 

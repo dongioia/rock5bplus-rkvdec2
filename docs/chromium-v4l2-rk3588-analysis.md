@@ -1,12 +1,14 @@
 # Chromium V4L2 Stateless HW Video Decode on RK3588 — Full Analysis
 
+> **Status update (2026-05-09)**: this document is the original investigation log. The VP9 ≥1440p artifact, attributed here and in [chromium bug 503755157](https://issues.chromium.org/issues/503755157) to ANGLE OpenGL ES on Mali Panfrost, was **falsified** by a deeper bisect on 2026-05-08 (eight layers — kernel rkvdec, V4L2VideoDecoder, EGL DMABUF binding × 3 styles, standalone Mesa GLES2 C test, SkYUVColorSpace sweep, LibYUV bypass). Real root cause: the `GrYUVtoRGBEffect` fragment shader Skia (Ganesh GL) emits for `SkYUVAInfo::PlaneConfig::kY_UV` on two `sampler2D` R8/RG8 sources miscompiles on Mali Valhall + Mesa Panfrost at the sample stage. Production fix: `kForceLibYUV=true` default-ON in `media/gpu/chromeos/video_decoder_pipeline.cc::PickDecoderOutputFormat` (LibYUV CPU NV12→AR24, ~3-8 ms/frame at 1440p on Cortex-A76), bundled in [chromium 147.0.7727.116-2 release](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2).
+
 **Date**: 2026-04-07 (updated)
 **Original date**: 2026-04-05
-**Author**: Sav (dongioia)
+**Author**: dongioia
 **Platform**: Rock 5B+ (Radxa RS129-D24E0), RK3588, 24GB LPDDR5
-**Kernel**: Linux 7.0-rc3+ (mainline + rkvdec2 patches)
-**Mesa**: 26.0.4 (Panfrost GLES 3.1 + PanVK Vulkan 1.4)
-**Chromium**: Ungoogled Chromium 148.0.7774.0 (cross-compiled on x86_64, no Google services/telemetry)
+**Kernel (original log)**: Linux 7.0-rc3+. Current production: 7.0 final, panthor 1.8.0.
+**Mesa (original log)**: 26.0.4. Current: 26.0.5.
+**Chromium (original log)**: ungoogled-chromium 148.0.7774.0 cross-compiled on x86_64. Current production: ungoogled-chromium 147.0.7727.116-2 (native arm64 build with LibYUV bypass).
 
 ---
 

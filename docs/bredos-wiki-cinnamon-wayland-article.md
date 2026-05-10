@@ -12,7 +12,7 @@ dateCreated: 2026-03-07T15:00:00.000Z
 
 Cinnamon supports Wayland sessions starting from version `6.4`. On RK3588 boards, switching from X11 to Wayland requires extra configuration because the SoC exposes two separate DRM devices: one for display output and one for GPU rendering. Without proper setup, Cinnamon's compositor (`Muffin`) falls back to `llvmpipe` software rendering, resulting in poor desktop performance.
 
-This guide walks you through enabling a fully GPU-accelerated Cinnamon Wayland session on BredOS.
+This guide walks you through enabling a fully GPU-accelerated Cinnamon Wayland session on Beryllium OS.
 
 > **Known limitation (Muffin 6.6.x):** Muffin does not yet support the `mutter-device-preferred-primary` udev tag from upstream Mutter. The compositor itself uses the GPU correctly for desktop compositing via GBM, but Wayland EGL clients (GTK OpenGL apps) may still fall back to `llvmpipe`. Vulkan applications (mpv, browsers, vkmark) are not affected. This has been confirmed on Rock 5B+ and Orange Pi 5 Plus. See [section 7.8](#h-78-wayland-egl-clients-use-llvmpipe-known-muffin-limitation) for details and workarounds. Other Wayland compositors (GNOME, KDE) handle multi-GPU correctly on the same hardware.
 {.is-warning}
@@ -29,7 +29,7 @@ sudo pacman -S --needed cinnamon muffin wayland xorg-xwayland libinput pipewire 
 
 ## 2.2 Kernel and GPU Driver
 
-This guide assumes you already have the Panthor GPU driver enabled. If you are still using Panfork (the default on BredOS for RK35xx), follow the [Setup Panthor on Mali GPUs with RK3588](/en/how-to/how-to-setup-panthor) guide first, then return here.
+This guide assumes you already have the Panthor GPU driver enabled. If you are still using Panfork (the default on Beryllium OS for RK35xx), follow the [Setup Panthor on Mali GPUs with RK3588](/en/how-to/how-to-setup-panthor) guide first, then return here.
 
 - Verify that the `panthor` module is loaded:
 
@@ -45,7 +45,7 @@ You should see `panthor` in the output. If not, load it manually:
 sudo modprobe panthor
 ```
 
-> Panthor requires a BredOS BSP kernel 6.1-rkr3 or mainline kernel `6.12` or later. If the module is not available, update your kernel.
+> Panthor requires a Beryllium BSP kernel 6.1-rkr3 or mainline kernel `6.12` or later. If the module is not available, update your kernel.
 {.is-warning}
 
 ## 2.3 User Permissions
@@ -308,7 +308,7 @@ The output should be `true`.
 
 # 8. Troubleshooting
 
-If you encounter issues, start by generating a full system report. This collects all hardware and software information in one shot and makes it easy to get help on the [BredOS Discord](https://discord.gg/beSUnWGVH2):
+If you encounter issues, start by generating a full system report. This collects all hardware and software information in one shot and makes it easy to get help on the [Beryllium Discord](https://discord.gg/beSUnWGVH2):
 
 ```
 sudo sys-report
@@ -526,7 +526,7 @@ You should see both `card0` and `renderD128` open, confirming Muffin is using th
 - [Mutter multi-GPU support](https://gitlab.gnome.org/GNOME/mutter) - GNOME
 - [Mutter `meta_is_udev_device_preferred_primary` implementation](https://gitlab.gnome.org/GNOME/mutter/-/blob/main/src/backends/meta-udev.c) - GNOME (missing in Muffin)
 - [Mesa Panfrost driver documentation](https://docs.mesa3d.org/drivers/panfrost.html) - Mesa
-- [Setup Panthor on Mali GPUs with RK3588](https://wiki.bredos.org/en/how-to/how-to-setup-panthor) - BredOS Wiki
-- [BredOS sys-report](https://github.com/BredOS/sys-report) - System diagnostics tool
+- [Setup Panthor on Mali GPUs with RK3588](https://wiki.beryllium.gr/en/how-to/how-to-setup-panthor) - Beryllium Wiki
+- [Beryllium sys-report](https://github.com/BredOS/sys-report) - System diagnostics tool
 - [kitty OpenGL 3.3 workaround](https://github.com/kovidgoyal/kitty/issues/2790#issuecomment-969195133) - PAN_MESA_DEBUG=gl3
 - [Armbian RK3588 GPU acceleration discussion](https://forum.armbian.com/topic/56374-expected-default-graphics-acceleration-for-rk3588/) - Armbian Forum

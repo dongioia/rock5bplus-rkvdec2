@@ -1,6 +1,6 @@
 ---
 title: Browser Setup
-description: Setting up a GPU-accelerated browser on ARM64 boards with BredOS
+description: Setting up a GPU-accelerated browser on ARM64 boards with Beryllium OS
 published: false
 date: 2026-03-07T12:00:00.000Z
 tags: browser, chromium, gpu, wayland, arm64
@@ -10,14 +10,14 @@ dateCreated: 2026-03-07T12:00:00.000Z
 
 # 1. Introduction
 
-ARM64 boards running BredOS have full GPU acceleration capabilities via the Panfrost (OpenGL ES 3.1) and PanVK (Vulkan 1.4) Mesa drivers. However, not all browsers take advantage of this equally. This guide covers setting up `Ungoogled Chromium` via Flatpak with optimal GPU flags for a smooth browsing experience.
+ARM64 boards running Beryllium OS have full GPU acceleration capabilities via the Panfrost (OpenGL ES 3.1) and PanVK (Vulkan 1.4) Mesa drivers. However, not all browsers take advantage of this equally. This guide covers setting up `Ungoogled Chromium` via Flatpak with optimal GPU flags for a smooth browsing experience.
 
-> No browser on ARM64 currently supports hardware video decode via V4L2 stateless API. For hardware-accelerated video playback, see section [5. YouTube with Hardware Decode](#h-5-youtube-with-hardware-decode).
+> Stock Chromium and Firefox on ARM64 do not support hardware video decode. For Rock 5B+ specifically, a custom **ungoogled-chromium 147.0.7727.116-2** with V4L2 stateless decode (rkvdec2 zero-copy MMAP+EXPBUF for H.264/HEVC/VP9) and a built-in VP9 Mali Valhall artifact bypass is published at [github.com/dongioia/rock5bplus-rkvdec2/releases](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2). For other ARM64 boards or codecs not covered (AV1, etc.), use `mpv` + `yt-dlp` — see section [5. YouTube with Hardware Decode](#h-5-youtube-with-hardware-decode).
 {.is-info}
 
 # 2. Browser Comparison
 
-- The following table compares the main browser options on ARM64 with BredOS:
+- The following table compares the main browser options on ARM64 with Beryllium OS:
 
 | Feature | Ungoogled Chromium (Flatpak) | Firefox / LibreWolf |
 |---------|:---:|:---:|
