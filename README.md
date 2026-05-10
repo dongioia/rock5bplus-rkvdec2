@@ -32,7 +32,7 @@ RKVDEC2/VDPU381 v9, RPS fix, DTS nodes, RKVDEC stack fixes, AV1 fixes, VOP2 fixe
 | VP9 VDPU381 (community) | [dvab-sarma](https://github.com/dvab-sarma/android_kernel_rk_opi/tree/android-16.0-hwaccel-testing), adapted | VP9 hardware decode Profile 0 + altref vscale + IOMMU fault fix. Source files copied into the tree — applying as a patch leaves a stale `.o` and crashes |
 | Beryllium defconfig | this repo | Kernel config + build flags |
 
-The historical rc3 patches (`patches/display/v4-ciocaltea/`, `patches/vpu/vp9-vdpu381-adapted.patch`, `patches/vpu/rkvdec-vdpu381-vp9.{c,h}`) and `configs/rock5b_7.0-rc3.config` are kept here as reference for anyone rebuilding off mainline 7.0-rc3 directly.
+The historical rc3 patches (`patches/display/v4-ciocaltea/`, `patches/vpu/vp9-vdpu381-adapted.patch`, `patches/vpu/rkvdec-vdpu381-vp9.{c,h}`) are kept here as reference for anyone rebuilding off mainline 7.0-rc3 directly. The full kernel `.config` lives in the [beryllium-org/linux-beryllium 7.0.y](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) tree.
 
 ## Build
 
@@ -41,14 +41,14 @@ Apple Silicon Mac (Docker, native arm64) or any aarch64 Linux box. Production bu
 ```bash
 git clone -b 7.0.y https://github.com/beryllium-org/linux-beryllium.git src/linux
 cd src/linux
-cp ../../configs/rock5b_7.0.config .config   # falls back to beryllium-org config if absent
+make ARCH=arm64 defconfig                    # uses arch/arm64/configs from the 7.0.y branch
 make ARCH=arm64 olddefconfig
 ../../scripts/build.sh Image 12               # or: make -j$(nproc) Image modules dtbs
 ```
 
 `scripts/build.sh setup` builds the Docker image once. On macOS the script uses a `git archive` tarball inside the container to dodge HFS+/APFS case-insensitivity collisions (e.g. `ipt_ECN.h` vs `ipt_ecn.h`).
 
-To reproduce the rc3-era stack from this repo instead (smaller patch set, no RGA3/vicap/etc.), check out `v7.0-rc3` and apply the patches under `patches/display/v4-ciocaltea/` + `patches/vpu/` with the rc3 config.
+To reproduce the rc3-era stack from this repo instead (smaller patch set, no RGA3/vicap/etc.), check out `v7.0-rc3` and apply the patches under `patches/display/v4-ciocaltea/` + `patches/vpu/`.
 
 ## Deploy to Rock 5B+
 
