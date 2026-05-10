@@ -2,9 +2,41 @@
 
 Patches, configs, and tools for full hardware enablement on the **Radxa Rock 5B+** with mainline Linux kernel: **4K hardware video decode**, **HDMI 2.0 4K@60Hz**, **HDMI audio**, and more.
 
-> **Current**: Linux **7.0-rc3** custom kernel built, tested, and deployed on Rock 5B+. The RKVDEC2/VDPU381 driver (H.264/HEVC) is [upstream in Linux 7.0](https://lore.kernel.org/linux-media/). 6 custom patches remain: HDMI 2.0 SCDC scrambling (v4, [Cristian Ciocaltea](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/log/?qt=author&q=Cristian+Ciocaltea)), VP9 (community), HPD optimization, and GPU OPP fix. All hardware verified working: 6/6 V4L2 devices, Panthor GPU 1.7.0, WiFi, HDMI 4K@60Hz, Bluetooth, audio, ethernet.
+> **Current**: Linux **7.0-rc3** custom kernel running stable on Rock 5B+. A full **Linux 7.0** rebase (128 commits on top of v7.0) was built and deployed on 2026-04-20 but exhibits an **upstream Panthor GPU MCU regression** (rc3→final) — rc3 remains the default GRUB entry. **Chromium 147.0.7727.116-2** with VP9 Mali Valhall artifact fix (LibYUV CPU bypass, default-ON) is published as a [GitHub release](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2) and deployed. All hardware verified working: 6/6 V4L2 devices, Panthor GPU 1.7.0, WiFi, HDMI 4K@60Hz, Bluetooth, audio, ethernet.
 
 ## Changelog
+
+### 2026-05-10 — Chromium 147.0.7727.116-2 release + community announcement
+
+Repackaged ungoogled-chromium with the VP9 LibYUV bypass baked default-ON. Pacman package (104 MB) published on the [GitHub release page](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2). Announcement posted on [warpme/minimyth2#73](https://github.com/warpme/minimyth2/issues/73#issuecomment-4414864582), tagging @warpme (Piotr Oniszczuk) and @JFLim1 (Orange Pi 5+ Mali-G610). The earlier ANGLE hypothesis (2026-04-27) is formally falsified in favor of the Skia YUVA Ganesh GL root cause.
+
+### 2026-05-09 — VP9 Mali Valhall artifact fix shipped (default-ON)
+
+`kForceLibYUV` made default-ON in the binary (env `CHROMIUM_RK3588_FORCE_LIBYUV=0` is now an explicit opt-OUT). Rebuilt chromium 147.0.7727.116, deployed to `/usr/lib/chromium/chromium` on Rock 5B+. Sway/Wayland launcher activated via `~/.config/chromium-flags.conf` so every desktop entry inherits the fix. Upstream bug [503755157](https://issues.chromium.org/issues/503755157) updated with the new findings (root cause re-localized from ANGLE to Skia Ganesh GL).
+
+### 2026-05-08 — VP9 1440p+ root cause isolated to Skia YUVA shader (Mali Valhall)
+
+8-layer bisect (kernel rkvdec → V4L2VideoDecoder → EGL DMABUF binding × 3 styles → standalone Mesa GLES2 C test → SkYUVColorSpace sweep → LibYUV bypass) localized the bug to the **fragment shader Skia (Ganesh GL) emits for `SkYUVAInfo::PlaneConfig::kY_UV` on two `sampler2D` R8/RG8 sources** when running on Mali Valhall + Mesa Panfrost. Not kernel, not V4L2, not EGL DMABUF attribs, not Mesa Panfrost itself, not the YUV→RGB matrix. The bug lives in the sample stage (texture coord generation / wrap / alignment for asymmetric Y 2560×1472 + UV 1280×736).
+
+**Workaround**: `CHROMIUM_RK3588_FORCE_LIBYUV=1` env in `media/gpu/chromeos/video_decoder_pipeline.cc::PickDecoderOutputFormat` clears `viable_candidate`, forcing the ImageProcessor LibYUV CPU NV12→AR24 path. SharedImage is then a single-plane RGBA → Skia composes via standard `GL_TEXTURE_2D` → no YUVA shader → clean. HW V4L2 decode is preserved (rkvdec still active); CPU cost is ~3-8 ms/frame at 1440p on Cortex-A76, well within budget for 60 fps.
+
+### 2026-05-04 — Chromium-fourier patches deployed (partial)
+
+Four EGL/SharedImage patches deployed to the chromium 147 source tree (`mailbox_video_frame_converter.cc`, `ozone_image_gl_textures_holder.cc`, `native_pixmap_egl_binding.cc`, `video_decoder_pipeline.cc`): per-plane EGL_HEIGHT from pixmap layout, `GL_TEXTURE_2D` bypass of `ModifierRequiresExternalOES`, explicit LINEAR modifier push, and the LibYUV bypass env hook. Functional bisect on this build proved rkvdec kernel OK (`ffmpeg -hwaccel v4l2request` 134 fps clean) and V4L2VideoDecoder OK in chromium — the residual VP9 1440p artifacts are isolated to the GLES proxy path on Mali Valhall, setting up the 2026-05-08 finding. Caveat: the four base patches cover sway/wlroots/GNOME; KDE/LXQt/Qt6-DE require additional `qt6-base-fourier` + `kwin-fourier` patches.
+
+### 2026-04-27 — Chromium 147.0.7727.116-1 clean rebuild + ANGLE diagnosis closed
+
+Clean rebuild of ungoogled-chromium 147.0.7727.116 from upstream PKGBUILD plus our RK3588 mods (NV12 forced renderable in `gpu_mojo_media_client_linux.cc::GetPreferredRenderableFourccs` to bypass Ozone Wayland reporting `false` for Mali). Pacman package + binary published as [release v147.0.7727.116-1](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-1). Issue [ungoogled-chromium-archlinux#330](https://github.com/ungoogled-software/ungoogled-chromium-archlinux/issues/330) opened. At the time, the VP9 >2048 artifact was attributed to ANGLE OpenGL ES on Mali Panfrost (a hypothesis later falsified by the 2026-05-08 bisect). Firefox/LibreWolf/WebKitGTK paths to HW decode all investigated and ruled out (rockchip-vaapi+MPP, mpp-dkms, V4L2 stateless missing).
+
+### 2026-04-21 — GPU overclock disabled (post-update Panthor regression)
+
+`gpu-overclock.service` (1188 MHz GPLL bypass) disabled after a `pacman -Syu` upgrade triggered Panthor MCU fatal failures at boot. Default 850 MHz NPLL restored. The overclock setup (CRU mux + 1050 mV) remains documented below for users on stable kernel/firmware combinations.
+
+### 2026-04-20 — Linux 7.0 final built + deployed (Panthor MCU regression)
+
+Full rebase of the patch stack onto **Linux 7.0** final: 128 commits sitting on top of v7.0, mixing custom (Beryllium defconfig, VP9 VDPU381 with altref + IOMMU fault fix) and upstream-bound Collabora/Rockchip series (HDMI QP scrambling v4, Frattaroli color-format cherry-picks, Reichel USBDP + DP + PCIe suspend, Pueschel RGA3, Casanova V4L2 stateless tracing, Riesch RK3588 vicap, Cawston Rocket NPU). Build green, kernel `7.0.0+` (Image 51 MB, 3538 modules) deployed via GRUB entry `BredOS Linux, with Linux linux-7.0-custom`. All 6 V4L2 devices, HDMI 4K@60Hz, networking working.
+
+**Known issue (upstream regression)**: Panthor MCU boots `status=fatal`, with `panthor_sched.c:2462 tick_work` and `:3318 queue_run_job` warnings plus unhandled GPU page faults. Reproduced on a stock checkout of v7.0 — our 128 patches do **not** touch panthor. Cherry-picks from Collabora's `fratti-hdmi-yuv-experiments` branch (group priority rotation, tick stop logic, immediate tick removal) were either already in v7.0 or required `dma_fence_was_initialized()` not present in 7.0. A real bisect across `v7.0-rc3..v7.0` over `panthor/`, `scheduler/`, and `dma-buf/` is required. Until then, **GRUB defaults to `linux-7.0-rc3-custom`** (stable, GPU working) and 7.0-final stays available for test.
 
 ### 2026-04-07 — VP9 VDPU381 Fixed + Zero-Copy HW Decode
 
