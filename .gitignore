@@ -16,8 +16,10 @@ logs/uart/
 logs/test/
 logs/search/
 
-# AI/agent tooling (local only)
+# AI/agent tooling (local only — MAI committare su GitHub: contiene config
+# personale, hook script con path locali, memoria session, credenziali API).
 .claude/
+.mcp.json
 CLAUDE.md
 scripts/ralph/
 scripts/perplexity_search.py
@@ -26,6 +28,11 @@ scripts/ghmon.sh
 scripts/run_python.sh
 scripts/search.sh
 scripts/openrouter_query.sh
+scripts/learnings/
+scripts/kernel-snapshot.sh
+scripts/backup_claude_config.sh
+scripts/backup_claude_config.py
+kernel-snapshots/_claude-config/
 tasks/
 
 # Local workspace
