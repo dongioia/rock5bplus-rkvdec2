@@ -154,6 +154,8 @@ The LibYUV bypass above keeps Chromium usable on VP9, but the bug it works aroun
 
 This pattern works the same for the custom RK3588 Chromium build above and for any stock Chromium / Firefox / Flatpak browser.
 
+> **Kernel prerequisite.** mpv hardware decode goes through the same RKVDEC2 driver path as Chromium. Without the VP9 kernel stack (chewitt VP9 Profile 0 + Profile 2 plus the `media: rkvdec: fix PM runtime teardown ordering in remove` cleanup — both included in [`linux-beryllium-rockchip` 7.1.0rc2-2](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/linux-beryllium-rockchip)) `mpv --hwdec=v4l2request-copy` will fall back to software just as Chromium does, and a stock Arch ARM / generic mainline kernel will not work either. The kernel comes first.
+
 ### Install mpv + a V4L2-aware FFmpeg
 
 Arch ARM's stock `ffmpeg` ships TLS support but no `v4l2-request` hwaccel. Install Kwiboo's branch instead (packaged by NoDiskNoFun in beryllium-org):
