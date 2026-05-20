@@ -148,29 +148,30 @@ Opt-out (debug only): `CHROMIUM_RK3588_FORCE_LIBYUV=0`. Upstream tracker: [issue
 
 > If you only want a stock browser with GPU compositing (no HW video decode), the [Ungoogled Chromium Flatpak](https://flathub.org/apps/io.github.ungoogled_software.ungoogled_chromium) works with `--ozone-platform=wayland --use-gl=egl --enable-zero-copy --ignore-gpu-blocklist`. Pair it with `mpv --hwdec=v4l2request-copy` and a `mpv://` protocol handler for the VP9 path — see [`docs/bredos-wiki-browser-article.md`](docs/bredos-wiki-browser-article.md) for the full Flatpak + userscript walkthrough.
 
-## VAAPI driver (libva-v4l2-request fork)
+## Hand VP9 off to mpv (recommended for any browser)
 
-[github.com/dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) — branch `rk3588-vp9`, commit `ed4bc90`.
+The LibYUV bypass above keeps Chromium usable on VP9, but the bug it works around is in Skia / ANGLE on Mali Valhall and not in the kernel decode itself. The cleaner path — and the only path on stock browsers that did not get the bypass patch — is to let the browser handle navigation and hand the actual VP9 stream off to `mpv`. `mpv` talks directly to RKVDEC2 through libavcodec's `v4l2request` hwaccel, avoiding the Skia shader entirely.
 
-Bootlin's [libva-v4l2-request](https://github.com/bootlin/libva-v4l2-request) tree has been dormant since 2024 and never handled VP9 on RKVDEC2 correctly. This fork rebuilds the VP9 stack (range-coded `compressed_header` parser ported from FFmpeg, `interp_filter` prob-read gate per VP9 spec § 6.3.10) and adds eager V4L2 init at `vaCreateSurfaces` so probe-pattern clients see a populated CAPTURE buffer before the first decode.
+This pattern works the same for the custom RK3588 Chromium build above and for any stock Chromium / Firefox / Flatpak browser.
 
-| Path | Status | Notes |
-|---|---|---|
-| `mpv --hwdec=vaapi-copy` 1080p VP9 | ✅ pixel-perfect | 56% CPU vs 113% software (3000 frames vs libvpx, framemd5 identical) |
-| `mpv --hwdec=vaapi` zero-copy | clean SW fallback | Mali Valhall EGL dmabuf import path does not refresh imported textures between frames |
-| VLC / Chromium native VAAPI | ⚠️ partial | VLC needs `vaPutSurface` (not yet implemented); Chromium aarch64 ships with `use_vaapi=false` |
+### Install mpv + a V4L2-aware FFmpeg
 
-The companion PKGBUILD lives in `src/sbc-pkgbuilds/libva-v4l2-request/` (local branch — not yet pushed to beryllium-org).
-
-For most users the V4L2 stateless path via `mpv --hwdec=v4l2request-copy` is simpler and avoids libva entirely. The VAAPI fork is interesting for tools that already speak libva, or for future work on Mesa panthor that might unblock the zero-copy display path.
-
-## Media stack (mpv + FFmpeg v4l2-request)
-
-Stock FFmpeg on Arch ARM ships TLS support but no `v4l2-request` hwaccel. On Beryllium OS:
+Arch ARM's stock `ffmpeg` ships TLS support but no `v4l2-request` hwaccel. Install Kwiboo's branch instead (packaged by NoDiskNoFun in beryllium-org):
 
 ```bash
-sudo pacman -S ffmpeg-v4l2-requests   # Kwiboo's FFmpeg branch, packaged by NoDiskNoFun
+sudo pacman -S mpv yt-dlp
+# ffmpeg-v4l2-requests: build from https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests
+makepkg -si    # inside the ffmpeg-v4l2-requests directory
 ```
+
+After install, both checks below must return one line each:
+
+```
+ffmpeg -hwaccels  2>&1 | grep v4l2request
+ffmpeg -protocols 2>&1 | grep https
+```
+
+### mpv config
 
 `~/.config/mpv/mpv.conf`:
 
@@ -184,11 +185,11 @@ demuxer-max-bytes=500M
 ytdl-format=bestvideo[height<=?1080]+bestaudio/best
 ```
 
-`v4l2request-copy` is the right value for Mali Valhall (Panfrost / Panthor). The bare `v4l2request` zero-copy variant silently falls back to software — Mesa panthor's `EGL_EXT_image_dma_buf_import_modifiers` does not refresh the imported texture between frames for the linear NV12 buffers V4L2 CAPTURE exports. CPU readback stays well under software decode (BBB 720p VP9: 17% CPU vs 31% software on Cortex-A76).
+`v4l2request-copy` is the right value for Mali Valhall. The bare `v4l2request` zero-copy variant silently falls back to software — Mesa panthor's `EGL_EXT_image_dma_buf_import_modifiers` does not refresh the imported texture between frames for the linear NV12 buffers V4L2 CAPTURE exports. CPU readback adds a small overhead but stays well under software decode (BBB 720p VP9: 17 % CPU with `v4l2request-copy` versus 31 % software on Cortex-A76; 4K HEVC: ~68 fps, 2.27× realtime, ~4 s of a single core). If Vulkan misbehaves, fall back to `vo=gpu` + `gpu-context=wayland` (Panfrost GLES).
 
-If Vulkan misbehaves: `vo=gpu` + `gpu-context=wayland` (Panfrost GLES). 4K HEVC HW decode lands at ~68 fps, 2.27× realtime, ~4 s of one CPU core (vs ~43 s across all cores in software).
+### `mpv://` protocol handler
 
-### `mpv://` browser handler
+Lets the browser launch a YouTube URL straight into mpv with a single bookmarklet click, or — combined with the userscript in the next subsection — automatically at 1080p and above.
 
 ```bash
 sudo tee /usr/local/bin/open-in-mpv >/dev/null <<'SH'
@@ -210,7 +211,51 @@ EOF
 xdg-mime default open-in-mpv.desktop x-scheme-handler/mpv
 ```
 
-Bookmarklet: `javascript:location.href='mpv://play/'+encodeURIComponent(location.href)`.
+Bookmarklet (drop in the browser bookmarks bar — clicking it on any YouTube page opens that URL in mpv):
+
+```
+javascript:location.href='mpv://play/'+encodeURIComponent(location.href)
+```
+
+### Auto-redirect at 1080p and above (userscript)
+
+With [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, this snippet hands every 1080p-or-higher YouTube watch page off to mpv automatically; sub-1080p (where YouTube serves AV1 and the browser is fine) stays in the browser:
+
+```javascript
+// ==UserScript==
+// @name         YouTube → mpv at 1080p and above
+// @match        https://www.youtube.com/watch*
+// @run-at       document-idle
+// ==/UserScript==
+(function () {
+  const v = new URL(location.href).searchParams.get('v');
+  if (!v) return;
+  const probe = setInterval(() => {
+    const player = document.querySelector('#movie_player');
+    if (!player || typeof player.getPlaybackQuality !== 'function') return;
+    const q = player.getPlaybackQuality();   // "hd1080", "hd1440", "hd2160", ...
+    if (!q) return;
+    clearInterval(probe);
+    if (/^hd(1080|1440|2160|2880|4320)$/.test(q)) location.href = 'mpv://' + location.href;
+  }, 500);
+})();
+```
+
+The full Flatpak walkthrough — including a `ff2mpv` native-messaging alternative — lives in [`docs/bredos-wiki-browser-article.md`](docs/bredos-wiki-browser-article.md).
+
+## VAAPI driver (libva-v4l2-request fork)
+
+[github.com/dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) — branch `rk3588-vp9`, commit `ed4bc90`.
+
+Bootlin's [libva-v4l2-request](https://github.com/bootlin/libva-v4l2-request) tree has been dormant since 2024 and never handled VP9 on RKVDEC2 correctly. This fork rebuilds the VP9 stack (range-coded `compressed_header` parser ported from FFmpeg, `interp_filter` prob-read gate per VP9 spec § 6.3.10) and adds eager V4L2 init at `vaCreateSurfaces` so probe-pattern clients see a populated CAPTURE buffer before the first decode.
+
+| Path | Status | Notes |
+|---|---|---|
+| `mpv --hwdec=vaapi-copy` 1080p VP9 | ✅ pixel-perfect | 56 % CPU vs 113 % software (3000 frames vs libvpx, framemd5 identical) |
+| `mpv --hwdec=vaapi` zero-copy | clean SW fallback | Same Mali Valhall EGL dmabuf cache issue that affects `v4l2request` zero-copy |
+| VLC / Chromium native VAAPI | ⚠️ partial | VLC needs `vaPutSurface` (not yet implemented); Chromium aarch64 ships with `use_vaapi=false` |
+
+For most users the V4L2 stateless path above (`mpv --hwdec=v4l2request-copy`) is simpler and avoids libva entirely. The VAAPI fork is interesting for tools that already speak libva, or for future work on Mesa panthor that might unblock the zero-copy display path. The companion PKGBUILD lives in `src/sbc-pkgbuilds/libva-v4l2-request/` (local branch — not yet pushed to beryllium-org).
 
 ## Audio quirks
 
