@@ -2,17 +2,34 @@
 title: Browser Setup
 description: Setting up a GPU-accelerated browser on ARM64 boards with Beryllium OS
 published: false
-date: 2026-03-07T12:00:00.000Z
+date: 2026-05-20T12:00:00.000Z
 tags: browser, chromium, gpu, wayland, arm64
 editor: markdown
 dateCreated: 2026-03-07T12:00:00.000Z
 ---
 
+# 0. Kernel Premise
+
+Hardware video decode on RK3588 needs a kernel that ships the RKVDEC2 V4L2 stateless drivers along with the recent VP9 VDPU381 reset cleanup that landed in stable on 2026-05-18.
+
+- **Recommended kernel**: `linux-beryllium-rockchip` 7.1.0rc2-2 or newer.
+- **Source**: [beryllium-org/linux-beryllium](https://github.com/beryllium-org/linux-beryllium) (branch `7.1-rc2`).
+- **Pre-built package (Arch ARM / Beryllium OS)**: [sbc-pkgbuilds/linux-beryllium-rockchip](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/linux-beryllium-rockchip).
+
+This kernel covers:
+
+- VP9 Profile 0 + Profile 2 on RKVDEC2 (VDPU381 + VDPU346, chewitt patchset).
+- AV1 hardware decode through hantro-vpu and the Verisilicon IOMMU.
+- HEVC and H.264 stateless decode.
+- HDMI 2.1 FRL bridge stable on the dw-hdmi-qp + samsung-hdptx stack.
+
+Older kernels (< 7.0) ship no VP9 stateless support, so they fall back to CPU decode regardless of browser flags.
+
 # 1. Introduction
 
-ARM64 boards running Beryllium OS have full GPU acceleration capabilities via the Panfrost (OpenGL ES 3.1) and PanVK (Vulkan 1.4) Mesa drivers. However, not all browsers take advantage of this equally. This guide covers setting up `Ungoogled Chromium` via Flatpak with optimal GPU flags for a smooth browsing experience.
+ARM64 boards running Beryllium OS have full GPU acceleration through the Panfrost (OpenGL ES 3.1) and PanVK (Vulkan 1.4) Mesa drivers. Browsers do not take equal advantage of this — and on RK3588 specifically there is a video-decode wrinkle worth understanding before installing anything. This guide covers `Ungoogled Chromium` via Flatpak with GPU flags that work, and pairs it with `mpv` + `yt-dlp` for the codec paths the browser cannot handle on its own.
 
-> Stock Chromium and Firefox on ARM64 do not support hardware video decode. For Rock 5B+ specifically, a custom **ungoogled-chromium 147.0.7727.116-2** with V4L2 stateless decode (rkvdec2 zero-copy MMAP+EXPBUF for H.264/HEVC/VP9) and a built-in VP9 Mali Valhall artifact bypass is published at [github.com/dongioia/rock5bplus-rkvdec2/releases](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/v147.0.7727.116-2). For other ARM64 boards or codecs not covered (AV1, etc.), use `mpv` + `yt-dlp` — see section [5. YouTube with Hardware Decode](#h-5-youtube-with-hardware-decode).
+> Stock Chromium and Firefox on ARM64 do not support V4L2 stateless video decode. A custom RK3588 build of Ungoogled Chromium with V4L2 stateless decode (RKVDEC2 zero-copy MMAP+EXPBUF for H.264 / HEVC / VP9) is published at [github.com/dongioia/rock5bplus-rkvdec2/releases](https://github.com/dongioia/rock5bplus-rkvdec2/releases). The VP9 path still hits a Skia / ANGLE Mali GLSL shader bug ([issues.chromium.org/503755157](https://issues.chromium.org/issues/503755157)) at every resolution, not just 4K. Below 1080p YouTube serves AV1 and the artifact does not appear; from 1080p upwards YouTube generally serves VP9 and the artifact returns. The recommended workaround for any VP9 content is `mpv` + `yt-dlp` — see [section 5](#h-5-youtube-with-hardware-decode).
 {.is-info}
 
 # 2. Browser Comparison
@@ -116,25 +133,41 @@ You should see:
 
 # 5. YouTube with Hardware Decode
 
-No browser on ARM64 supports V4L2 stateless decode, which is the hardware video decode method used on mainline RK3588 kernels. To play YouTube videos with hardware acceleration, use `mpv` + `yt-dlp`.
+For VP9 content of any resolution, and for any 4K / UHD stream, this is the recommended path. `mpv` calls libavcodec's `v4l2request` hwaccel, which talks directly to RKVDEC2 on the kernel side and avoids both libva and the Mali shader bug that plagues Chromium's VP9 path. The kernel decode itself was validated frame-by-frame against the libvpx reference (3000 frames of Big Buck Bunny VP9 Profile 0 1080p, pixel-identical).
 
-## 5.1 Install mpv and yt-dlp
+> Use `--hwdec=v4l2request-copy`, not the bare `--hwdec=v4l2request`. The `-copy` suffix performs a CPU readback before display, which works on Mali Valhall (Panfrost / Panthor). The zero-copy variant (`--hwdec=v4l2request` without `-copy`) silently falls back to software because the EGL dmabuf import path on the current Mesa panthor driver does not refresh the imported texture between frames. CPU readback adds a small overhead but stays well under software decode — the BBB 720p VP9 clip measured 17% CPU with `-copy` versus 31% software.
+{.is-info}
 
-- Install the required packages:
+## 5.1 Install mpv, yt-dlp, and a V4L2-aware ffmpeg
+
+- Install `mpv` and `yt-dlp` from the distribution:
 
 ```
 sudo pacman -S mpv yt-dlp
 ```
+
+- The default `ffmpeg` package on Arch ARM ships with TLS support but without the V4L2 request hwaccel. RKVDEC2 needs that hwaccel. Install the `ffmpeg-v4l2-requests` PKGBUILD from [sbc-pkgbuilds/ffmpeg-v4l2-requests](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests) (it enables both `--enable-gnutls` and `--enable-v4l2-request`). After installing, confirm:
+
+```
+ffmpeg -hwaccels 2>&1 | grep v4l2request
+ffmpeg -protocols 2>&1 | grep https
+```
+
+Both commands should print a line. If `https` is missing, `mpv` will refuse to open YouTube URLs with `Protocol is either unsupported, or was disabled at compile-time`.
 
 ## 5.2 Play from Terminal
 
 - Play a YouTube video with hardware decode:
 
 ```
-mpv 'https://youtube.com/watch?v=VIDEO_ID'
+mpv --hwdec=v4l2request-copy 'https://youtube.com/watch?v=VIDEO_ID'
 ```
 
-`mpv` automatically uses `yt-dlp` to extract the video URL and RKVDEC2 for hardware decode.
+`mpv` automatically uses `yt-dlp` to extract the video URL and RKVDEC2 for the actual decode. To make `v4l2request-copy` the default for every invocation, drop one line into `~/.config/mpv/mpv.conf`:
+
+```
+hwdec=v4l2request-copy
+```
 
 ## 5.3 Play from Browser (Bookmarklet)
 
@@ -147,7 +180,7 @@ mkdir -p ~/.local/bin
 cat > ~/.local/bin/mpv-handler.sh << 'SCRIPT'
 #!/bin/sh
 url=$(echo "$1" | sed 's|^mpv://||')
-exec mpv "$url"
+exec mpv --hwdec=v4l2request-copy "$url"
 SCRIPT
 chmod +x ~/.local/bin/mpv-handler.sh
 ```
@@ -173,6 +206,38 @@ javascript:void(window.open('mpv://'+location.href))
 ```
 
 Click the bookmarklet on any YouTube page to open it in mpv with hardware-accelerated decode.
+
+## 5.4 Auto-Redirect from a Userscript
+
+The bookmarklet works one click at a time. For automatic redirect at 1080p and above, combine [Tampermonkey](https://www.tampermonkey.net/) (or Violentmonkey) with this userscript:
+
+```javascript
+// ==UserScript==
+// @name         YouTube → mpv at 1080p and above
+// @match        https://www.youtube.com/watch*
+// @run-at       document-idle
+// ==/UserScript==
+(function () {
+  const v = new URL(location.href).searchParams.get('v');
+  if (!v) return;
+
+  // Probe the player for its current quality once the metadata loads.
+  const probe = setInterval(() => {
+    const player = document.querySelector('#movie_player');
+    if (!player || typeof player.getPlaybackQuality !== 'function') return;
+    const q = player.getPlaybackQuality();  // "hd1080", "hd1440", "hd2160", ...
+    if (!q) return;
+    clearInterval(probe);
+    const hi = /^hd(1080|1440|2160|2880|4320)$/.test(q);
+    if (hi) location.href = 'mpv://' + location.href;
+  }, 500);
+})();
+```
+
+This relies on the `mpv://` protocol handler from [section 5.3](#h-53-play-from-browser-bookmarklet). The script checks the player quality once metadata is ready and redirects only at 1080p or above, leaving sub-1080p AV1 content in the browser where it already works.
+
+> If you prefer a context-menu approach with extension support, [ff2mpv](https://github.com/woodruffw/ff2mpv) works well for non-Flatpak Chromium / Firefox. Inside the Flatpak sandbox the native-messaging host setup is fragile (the host script must be reachable from inside the sandbox and `flatpak-spawn` glue varies by browser package), so the userscript route above is the simpler recommendation for the Flatpak Ungoogled Chromium covered by this guide.
+{.is-info}
 
 # 6. Troubleshooting
 
@@ -223,6 +288,32 @@ If the device node is missing, check that the kernel module is loaded:
 lsmod | grep rockchip_vdec
 ```
 
+- Confirm `mpv` picks up the `v4l2request-copy` hwaccel:
+
+```
+mpv --hwdec=v4l2request-copy --vo=null --frames=1 -v <video> 2>&1 | grep -iE 'hwdec|v4l2'
+```
+
+The log should show `Using hardware decoding (v4l2request-copy)` and the VO format should be `nv12` (not `yuv420p`). If it falls back to software, check that the `ffmpeg-v4l2-requests` package is installed (the default Arch ARM `ffmpeg` lacks the `v4l2request` hwaccel) and that `/dev/video0` belongs to the `video` group, with your user a member of it.
+
+## 6.4 Userscript Does Not Redirect
+
+If clicking through a 1080p+ YouTube page does not hand off to `mpv`:
+
+- Open the browser console (F12) on a YouTube watch page and check that the `mpv` protocol handler is registered:
+
+```
+location.href = 'mpv://' + location.href
+```
+
+If nothing happens, the desktop entry from [section 5.3](#h-53-play-from-browser-bookmarklet) was not registered. Re-run the `xdg-mime default ...` command and confirm with:
+
+```
+xdg-mime query default x-scheme-handler/mpv
+```
+
+- The Tampermonkey / Violentmonkey toolbar icon should show the script as enabled and matching the current URL. Some YouTube layouts load the player after `document-idle`; if the redirect never fires, change `@run-at` to `document-end` and reload.
+
 
 # 7. References
 
@@ -231,3 +322,6 @@ lsmod | grep rockchip_vdec
 - [Mesa PanVK driver](https://docs.mesa3d.org/drivers/panvk.html) - Mesa
 - [Flatpak documentation](https://docs.flatpak.org/) - Flatpak
 - [mpv manual](https://mpv.io/manual/stable/) - mpv
+- [ff2mpv](https://github.com/woodruffw/ff2mpv) - native-messaging bridge between the browser and mpv (alternative to the userscript on non-Flatpak browsers)
+- [Tampermonkey](https://www.tampermonkey.net/) - userscript manager used by the auto-redirect script
+- [Chromium Skia/ANGLE issue 503755157](https://issues.chromium.org/issues/503755157) - VP9 Mali shader artifact tracked upstream
