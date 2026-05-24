@@ -161,9 +161,15 @@ This pattern works the same for the custom RK3588 Chromium build above and for a
 Arch ARM's stock `ffmpeg` ships TLS support but no `v4l2-request` hwaccel. Install Kwiboo's branch instead (packaged by NoDiskNoFun in beryllium-org):
 
 ```bash
-sudo pacman -S mpv yt-dlp
-# ffmpeg-v4l2-requests: build from https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests
-makepkg -si    # inside the ffmpeg-v4l2-requests directory
+sudo pacman -S mpv yt-dlp ffmpeg-v4l2-requests
+```
+
+If pacman refuses with `unable to satisfy dependency 'libplacebo.so=...' / 'libvpx.so=...'`, the Beryllium prebuilt binary was pinned against older SO names than your system now has. Rebuild locally against current libraries:
+
+```bash
+git clone --depth=1 https://github.com/beryllium-org/sbc-pkgbuilds.git
+cd sbc-pkgbuilds/ffmpeg-v4l2-requests
+makepkg -si    # ~30–60 min on Rock 5B+ A76 cores
 ```
 
 After install, both checks below must return one line each:
@@ -171,6 +177,12 @@ After install, both checks below must return one line each:
 ```
 ffmpeg -hwaccels  2>&1 | grep v4l2request
 ffmpeg -protocols 2>&1 | grep https
+```
+
+A one-shot installer that does steps 1–5 below is at [`scripts/yt-mpv-setup.sh`](scripts/yt-mpv-setup.sh):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dongioia/rock5bplus-rkvdec2/main/scripts/yt-mpv-setup.sh | bash
 ```
 
 ### mpv config
@@ -223,7 +235,13 @@ javascript:location.href='mpv://play/'+encodeURIComponent(location.href)
 
 The reason to hand off to mpv is **codec**, not resolution: the Skia GrYUVtoRGB miscompile on Mali Valhall hits any VP9 frame that goes through the GPU YUVA shader path, regardless of size. (The `kForceLibYUV` bypass in our chromium build avoids it; on stock chromium / Firefox / Flatpak it is unavoidable.) AV1 and H.264 streams render cleanly through the browser, so we want to redirect VP9 only.
 
-With [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, this snippet inspects the active codec via `getStatsForNerds().codecs` and redirects to `mpv://` only when YouTube is actually serving VP9 (`vp09.*`):
+Install [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, then open this URL — the browser detects the `.user.js` extension and Tampermonkey prompts to install:
+
+```
+https://raw.githubusercontent.com/dongioia/rock5bplus-rkvdec2/main/scripts/yt-mpv-vp9.user.js
+```
+
+The installable file ([`scripts/yt-mpv-vp9.user.js`](scripts/yt-mpv-vp9.user.js)) sets `@updateURL` to the same path so Tampermonkey auto-updates on subsequent releases. Source (inline for reference):
 
 ```javascript
 // ==UserScript==
