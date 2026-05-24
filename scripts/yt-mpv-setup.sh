@@ -14,8 +14,10 @@ set -euo pipefail
 say() { printf "\n\033[1;36m▌ %s\033[0m\n" "$*"; }
 warn() { printf "\n\033[1;33m▌ %s\033[0m\n" "$*"; }
 
-say "1/5 install mpv + yt-dlp"
-sudo pacman -S --needed --noconfirm mpv yt-dlp
+say "1/5 install mpv + yt-dlp + nodejs (JS runtime for YouTube)"
+# yt-dlp >= 2025.x needs a JS runtime (deno or nodejs) for YouTube nsig
+# deciphering, otherwise it silently falls back to H.264 instead of VP9.
+sudo pacman -S --needed --noconfirm mpv yt-dlp nodejs
 
 say "2/5 verify ffmpeg-v4l2-requests"
 if ! ffmpeg -hwaccels 2>&1 | grep -q v4l2request; then
@@ -46,7 +48,9 @@ gpu-api=vulkan
 gpu-context=waylandvk
 cache=yes
 demuxer-max-bytes=500M
-ytdl-format=bestvideo[height<=?2160][fps<=?60]+bestaudio/best
+# Force VP9 streams (so the V4L2 path is exercised). Pin a JS runtime
+# (node here) so yt-dlp can decipher nsig and reach the VP9 itags.
+ytdl-raw-options=js-runtimes=node,format=bestvideo[vcodec^=vp9][height<=?2160][fps<=?60]+bestaudio/best
 profile=fast
 EOF
 echo "  mpv.conf written"
