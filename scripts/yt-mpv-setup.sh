@@ -108,6 +108,21 @@ Bookmarklet alternative (one-shot, no auto-redirect):
   # Expect: V4L2 stateless HW decode, gpu-next/Vulkan render
   # ~17–21 % CPU @ 1440p on Rock 5B+
 
+▌ Limitations
+
+- VP9 Profile 0 (8-bit) is the path verified end-to-end on Rock 5B+:
+  YouTube 1080p / 1440p / 4K HW decode at 60 fps, 0 dropped frames.
+- VP9 Profile 2 (HDR / 10-bit) is not yet working end-to-end. The
+  kernel driver advertises NV15 10-bit format once OUTPUT=VP9F is
+  set, and ffmpeg-v4l2-requests recognises Profile 2 in the bitstream,
+  but the decode fails at runtime ("Error while decoding frame
+  (hardware decoding)"). The chewitt patch `933f33eb27c1 "WIP: media:
+  rkvdec: Add VP9 Profile2 support for VDPU346 and VDPU381"` is on our
+  branch but marked WIP; the Kwiboo ffmpeg v4l2-request-n8.0.1 branch
+  may also lack the matching userspace fill for the Profile 2
+  quantization / loop-filter scaling. Out of scope here — track
+  upstream chewitt + Karlman work.
+
 ▌ Future (June 2026)
 
 Chromium 150 stable (target 2026-06-17) ships the equivalent V4L2 VP9
