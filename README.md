@@ -2,7 +2,7 @@
 
 Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hardware video decode, HDMI 2.0 4K@60Hz, HDMI audio, GPU overclock, and an RK3588-aware Chromium build.
 
-> **Status (2026-05-20)**: Linux **7.1-rc2** running on Rock 5B+ (`7.1.0-rc1+`, panthor 1.8.0, MCU stable). The production stack lives in [beryllium-org/linux-beryllium `7.1-rc2`](https://github.com/beryllium-org/linux-beryllium/tree/7.1-rc2) — Collabora rockchip-devel squashed onto 7.1-rc2, plus the chewitt VP9 / AV1 / HDMI patch set and `media: rkvdec: fix PM runtime teardown ordering in remove` (Jonas Karlman, [accepted to stable on 2026-05-18](https://lore.kernel.org/all/?q=20260518145414.64514-1-pavone.lawyer@gmail.com)). The pre-built package is at [sbc-pkgbuilds/linux-beryllium-rockchip](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/linux-beryllium-rockchip). **Chromium 147.0.7727.116-3** with the VP9 Mali Valhall artifact bypass is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases); for any VP9 content the recommended path is `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests). A companion VAAPI driver fork lives at [dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) (branch `rk3588-vp9`), pixel-perfect on VP9 Profile 0 1080p via the `vaapi-copy` path. **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
+> **Status (2026-05-24)**: Linux **7.1-rc2** running on Rock 5B+ (`7.1.0-rc1+`, panthor 1.8.0, MCU stable). The production stack lives in [beryllium-org/linux-beryllium `7.1-rc2`](https://github.com/beryllium-org/linux-beryllium/tree/7.1-rc2) — Collabora rockchip-devel squashed onto 7.1-rc2, plus the chewitt VP9 / AV1 / HDMI patch set and `media: rkvdec: fix PM runtime teardown ordering in remove` (Jonas Karlman, [accepted to stable on 2026-05-18](https://lore.kernel.org/all/?q=20260518145414.64514-1-pavone.lawyer@gmail.com)). The pre-built package is at [sbc-pkgbuilds/linux-beryllium-rockchip](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/linux-beryllium-rockchip). **Chromium 147.0.7727.116-3** with the VP9 Mali Valhall artifact bypass is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases); for any VP9 content the recommended path is `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests) — the native FFmpeg V4L2 request hwaccel, no libva involvement. Chromium 150 (stable target 2026-06-17) ships the equivalent fix natively via gerrit [CL 7794420 (`d20dfa664`)](https://chromium-review.googlesource.com/c/chromium/src/+/7794420), so the in-tree `kForceLibYUV` workaround will become unnecessary once distros bump. The `dongioia/libva-v4l2-request` fork is **frozen as a historical reference** following Nicolas Dufresne's LKML guidance (2026-05-20) that `libva-v4l2-request` is a dead-end path; new work goes through native V4L2 stateless in FFmpeg / GStreamer / Chromium directly. **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
 
 ## What works
 
@@ -219,45 +219,65 @@ Bookmarklet (drop in the browser bookmarks bar — clicking it on any YouTube pa
 javascript:location.href='mpv://play/'+encodeURIComponent(location.href)
 ```
 
-### Auto-redirect at 1080p and above (userscript)
+### Auto-redirect every VP9 stream (userscript)
 
-With [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, this snippet hands every 1080p-or-higher YouTube watch page off to mpv automatically; sub-1080p (where YouTube serves AV1 and the browser is fine) stays in the browser:
+The reason to hand off to mpv is **codec**, not resolution: the Skia GrYUVtoRGB miscompile on Mali Valhall hits any VP9 frame that goes through the GPU YUVA shader path, regardless of size. (The `kForceLibYUV` bypass in our chromium build avoids it; on stock chromium / Firefox / Flatpak it is unavoidable.) AV1 and H.264 streams render cleanly through the browser, so we want to redirect VP9 only.
+
+With [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, this snippet inspects the active codec via `getStatsForNerds().codecs` and redirects to `mpv://` only when YouTube is actually serving VP9 (`vp09.*`):
 
 ```javascript
 // ==UserScript==
-// @name         YouTube → mpv at 1080p and above
+// @name         YouTube → mpv for VP9 streams
 // @match        https://www.youtube.com/watch*
 // @run-at       document-idle
+// @grant        none
 // ==/UserScript==
 (function () {
   const v = new URL(location.href).searchParams.get('v');
   if (!v) return;
+  if (sessionStorage.getItem('ytmpv-skip-' + v) === '1') return;  // back-button safety
+  let tries = 0;
   const probe = setInterval(() => {
     const player = document.querySelector('#movie_player');
-    if (!player || typeof player.getPlaybackQuality !== 'function') return;
-    const q = player.getPlaybackQuality();   // "hd1080", "hd1440", "hd2160", ...
-    if (!q) return;
+    if (!player || typeof player.getStatsForNerds !== 'function') {
+      if (++tries > 40) clearInterval(probe);  // give up after ~20 s
+      return;
+    }
+    const stats = player.getStatsForNerds() || {};
+    const codecs = stats.codecs || '';  // e.g. "vp09.00.40.08 (244) / mp4a.40.2 (140)"
+    if (!codecs) return;
     clearInterval(probe);
-    if (/^hd(1080|1440|2160|2880|4320)$/.test(q)) location.href = 'mpv://' + location.href;
+    const isVP9 = /\bvp09\b/i.test(codecs);
+    if (isVP9) {
+      sessionStorage.setItem('ytmpv-skip-' + v, '1');  // don't loop if user comes back
+      location.href = 'mpv://' + location.href;
+    }
   }, 500);
 })();
 ```
 
+Why codec-not-resolution: YouTube negotiates codec based on resolution, network and account preferences — 480p clips can be VP9, 4K clips can be AV1. Resolution alone is the wrong gate. If you specifically want to keep small clips in the browser even when VP9, add `&& player.getPlaybackQuality && /^hd(1080|1440|2160|2880|4320)$/.test(player.getPlaybackQuality())` to the `isVP9` condition.
+
+If you prefer a **bookmarklet** (one-shot, no auto-redirect):
+
+```
+javascript:location.href='mpv://'+encodeURIComponent(location.href)
+```
+
 The full Flatpak walkthrough — including a `ff2mpv` native-messaging alternative — lives in [`docs/bredos-wiki-browser-article.md`](docs/bredos-wiki-browser-article.md).
 
-## VAAPI driver (libva-v4l2-request fork)
+## VAAPI driver (libva-v4l2-request fork) — frozen / deprecated path
 
-[github.com/dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) — branch `rk3588-vp9`, commit `ed4bc90`.
+> ⚠ **Deprecated as of 2026-05-24.** Following Nicolas Dufresne's reply to the LKML announce thread on 2026-05-20, `libva-v4l2-request` is treated upstream as a dead-end: the libva abstraction adds a security surface and feature gaps that the V4L2 stateless API does not, and the V4L2 maintainers' direction is to drive RKVDEC2 directly through the native V4L2 stateless hwaccel in FFmpeg / GStreamer / Chromium. The `dongioia/libva-v4l2-request` fork is kept here as a historical reference (the FFmpeg-ported range coder and the VP9 spec § 6.3.10 `interp_filter` gate were useful learnings) but receives no further development. Use `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests) instead — same RKVDEC2 driver path, no libva shim.
 
-Bootlin's [libva-v4l2-request](https://github.com/bootlin/libva-v4l2-request) tree has been dormant since 2024 and never handled VP9 on RKVDEC2 correctly. This fork rebuilds the VP9 stack (range-coded `compressed_header` parser ported from FFmpeg, `interp_filter` prob-read gate per VP9 spec § 6.3.10) and adds eager V4L2 init at `vaCreateSurfaces` so probe-pattern clients see a populated CAPTURE buffer before the first decode.
+Historical record:
 
-| Path | Status | Notes |
-|---|---|---|
-| `mpv --hwdec=vaapi-copy` 1080p VP9 | ✅ pixel-perfect | 56 % CPU vs 113 % software (3000 frames vs libvpx, framemd5 identical) |
-| `mpv --hwdec=vaapi` zero-copy | clean SW fallback | Same Mali Valhall EGL dmabuf cache issue that affects `v4l2request` zero-copy |
-| VLC / Chromium native VAAPI | ⚠️ partial | VLC needs `vaPutSurface` (not yet implemented); Chromium aarch64 ships with `use_vaapi=false` |
+* Fork: [github.com/dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) — branch `rk3588-vp9`, commit `ed4bc90`.
+* Achievement: VP9 Profile 0 1080p decoded pixel-identical to libvpx across 3000 frames (framemd5 verified). `mpv --hwdec=vaapi-copy` ran at ~56 % CPU vs 113 % software on the same clip.
+* Block: `mpv --hwdec=vaapi` zero-copy painted a solid blue frame via Mali Valhall EGL dmabuf import (Mesa panthor does not refresh the imported texture between frames for linear NV12 V4L2 CAPTURE buffers). CPU readback paths stayed pixel-correct. The display-path block was never resolved and is now moot because the recommended path no longer touches EGL dmabuf import.
+* PKGBUILD never published to beryllium-org. It will not be.
 
-For most users the V4L2 stateless path above (`mpv --hwdec=v4l2request-copy`) is simpler and avoids libva entirely. The VAAPI fork is interesting for tools that already speak libva, or for future work on Mesa panthor that might unblock the zero-copy display path. The companion PKGBUILD lives in `src/sbc-pkgbuilds/libva-v4l2-request/` (local branch — not yet pushed to beryllium-org).
+For the equivalent decode pipeline through the supported path, see [Hand VP9 off to mpv](#hand-vp9-off-to-mpv-recommended-for-any-browser) above. Chromium 150 (stable target 2026-06-17) adds the missing piece on the browser side natively via [CL 7794420 (`d20dfa664`)](https://chromium-review.googlesource.com/c/chromium/src/+/7794420), so by mid-June a stock chromium 150 from archlinuxarm or any other aarch64 packager will decode VP9 through V4L2 stateless without any of the local backports here. Per chromiumdash, the commit `first_landed` in `150.0.7829.0` (M150 canary).
 
 ## Audio quirks
 
@@ -280,6 +300,10 @@ CONFIG_DRM_ACCEL_ROCKET=m
 Open-source [Mesa Teflon](https://docs.mesa3d.org/drivers/teflon.html) covers basic TFLite quantized CNN inference (single core, limited ops). YOLO/LLM/speech need proprietary [RKNN-Toolkit2](https://github.com/airockchip/rknn-toolkit2) + vendor BSP kernel — not on Beryllium OS. Full comparison: [docs/bredos-wiki-npu-article.md](docs/bredos-wiki-npu-article.md).
 
 ## Changelog
+
+### 2026-05-24 — VAAPI fork frozen, chromium 150 fix confirmed in main
+
+Following Nicolas Dufresne's 2026-05-20 LKML reply, `dongioia/libva-v4l2-request` is deprecated and will not see further work. The supported path is `mpv --hwdec=v4l2request-copy` against `ffmpeg-v4l2-requests` (no libva), and `gst-launch-1.0 ... ! v4l2slvp9dec ! waylandsink` for the browser-free flow. Chromium 150 is confirmed to ship the V4L2 stateless VP9 compressed-header path natively: gerrit [CL 7794420](https://chromium-review.googlesource.com/c/chromium/src/+/7794420) (`d20dfa664`, Jianfeng Liu) merged to `chromium/src` main on 2026-05-06; the follow-up [CL 7821681](https://chromium-review.googlesource.com/c/chromium/src/+/7821681) (`base::span` cleanup) merged on 2026-05-08. chromiumdash `fetch_commit` reports `first_landed: 150.0.7829.0`, deployment `canary: 150.0.7829.0`, `dev: 150.0.7838.2`, `beta: null` (M149 branch cut on 2026-05-04, two days before the merge, so M149-beta does not carry the fix), `stable: null` (M150 stable target 2026-06-17). The userscript [Hand VP9 off to mpv](#auto-redirect-every-vp9-stream-userscript) was rewritten to gate on the active codec via `getStatsForNerds().codecs` (match `vp09.*`) instead of resolution, since the underlying Skia GrYUVtoRGB miscompile on Mali Valhall hits any VP9 stream, not just ≥1080p.
 
 ### 2026-05-20 — PHASE 2j-D Mali Valhall EGL dmabuf diagnosis
 
