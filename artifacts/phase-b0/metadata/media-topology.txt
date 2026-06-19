@@ -1,0 +1,31 @@
+Media controller API version 7.1.0
+
+Media device information
+------------------------
+driver          rkvdec
+model           rkvdec
+serial          
+bus info        platform:rkvdec
+hw revision     0x0
+driver version  7.1.0
+
+Device topology
+- entity 1: rkvdec-source (1 pad, 1 link)
+            type Node subtype V4L flags 0
+            device node name /dev/video0
+	pad0: SOURCE
+		-> "rkvdec-proc":0 [ENABLED,IMMUTABLE]
+
+- entity 3: rkvdec-proc (2 pads, 2 links)
+            type Node subtype Unknown flags 0
+	pad0: SINK
+		<- "rkvdec-source":0 [ENABLED,IMMUTABLE]
+	pad1: SOURCE
+		-> "rkvdec-sink":0 [ENABLED,IMMUTABLE]
+
+- entity 6: rkvdec-sink (1 pad, 1 link)
+            type Node subtype V4L flags 0
+            device node name /dev/video0
+	pad0: SINK
+		<- "rkvdec-proc":1 [ENABLED,IMMUTABLE]
+

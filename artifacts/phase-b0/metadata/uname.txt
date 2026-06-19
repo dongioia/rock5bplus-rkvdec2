@@ -1,0 +1,1 @@
+Linux Rock5bPlus 7.1.0-rc1+ #1 SMP PREEMPT Sat May 23 12:20:43 UTC 2026 aarch64 GNU/Linux

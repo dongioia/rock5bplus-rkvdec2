@@ -1,0 +1,5 @@
+crw-rw----+ 1 root video 504, 0 Jun 16 19:04 /dev/media0
+crw-rw----+ 1 root video 504, 1 Jun 16 19:04 /dev/media1
+crw-rw----+ 1 root video 504, 2 Jun 16 19:04 /dev/media2
+crw-rw----+ 1 root video 504, 3 Jun 16 19:04 /dev/media3
+crw-rw----+ 1 root video  81, 0 Jun 16 19:04 /dev/video0
