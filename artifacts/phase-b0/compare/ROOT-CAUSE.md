@@ -75,6 +75,21 @@ applied: fail-hard on init-SPS error). Note: CAPTURE `sizeimage` stays 1843200 (
 pixel-correct** on RK3588 — the prototype's failure was a fixable init omission, not an
 architectural wall.
 
+## Corpus hardening (2026-06-19 — all PASS, fix generalizes)
+- **case-1** baseline IDR+P, single-slice, no crop: 120/120 byte-exact.
+- **case-2** High profile + 2 B-frames (DPB reordering, CABAC): 60/60 byte-exact.
+- **case-3** crop (1278×718, coded 1280×720) + 4 slices/frame: 30/30 byte-exact after
+  visible-normalize (§6.B).
+
+Confirms the fix works across profiles, B-frame reference reordering, multi-slice, and
+cropping — not just the baseline.
+
+**Integration note (not a decode bug):** for cropped streams `vulkandownload` emits the
+coded WIDTH (1280, = stride) with the visible HEIGHT (718); the width crop (1278) is not
+applied in the gst output caps. Pixels are all correct (byte-exact after the §6.B
+visible-crop). A consumer (Chromium / display sink) must apply the width crop, or the
+decoder should report the visible width in its caps. Flag for the Stage-2 / display path.
+
 ## Verification harness ready (Part A)
 `scripts/vvtest/`: `icd-rebuild.sh`, `icd-deploy.sh` (isolated), `nv12_tool.py`
 (byte-exact/PSNR), `strace_ctrl_diff.py`, `icd-instrument.py` (readback hooks),
