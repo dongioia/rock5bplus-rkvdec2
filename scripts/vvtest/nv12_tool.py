@@ -92,6 +92,8 @@ def main(argv=None):
         if res["byte_exact"]:
             print("RESULT: PASS (byte-exact)")
             return 0
+        # Heuristic label only (matches the "entropy 2 vs 226" framing): the real
+        # gate is byte-exact above. This just flags the obvious blank-output case.
         if res.get("distinct_b", 99) > 2 and res.get("distinct_a", 99) <= 2:
             print("RESULT: FAIL (ours is blank)")
             return 2

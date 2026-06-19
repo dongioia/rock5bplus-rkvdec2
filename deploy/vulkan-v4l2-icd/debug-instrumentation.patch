@@ -1,0 +1,78 @@
+--- a/src/vulkan-v4l2/v4l2vk_vk_device.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_device.c
+@@ -48,6 +48,39 @@
+ #include "vk_object.h"
+ #include "vk_semaphore.h"
+ #include "vk_sync.h"
++#include <linux/dma-buf.h>
++#include <sys/ioctl.h>
++
++
++
++/* --- B0 debug: raw plane dump (env-gated, removable) --- */
++static void
++v4l2vk_b0_dump_raw(const char *env, const char *tag, unsigned frame_idx,
++                   const void *addr, size_t len, int dmabuf_fd)
++{
++   if (!getenv(env) || !addr || !len)
++      return;
++#ifdef DMA_BUF_IOCTL_SYNC
++   if (dmabuf_fd >= 0) { /* R11: CPU cache coherency before read */
++      struct dma_buf_sync s = { .flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_READ };
++      ioctl(dmabuf_fd, DMA_BUF_IOCTL_SYNC, &s);
++   }
++#endif
++   const char *dir = getenv("V4L2VK_DUMP_DIR");
++   char path[256];
++   snprintf(path, sizeof(path), "%s/v4l2vk_%s_%04u.bin", dir ? dir : "/tmp",
++            tag, frame_idx);
++   FILE *fp = fopen(path, "wb");
++   if (fp) { fwrite(addr, 1, len, fp); fclose(fp); }
++#ifdef DMA_BUF_IOCTL_SYNC
++   if (dmabuf_fd >= 0) {
++      struct dma_buf_sync s = { .flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_READ };
++      ioctl(dmabuf_fd, DMA_BUF_IOCTL_SYNC, &s);
++   }
++#endif
++   fprintf(stderr, "[V4L2VK][B0] %s: %zu bytes -> %s (dmabuf_fd=%d)\n",
++           tag, len, path, dmabuf_fd);
++}
+ 
+ static void
+ v4l2vk_dump_nv12_image(struct v4l2vk_image *img, const char *dir,
+@@ -932,6 +965,22 @@
+             uint32_t dq_out, dq_cap;
+             v4l2vk_v4l2_dequeue_output(v4l2_ctx, &dq_out);
+             v4l2vk_v4l2_dequeue_capture(v4l2_ctx, &dq_cap);
++            /* B0 (a): raw V4L2 CAPTURE buffer + format log (pre-COPY2) */
++            if (dq_cap < v4l2_ctx->capture_buf_count) {
++               struct v4l2vk_v4l2_buffer *b0cb =
++                  &v4l2_ctx->capture_bufs[dq_cap];
++               v4l2vk_b0_dump_raw("V4L2VK_DUMP_CAPTURE", "capture",
++                                  dev->frame_counter, b0cb->mmap_addr,
++                                  b0cb->mmap_size, b0cb->dma_buf_fd);
++               fprintf(stderr,
++                       "[V4L2VK][B0] cap idx=%u stride=%u sizeimage=%u "
++                       "mmap_size=%zu w=%u h=%u dmabuf_mode=%d dma_buf_fd=%d\n",
++                       dq_cap, v4l2_ctx->capture_stride,
++                       v4l2_ctx->capture_sizeimage, b0cb->mmap_size,
++                       v4l2_ctx->width, v4l2_ctx->height,
++                       v4l2_ctx->capture_dmabuf_mode, b0cb->dma_buf_fd);
++            }
++
+ 
+             /* Copy decoded frame from V4L2 MMAP buffer to VkImage.
+              * Always memcpy even when VkDeviceMemory is EXPBUF'd, because
+@@ -947,6 +996,12 @@
+                memcpy((uint8_t *)dst_mem->map + dst_img->bound_offset,
+                       v4l2_ctx->capture_bufs[dq_cap].mmap_addr,
+                       copy_size);
++               /* B0 (b): VkImage host memory (post-COPY2) */
++               v4l2vk_b0_dump_raw("V4L2VK_DUMP_VKIMAGE", "vkimage",
++                                  dev->frame_counter,
++                                  (uint8_t *)dst_mem->map + dst_img->bound_offset,
++                                  copy_size, -1);
++
+             }
+ 
+             v4l2vk_v4l2_reinit_request(request_fd);

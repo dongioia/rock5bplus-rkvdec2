@@ -2,6 +2,10 @@
 # Precondition 0 (SBC availability gate) + Precondition 1 (driver identity).
 # Saves metadata under artifacts/phase-b0/metadata/. Exits non-zero if any
 # gating tool/device is missing. Run when the SBC is up (Task 6).
+# NOTE: intentionally NO `-e`. This is a gather-and-gate script: it captures all
+# metadata best-effort and accumulates failures (fail=1), then reports every
+# missing tool/device at the end. `-e` would abort on the first hiccup and defeat
+# that. The critical checks set fail=1 and the final gate enforces them.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 SBC="${SBC_HOST:-rock5b}"
