@@ -46,12 +46,15 @@ DEPLOY="$REPO/deploy/vulkan-v4l2-icd"
 IMG="${ICD_BUILD_IMAGE:-rock5b-dev-serena}"
 VOL="${ICD_MESA_VOLUME:-mesa-sree-tree}"
 
+# Mount the volume at the SAME path meson was configured with (/work/mesa-sree):
+# build.ninja hardcodes the absolute source dir /work/mesa-sree/mesa, so a
+# different mount point makes ninja fail to regenerate ("no meson.build").
 docker run --rm \
-  -v "$VOL:/mesa" \
+  -v "$VOL:/work/mesa-sree" \
   -v "$DEPLOY:/deploy" \
   "$IMG" sh -lc '
     set -e
-    cd /mesa/mesa
+    cd /work/mesa-sree/mesa
     ninja -C build src/vulkan-v4l2/libvulkan_v4l2_video.so.1
     cp -v build/src/vulkan-v4l2/libvulkan_v4l2_video.so.1 /deploy/libvulkan_v4l2_video.so
   '
