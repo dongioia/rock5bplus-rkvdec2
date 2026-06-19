@@ -47,3 +47,8 @@ server/
 *.pem
 .env
 releases/
+
+# Phase B0 binary artifacts (keep metadata/ + compare/ text only)
+artifacts/phase-b0/input/
+artifacts/phase-b0/traces/
+artifacts/phase-b0/dumps/
