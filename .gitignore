@@ -4,8 +4,10 @@ src/
 # Build staging area
 staging/
 
-# Python virtualenv
+# Python virtualenv + bytecode cache
 .venv/
+__pycache__/
+*.pyc
 
 # macOS
 .DS_Store
