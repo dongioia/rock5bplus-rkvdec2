@@ -1,0 +1,193 @@
+--- a/src/vulkan-v4l2/v4l2vk_v4l2_h264.c
++++ b/src/vulkan-v4l2/v4l2vk_v4l2_h264.c
+@@ -489,6 +489,16 @@
+       out->flags |= V4L2_H264_PPS_FLAG_SCALING_MATRIX_PRESENT;
+ }
+ 
++/* --- B0 fix: public SPS+PPS translate wrapper (init non-request set) --- */
++void
++v4l2vk_h264_translate_sps_pps(const StdVideoH264SequenceParameterSet *vk_sps,
++                             const StdVideoH264PictureParameterSet *vk_pps,
++                             struct v4l2vk_h264_frame_params *out)
++{
++   v4l2vk_h264_translate_sps(vk_sps, &out->sps);
++   v4l2vk_h264_translate_pps(vk_pps, &out->pps);
++}
++
+ /* --- Scaling matrix translation --- */
+ static void
+ v4l2vk_h264_translate_scaling(const StdVideoH264ScalingLists *vk,
+--- a/src/vulkan-v4l2/v4l2vk_v4l2_h264.h
++++ b/src/vulkan-v4l2/v4l2vk_v4l2_h264.h
+@@ -27,6 +27,11 @@
+    bool has_scaling;
+ };
+ 
++void v4l2vk_h264_translate_sps_pps(
++   const StdVideoH264SequenceParameterSet *vk_sps,
++   const StdVideoH264PictureParameterSet *vk_pps,
++   struct v4l2vk_h264_frame_params *out);
++
+ int v4l2vk_h264_translate_params(const StdVideoH264SequenceParameterSet *vk_sps,
+                                  const StdVideoH264PictureParameterSet *vk_pps,
+                                  const StdVideoDecodeH264PictureInfo *vk_pic,
+--- a/src/vulkan-v4l2/v4l2vk_v4l2.c
++++ b/src/vulkan-v4l2/v4l2vk_v4l2.c
+@@ -202,8 +202,9 @@
+    fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12;
+    fmt.fmt.pix_mp.num_planes = 1;
+ 
+-   if (xioctl(ctx->video_fd, VIDIOC_S_FMT, &fmt) < 0) {
+-      V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] S_FMT CAPTURE failed: %s\n",
++   /* B0 fix: read the driver native CAPTURE format (G_FMT), do not force */
++   if (xioctl(ctx->video_fd, VIDIOC_G_FMT, &fmt) < 0) {
++      V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] G_FMT CAPTURE failed: %s\n",
+                        strerror(errno));
+       return -errno;
+    }
+@@ -223,6 +224,34 @@
+    return 0;
+ }
+ 
++/* B0 fix: set SPS NON-request at init so rkvdec configures its decoder and
++ * computes the native CAPTURE layout (golden v4l2slh264dec does this before
++ * CAPTURE setup). Without it the decoder is unconfigured -> blank decode. */
++int
++v4l2vk_v4l2_set_init_sps(struct v4l2vk_v4l2_context *ctx,
++                         const struct v4l2vk_h264_frame_params *params)
++{
++   struct v4l2_ext_control ctrl;
++   memset(&ctrl, 0, sizeof(ctrl));
++   ctrl.id = V4L2_CID_STATELESS_H264_SPS;
++   ctrl.size = sizeof(params->sps);
++   ctrl.ptr = (void *)&params->sps;
++
++   struct v4l2_ext_controls ext;
++   memset(&ext, 0, sizeof(ext));
++   ext.which = V4L2_CTRL_WHICH_CUR_VAL;
++   ext.count = 1;
++   ext.controls = &ctrl;
++
++   if (xioctl(ctx->video_fd, VIDIOC_S_EXT_CTRLS, &ext) < 0) {
++      V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] init SPS S_EXT_CTRLS failed: %s\n",
++                       strerror(errno));
++      return -errno;
++   }
++   V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] init SPS set (non-request) OK\n");
++   return 0;
++}
++
+ /* --- Streaming --- */
+ 
+ int
+--- a/src/vulkan-v4l2/v4l2vk_v4l2.h
++++ b/src/vulkan-v4l2/v4l2vk_v4l2.h
+@@ -82,6 +82,9 @@
+ int
+ v4l2vk_v4l2_set_h264_controls(struct v4l2vk_v4l2_context *ctx, int request_fd,
+                               const struct v4l2vk_h264_frame_params *params);
++
++int v4l2vk_v4l2_set_init_sps(struct v4l2vk_v4l2_context *ctx,
++                            const struct v4l2vk_h264_frame_params *params);
+ int v4l2vk_v4l2_queue_output(struct v4l2vk_v4l2_context *ctx, uint32_t buf_idx,
+                              int request_fd, const void *bitstream, size_t size,
+                              uint64_t timestamp);
+--- a/src/vulkan-v4l2/v4l2vk_vk_video.h
++++ b/src/vulkan-v4l2/v4l2vk_vk_video.h
+@@ -29,7 +29,9 @@
+  * lazily from QueueSubmit2 if the SPS wasn't available at param creation. */
+ int v4l2vk_video_session_init_v4l2(v4l2vk_video_session *sess,
+                                    struct v4l2vk_vk_device *dev,
+-                                   uint32_t w, uint32_t h);
++                                   uint32_t w, uint32_t h,
++                                   const StdVideoH264SequenceParameterSet *sps,
++                                   const StdVideoH264PictureParameterSet *pps);
+ 
+ PFN_vkVoidFunction v4l2vk_GetVideoDeviceProcAddr(VkDevice dev,
+                                                  const char *name);
+--- a/src/vulkan-v4l2/v4l2vk_vk_video.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_video.c
+@@ -4,6 +4,8 @@
+  *     Sreerenj Balachandran <sreerenj@amazon.com>
+  */
+ #include "v4l2vk_vk_video.h"
++#include "v4l2vk_v4l2.h"
++#include "v4l2vk_v4l2_h264.h"
+ #include <stdatomic.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -248,6 +250,11 @@
+        h264_ci->pParametersAddInfo->pStdSPSs) {
+       const StdVideoH264SequenceParameterSet *sps =
+          &h264_ci->pParametersAddInfo->pStdSPSs[0];
++      const StdVideoH264PictureParameterSet *pps =
++         (h264_ci->pParametersAddInfo->stdPPSCount > 0 &&
++          h264_ci->pParametersAddInfo->pStdPPSs)
++            ? &h264_ci->pParametersAddInfo->pStdPPSs[0]
++            : NULL;
+ 
+       uint32_t w = ((uint32_t)sps->pic_width_in_mbs_minus1 + 1) * 16;
+       uint32_t h = ((uint32_t)sps->pic_height_in_map_units_minus1 + 1) * 16;
+@@ -258,7 +265,7 @@
+               "[V4L2VK] SPS resolution: %ux%u (session maxCodedExtent: %ux%u)\n",
+               w, h, sess->coded_extent.width, sess->coded_extent.height);
+ 
+-      if (v4l2vk_video_session_init_v4l2(sess, dev, w, h) < 0) {
++      if (v4l2vk_video_session_init_v4l2(sess, dev, w, h, sps, pps) < 0) {
+          fprintf(stderr,
+                  "[V4L2VK][ERR] V4L2 init failed for %ux%u\n", w, h);
+          /* Non-fatal — QueueSubmit2 will try lazy init from job SPS */
+@@ -480,7 +487,9 @@
+ int
+ v4l2vk_video_session_init_v4l2(v4l2vk_video_session *sess,
+                                struct v4l2vk_vk_device *dev,
+-                               uint32_t w, uint32_t h)
++                               uint32_t w, uint32_t h,
++                               const StdVideoH264SequenceParameterSet *sps,
++                               const StdVideoH264PictureParameterSet *pps)
+ {
+    if (sess->v4l2_ctx)
+       return 0; /* Already initialized */
+@@ -492,9 +501,28 @@
+       return -1;
+    }
+ 
+-   if (v4l2vk_v4l2_set_output_format(sess->v4l2_ctx, w, h) < 0 ||
+-       v4l2vk_v4l2_set_capture_format(sess->v4l2_ctx, w, h, NULL, NULL) < 0) {
+-      fprintf(stderr, "[V4L2VK][ERR] V4L2 format setup failed\n");
++   if (v4l2vk_v4l2_set_output_format(sess->v4l2_ctx, w, h) < 0) {
++      fprintf(stderr, "[V4L2VK][ERR] V4L2 OUTPUT format setup failed\n");
++      v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++      sess->v4l2_ctx = NULL;
++      return -1;
++   }
++
++   /* B0 fix: set SPS non-request BEFORE CAPTURE format/buffers. */
++   if (sps && pps) {
++      struct v4l2vk_h264_frame_params init_params;
++      memset(&init_params, 0, sizeof(init_params));
++      v4l2vk_h264_translate_sps_pps(sps, pps, &init_params);
++      if (v4l2vk_v4l2_set_init_sps(sess->v4l2_ctx, &init_params) < 0) {
++         fprintf(stderr, "[V4L2VK][ERR] V4L2 init SPS set failed\n");
++         v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++         sess->v4l2_ctx = NULL;
++         return -1;
++      }
++   }
++
++   if (v4l2vk_v4l2_set_capture_format(sess->v4l2_ctx, w, h, NULL, NULL) < 0) {
++      fprintf(stderr, "[V4L2VK][ERR] V4L2 CAPTURE format setup failed\n");
+       v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
+       sess->v4l2_ctx = NULL;
+       return -1;
+--- a/src/vulkan-v4l2/v4l2vk_vk_device.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_device.c
+@@ -824,7 +824,7 @@
+                fprintf(stderr,
+                        "[V4L2VK] Late V4L2 init from SPS: %ux%u\n",
+                        sps_w, sps_h);
+-               v4l2vk_video_session_init_v4l2(sess, dev, sps_w, sps_h);
++               v4l2vk_video_session_init_v4l2(sess, dev, sps_w, sps_h, &job->sps, &job->pps);
+             }
+ 
+             if (!sess->v4l2_ctx) {

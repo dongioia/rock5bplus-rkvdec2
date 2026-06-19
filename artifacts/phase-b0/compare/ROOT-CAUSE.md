@@ -1,6 +1,8 @@
-# Phase B0 — H264 blank-decode root cause (2026-06-19)
+# Phase B0 — H264 blank-decode root cause + FIX (2026-06-19)
 
-**Status: ROOT CAUSE FOUND (high confidence, evidenced). Fix = bounded init-sequence rework, NOT yet implemented.**
+**Status: FIXED + VERIFIED.** Init-sequence fix implemented; decode is now
+**byte-exact vs ffmpeg across 8/8 frames** (IDR + P), nv12_tool gate PASS.
+Patch: `deploy/vulkan-v4l2-icd/b0-fix.patch` (applied by `scripts/vvtest/b0-fix-init-sps.py`).
 
 ## Symptom
 ICD (`sree/mesa` V4L2 Vulkan-Video, `5955e6e`) on RK3588 (`rkvdec`, DT
@@ -53,16 +55,25 @@ Source site: `v4l2vk_video_session_init_v4l2()` (`v4l2vk_vk_video.c:481`) does
 The SPS **is** available at the caller (`v4l2vk_vk_video.c:261`, from
 `pParametersAddInfo->pStdSPSs[0]`) but is not passed in.
 
-## Fix plan (bounded init-sequence rework — next task)
-1. Un-`static` + header-declare `v4l2vk_h264_translate_sps`/`_pps`
-   (`v4l2vk_v4l2_h264.c:390/455`).
-2. New `v4l2vk_v4l2_set_init_params(ctx, sps_std, pps_std)`: translate + a
-   **non-request** `S_EXT_CTRLS` (which=0) of SPS+PPS on `video_fd`.
-3. `session_init_v4l2`: take `sps`/`pps`; order = `S_FMT(OUTPUT)` → `set_init_params`
-   → CAPTURE via **`G_FMT`** (not S_FMT) → buffers (prefer `CREATE_BUFS`).
-4. Plumb SPS/PPS from the 2 callers (`vk_video.c:261` real; `vk_device.c:827` lazy from job).
-5. Verify: (a) raw CAPTURE non-blank; then byte-exact visible-normalized vs `ref_f0.nv12`
-   (`nv12_tool.py compare`), tracer/control re-check, criteria §1.
+## Fix (IMPLEMENTED — `b0-fix.patch`, 7 files)
+1. `v4l2vk_h264_translate_sps_pps()` — public wrapper over the static translators (h264.c/.h).
+2. `v4l2vk_v4l2_set_init_sps()` — **non-request** `S_EXT_CTRLS` of SPS (`which=CUR_VAL`)
+   on the video fd (v4l2.c/.h).
+3. `set_capture_format`: `S_FMT` → `G_FMT` (read the driver's native format).
+4. `session_init_v4l2`: `S_FMT(OUTPUT)` → **`set_init_sps`** (fail-hard on error) → CAPTURE
+   `G_FMT` → buffers; SPS/PPS plumbed from `vk_video.c` param-create + `vk_device.c` lazy
+   caller. (`CREATE_BUFS` NOT needed — REQBUFS works once the decoder is configured.)
+
+## Verification (byte-exact)
+After fix: raw CAPTURE (a) Y-distinct 6→**206**; output **byte-exact == ffmpeg ref on
+8/8 frames** (IDR + P), `nv12_tool.py compare` → PASS. cavecrew-reviewed (1 finding
+applied: fail-hard on init-SPS error). Note: CAPTURE `sizeimage` stays 1843200 (vs golden
+1612832) — benign: the frame is the first 1382400 bytes at stride 1280 either way.
+
+## Outcome
+**B0 gate PASSED.** Standalone V4L2-backed Vulkan-Video H264 decode is **feasible and
+pixel-correct** on RK3588 — the prototype's failure was a fixable init omission, not an
+architectural wall.
 
 ## Verification harness ready (Part A)
 `scripts/vvtest/`: `icd-rebuild.sh`, `icd-deploy.sh` (isolated), `nv12_tool.py`
