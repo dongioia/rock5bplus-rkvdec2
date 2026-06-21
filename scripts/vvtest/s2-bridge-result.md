@@ -71,12 +71,16 @@ decodebin auto-plugs `vkh264bridge` correctly because it exposes opaque NV12 sys
 The internal Vulkan context propagates within the bin: `vulkanh264dec` creates the Vulkan instance,
 `vulkandownload` uses it via the same Vulkan instance context (GstContext sharing within the bin).
 
-## Minor finding (TODO, no recompile)
+## Gate 1c scope note
 
-`gstvkh264bridge.c` `plugin_init` registers `vkh264bridge` at rank 258 even if `vulkanh264dec` or
-`vulkandownload` are absent at load time (e.g. on a host without the ICD). Fix: probe
-`gst_element_factory_find` for both before registering; return FALSE if either is NULL. Marked with
-`/* TODO */` in source; flagged for final review — no recompile/redeploy needed for this gate.
+Gate 1c byte-exactness is STANDALONE decode (`vulkanh264dec`→`vulkandownload`→NV12 vs ffmpeg reference). In-browser display correctness (Epiphany/WebKit) is VISUAL-ONLY via the SMPTE-bars screenshot, NOT `pixelcheck`-byte-verified through WebKit.
+
+## Guard fix applied (final review)
+
+`gstvkh264bridge.c` `plugin_init` now guards registration on child-factory availability: probes
+`gst_element_factory_find("vulkanh264dec")` and `gst_element_factory_find("vulkandownload")`
+at startup; returns FALSE (no register) if either is absent. Recompiled and redeployed on SBC
+(see `benchmark/stage2-20260621/bridge-guard-recompile.out`). The TODO comment has been removed.
 
 ## Evidence files
 

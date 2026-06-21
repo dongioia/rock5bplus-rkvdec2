@@ -107,14 +107,27 @@ gst_vkh264bridge_class_init (GstVkH264BridgeClass *klass)
 static gboolean
 plugin_init (GstPlugin *plugin)
 {
-  /* TODO (for final review): guard registration on child-factory availability.
-   * Currently vkh264bridge is always registered at rank 258 even if
-   * vulkanh264dec or vulkandownload are absent (e.g. host without the ICD).
-   * On such hosts it would shadow other H264 decoders.  Fix: probe
-   *   gst_element_factory_find("vulkanh264dec") and
-   *   gst_element_factory_find("vulkandownload")
-   * here; return FALSE early if either is NULL.
-   * Not fixed now to avoid recompile/redeploy on the SBC mid-test. */
+  /* Guard: only register if the Vulkan plugin library is present.
+   * gst_element_factory_find() cannot be used here (called during
+   * registry scan before other plugins are indexed).  Instead, probe
+   * for libgstvulkan.so in the GStreamer system plugin path — if it is
+   * absent, vulkanh264dec and vulkandownload will not exist and
+   * registering vkh264bridge at rank 258 would shadow working decoders.
+   */
+  const gchar *sys_path = g_getenv ("GST_PLUGIN_SYSTEM_PATH_1_0");
+  if (!sys_path || sys_path[0] == '\0')
+    sys_path = "/usr/lib/gstreamer-1.0";
+
+  {
+    gchar *probe = g_build_filename (sys_path, "libgstvulkan.so", NULL);
+    gboolean found = g_file_test (probe, G_FILE_TEST_EXISTS);
+    g_free (probe);
+    if (!found) {
+      GST_WARNING ("vkh264bridge: libgstvulkan.so not found in %s — not registering", sys_path);
+      return FALSE;
+    }
+  }
+
   return gst_element_register (plugin, "vkh264bridge",
                                GST_RANK_PRIMARY + 2,   /* 258 */
                                GST_TYPE_VKH264BRIDGE);

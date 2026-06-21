@@ -1,3 +1,5 @@
+> SUPERSEDED: Gate 1b PARTIAL below was resolved by the gstvkh264bridge wrapper → GATE_1B=PASS. See s2-bridge-result.md.
+
 # Stage-2 Gate 1b + 1c Results
 
 **Date**: 2026-06-21  
@@ -83,7 +85,7 @@ Gate 1b as specified (browser + auto decoder selection) requires either:
 
 ## Gate 1c — Authoritative Frame-0 Byte-Exact (standalone, decoupled from browser)
 
-**VERDICT: PASS — byte-exact**
+**VERDICT: PASS — byte-exact** (standalone decode: `vulkanh264dec`→`vulkandownload`→NV12 vs ffmpeg reference; in-browser display correctness is VISUAL-ONLY via SMPTE-bars screenshot, NOT `pixelcheck`-byte-verified through WebKit)
 
 ### Pipeline used
 
