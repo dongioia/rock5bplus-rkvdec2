@@ -17,7 +17,10 @@ echo ""
 # 1. Enumeration: must find V4L2 Vulkan Video Decoder + VK_KHR_video_decode_h264
 echo "--- vulkaninfo enumeration ---"
 export VK_ICD_FILENAMES="$ICD_JSON"
-vulkaninfo 2>/dev/null | grep -iE "V4L2 Vulkan Video Decoder|VK_KHR_video_decode_h264|deviceName" | head -10
+VK_OUTPUT=$(VK_ICD_FILENAMES="$ICD_JSON" vulkaninfo 2>/dev/null)
+echo "$VK_OUTPUT" | grep -iE "V4L2 Vulkan Video Decoder|VK_KHR_video_decode_h264|deviceName" | head -10
+echo "$VK_OUTPUT" | grep -qiE "V4L2 Vulkan Video Decoder" || { echo "RESULT: ENUM FAIL"; exit 1; }
+echo "RESULT: ENUM OK"
 echo ""
 
 # 2. ldd: no missing libraries
@@ -32,7 +35,10 @@ echo ""
 
 # 3. Mesa system pin: confirm unchanged
 echo "--- mesa system pin ---"
-pacman -Q mesa 2>/dev/null || true
+EXPECTED_MESA="mesa 1:26.0.6-1"
+ACTUAL_MESA=$(pacman -Q mesa 2>/dev/null)
+[ "$ACTUAL_MESA" = "$EXPECTED_MESA" ] || { echo "RESULT: MESA PIN BROKEN ($ACTUAL_MESA)"; exit 1; }
+echo "RESULT: MESA PIN OK ($ACTUAL_MESA)"
 echo ""
 
 echo "=== s2-icd-verify: DONE ==="

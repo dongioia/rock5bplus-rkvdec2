@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Rebuild the V4L2 Vulkan ICD incrementally in a throwaway container and
 # repackage the .so into deploy/. SBC-independent.
+# NOTE: Stage-2 verified the ICD via INCREMENTAL ninja + fix-presence grep (fast). A clean from-scratch meson reconfigure was not exercised; b0-fix.patch (deploy/vulkan-v4l2-icd/) is the recovery path for a cold rebuild.
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 DEPLOY="$REPO/deploy/vulkan-v4l2-icd"
