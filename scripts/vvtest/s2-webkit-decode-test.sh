@@ -13,6 +13,16 @@ export WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000
 # Fixup #2: clear stale registry for vulkan feed so vulkanh264dec re-registers
 [ "$FEED" = "vulkan" ] && rm -f ~/.cache/gstreamer-1.0/registry.aarch64.bin
 
+# Step1 rank-bump: raise both vulkanh264dec AND vulkandownload to 512 so decodebin
+# prefers the Vulkan chain; zero v4l2slh264dec and the device-specific dynamic
+# factory name so they don't shadow us.
+[ "$FEED" = "vulkan" ] && export GST_PLUGIN_FEATURE_RANK="vulkanh264dec:512,vulkandownload:512,v4l2slh264dec:0,v4l2slvideo0h264dec:0"
+
+# Step3 wrapper element: load vkh264bridge from $HOME/vvtest (compiled C GstBin
+# that wraps vulkanh264dec+vulkandownload and exposes video/x-raw NV12 src caps
+# so decodebin can auto-plug it without seeing VulkanImage memory caps).
+[ "$FEED" = "vulkan" ] && export GST_PLUGIN_PATH="$HOME/vvtest${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
+
 # Kill any leftover http.server from previous run
 pkill -f "http.server 8889" 2>/dev/null
 sleep 0.5
