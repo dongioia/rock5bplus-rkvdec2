@@ -29,6 +29,8 @@ fuser_video0:   none
 ### Root cause
 
 `vulkanh264dec` has GStreamer rank `none (0)`. `v4l2slh264dec` has rank `primary+1 (257)`.
+Both values confirmed by live `gst-inspect-1.0` on SBC 2026-06-21 (registry cache cleared):
+see `benchmark/stage2-20260621/gst-inspect-ranks-caps.out`.
 WebKit's `decodebin` auto-selects by rank and picks `v4l2slh264dec` first.
 `v4l2slh264dec` then fails on `VideoMeta` negotiation (same VideoMeta wall as v4l2-direct gate).
 **`vulkanh264dec` is never tried.**
@@ -36,15 +38,26 @@ WebKit's `decodebin` auto-selects by rank and picks `v4l2slh264dec` first.
 The harness clears the registry cache and sets `VK_ICD_FILENAMES` (both confirmed working), but
 does **not** set `GST_PLUGIN_FEATURE_RANK` to elevate `vulkanh264dec` above `v4l2slh264dec`.
 
-### Secondary finding: WebKit scanner excludes vulkanh264dec
+### Secondary finding: decodebin cannot auto-plug vulkandownload for context propagation
 
 Even with `GST_PLUGIN_FEATURE_RANK="vulkanh264dec:512,v4l2slh264dec:0"`, WebKit falls back to
-`avdec_h264` (SW). This is because:
-- `vulkanh264dec` SRC caps: `video/x-raw(memory:VulkanImage)` — Vulkan memory type
-- WebKit's GStreamer registry scanner does not enumerate decoders that output
-  `memory:VulkanImage` (it needs DMABuf or system memory for its GL pipeline)
-- A `vulkandownload` element would be needed between decoder and WebKit sink, but WebKit
-  builds its own GStreamer pipeline internally and does not insert `vulkandownload`
+`avdec_h264` (SW). The accurate mechanism:
+
+- `vulkanh264dec` is registered in the GStreamer registry (rank none/0, confirmed by
+  `gst-inspect-1.0 vulkanh264dec`: see `benchmark/stage2-20260621/gst-inspect-ranks-caps.out`)
+- `vulkanh264dec` SRC caps are `video/x-raw(memory:VulkanImage)` (NV12, confirmed artifact)
+- `vulkandownload` is present (also confirmed: SINK caps = `video/x-raw(memory:VulkanImage)`)
+- Standalone pipeline `vulkanh264dec ! vulkandownload ! glimagesink` works (Task 1 / S2.2
+  Variant B, `benchmark/stage2-20260621/vulkan-feed-probe.log`)
+- The blocker is that decodebin's static caps-template traversal does **not** propagate the
+  runtime Vulkan **instance context** that `vulkandownload` needs to negotiate; as a result,
+  decodebin fails to auto-insert `vulkandownload` as a bridge and falls back to SW `avdec_h264`
+- WebKit builds its GStreamer pipeline internally via decodebin and does not add `vulkandownload`
+
+**I3 caveat**: the rank-override WebKit run (`benchmark/stage2-20260621/webkit-vulkan-rank-fix.out`)
+ended on an HTTP range error (code=9) after `avdec_h264` was selected. This confirms SW-fallback
+decoder selection but the run did not itself decode/display (range error, not a decode error).
+Do not conflate this network error with the VideoMeta error from the main `v4l2slh264dec` run.
 
 ### S2.2 kill-gate context
 

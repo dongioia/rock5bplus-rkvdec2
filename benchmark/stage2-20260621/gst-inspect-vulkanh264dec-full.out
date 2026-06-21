@@ -1,0 +1,60 @@
+# Full gst-inspect-1.0 vulkanh264dec — 2026-06-21
+# VK_ICD_FILENAMES=$HOME/vvtest/v4l2vk_icd.aarch64.json (registry cache cleared)
+[V4L2VK] scanning /dev/video* for stateless H.264 decoder...
+[V4L2VK]   /dev/video0: OUTPUT fmt[0] fourcc=S265 (0x35363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[1] fourcc=S264 (0x34363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[2] fourcc=VP9F (0x46395056)
+[V4L2VK]   /dev/video0: M2M stateless H.264 decoder (driver=rkvdec card=rkvdec)
+[V4L2VK]   sysfs device: /sys/devices/platform/fdc38100.video-codec
+[V4L2VK] selected: video=/dev/video0 media=/dev/media0
+Factory Details:
+  Rank                     none (0)
+  Long-name                Vulkan H.264 decoder on V4L2 Vulkan Video Decoder
+  Klass                    Codec/Decoder/Video/Hardware
+  Description              A H.264 video decoder based on Vulkan
+  Author                   Víctor Jáquez <vjaquez@igalia.com>
+  Documentation            https://gstreamer.freedesktop.org/documentation/vulkan/vulkanh264dec.html
+
+Plugin Details:
+  Name                     vulkan
+  Description              Vulkan plugin
+  Filename                 /usr/lib/gstreamer-1.0/libgstvulkan.so
+  Version                  1.28.4
+  License                  LGPL
+  Source module            gst-plugins-bad
+  Source release date      2026-06-12
+  Binary package           Arch Linux GStreamer 1.28.4-1
+  Origin URL               https://www.archlinux.org/
+
+GObject
+ +----GInitiallyUnowned
+       +----GstObject
+             +----GstElement
+                   +----GstVideoDecoder
+                         +----GstH264Decoder
+                               +----GstVulkanH264Decoder
+
+Pad Templates:
+  SINK template: 'sink'
+    Availability: Always
+    Capabilities:
+      video/x-h264
+                profile: { (string)high, (string)main, (string)constrained-baseline, (string)baseline, (string)extended }
+                  width: [ 16, 4096 ]
+                 height: [ 16, 4096 ]
+          stream-format: { (string)avc, (string)byte-stream }
+              alignment: au
+
+  SRC template: 'src'
+    Availability: Always
+    Capabilities:
+      video/x-raw(memory:VulkanImage)
+                 format: NV12
+                  width: [ 16, 4096 ]
+                 height: [ 16, 4096 ]
+
+Pads:
+  SINK: 'sink'
+    Pad Template: 'sink'
+  SRC: 'src'
+    Pad Template: 'src'

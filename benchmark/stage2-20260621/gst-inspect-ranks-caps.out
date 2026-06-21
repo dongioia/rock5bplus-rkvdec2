@@ -1,0 +1,25 @@
+# Captured: 2026-06-21 — SBC rock5b (RK3588 Rock 5B+)
+# VK_ICD_FILENAMES=$HOME/vvtest/v4l2vk_icd.aarch64.json
+# Registry cache cleared before each run
+
+=== vulkanh264dec (rank + SRC caps) ===
+  Rank                     none (0)
+    Capabilities:
+  SRC template: 'src'
+    Capabilities:
+      video/x-raw(memory:VulkanImage)
+Element has no clocking capabilities.
+Element has no URI handling capabilities.
+=== v4l2slh264dec rank ===
+  Rank                     primary + 1 (257)
+=== vulkandownload present? (sink caps = the bridge) ===
+  Rank                     none (0)
+  Klass                    Filter/Video
+  SINK template: 'sink'
+      video/x-raw(memory:VulkanImage)
+
+# SUMMARY:
+# (a) vulkanh264dec rank: none (0)
+# (b) v4l2slh264dec rank: primary + 1 (257)
+# (c) vulkanh264dec SRC caps memory type: video/x-raw(memory:VulkanImage)
+# (d) vulkandownload: present, SINK caps = video/x-raw(memory:VulkanImage) ✓
