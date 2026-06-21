@@ -1,0 +1,408 @@
+=== s2-icd-verify: isolated ICD check ===
+ICD_JSON: /home/sav/vvtest/v4l2vk_icd.aarch64.json
+ICD_SO:   /home/sav/vvtest/libvulkan_v4l2_video.so
+
+--- vulkaninfo enumeration ---
+		GPU id = 0 (V4L2 Vulkan Video Decoder)
+		GPU id = 0 (V4L2 Vulkan Video Decoder)
+		GPU id = 0 (V4L2 Vulkan Video Decoder)
+	deviceName        = V4L2 Vulkan Video Decoder
+	VK_KHR_video_decode_h264        : extension revision 9
+
+--- ldd check ---
+RESULT: LDD OK
+
+--- mesa system pin ---
+mesa 1:26.0.6-1
+
+=== s2-icd-verify: DONE ===
+=== post-rebuild decode probe ===
+[V4L2VK] scanning /dev/video* for stateless H.264 decoder...
+[V4L2VK]   /dev/video0: OUTPUT fmt[0] fourcc=S265 (0x35363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[1] fourcc=S264 (0x34363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[2] fourcc=VP9F (0x46395056)
+[V4L2VK]   /dev/video0: M2M stateless H.264 decoder (driver=rkvdec card=rkvdec)
+[V4L2VK]   sysfs device: /sys/devices/platform/fdc38100.video-codec
+[V4L2VK] selected: video=/dev/video0 media=/dev/media0
+[V4L2VK] scanning /dev/video* for stateless H.264 decoder...
+[V4L2VK]   /dev/video0: OUTPUT fmt[0] fourcc=S265 (0x35363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[1] fourcc=S264 (0x34363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[2] fourcc=VP9F (0x46395056)
+[V4L2VK]   /dev/video0: M2M stateless H.264 decoder (driver=rkvdec card=rkvdec)
+[V4L2VK]   sysfs device: /sys/devices/platform/fdc38100.video-codec
+[V4L2VK] selected: video=/dev/video0 media=/dev/media0
+Setting pipeline to PAUSED ...
+[V4L2VK] scanning /dev/video* for stateless H.264 decoder...
+[V4L2VK]   /dev/video0: OUTPUT fmt[0] fourcc=S265 (0x35363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[1] fourcc=S264 (0x34363253)
+[V4L2VK]   /dev/video0: OUTPUT fmt[2] fourcc=VP9F (0x46395056)
+[V4L2VK]   /dev/video0: M2M stateless H.264 decoder (driver=rkvdec card=rkvdec)
+[V4L2VK]   sysfs device: /sys/devices/platform/fdc38100.video-codec
+[V4L2VK] selected: video=/dev/video0 media=/dev/media0
+Pipeline is PREROLLING ...
+Got context from element 'vulkanh264decoder0': gst.vulkan.instance=context, gst.vulkan.instance=(GstVulkanInstance)"\(GstVulkanInstance\)\ vulkaninstance1";
+Redistribute latency...
+[V4L2VK] CreateVideoSession: maxCodedExtent=4096x4096 (V4L2 init deferred to SessionParameters)
+Redistribute latency...
+[V4L2VK][ALLOC] AllocateMemory: type=1 size=2765087 alloc_sz=2768896
+[V4L2VK][ALLOC] host alloc ptr=0xffffb600b000 size=2768896
+[V4L2VK][ALLOC] AllocateMemory: type=1 size=2765087 alloc_sz=2768896
+[V4L2VK][ALLOC] host alloc ptr=0xffffb600b000 size=2768896
+[V4L2VK] wait sem=0xffffa8017430 value=0
+[V4L2VK][ALLOC] AllocateMemory: type=1 size=2765087 alloc_sz=2768896
+[V4L2VK][ALLOC] host alloc ptr=0xffffb5d65000 size=2768896
+[V4L2VK] wait sem=0xffffa8019c00 value=0
+[V4L2VK][ALLOC] AllocateMemory: type=1 size=2765087 alloc_sz=2768896
+[V4L2VK][ALLOC] host alloc ptr=0xffffb5abf000 size=2768896
+[V4L2VK] wait sem=0xffffa801a2e0 value=0
+[V4L2VK] SPS resolution: 1280x720 (session maxCodedExtent: 4096x4096)
+[V4L2VK][V4L2] --- H.264 control size check (QUERY_EXT_CTRL) ---
+[V4L2VK][V4L2]   SPS            : kernel elem_size=1048 elems=1 flags=0x100  userspace sizeof=1048  MATCH
+[V4L2VK][V4L2]   PPS            : kernel elem_size=12 elems=1 flags=0x100  userspace sizeof=12  MATCH
+[V4L2VK][V4L2]   SCALING_MATRIX : kernel elem_size=480 elems=1 flags=0x100  userspace sizeof=480  MATCH
+[V4L2VK][V4L2]   DECODE_PARAMS  : kernel elem_size=560 elems=1 flags=0x100  userspace sizeof=560  MATCH
+[V4L2VK][V4L2]   SLICE_PARAMS   : QUERY_EXT_CTRL failed (Invalid argument)  userspace sizeof=152
+[V4L2VK][V4L2]   PRED_WEIGHTS   : QUERY_EXT_CTRL failed (Invalid argument)  userspace sizeof=772
+[V4L2VK][V4L2] --- end control size check ---
+[V4L2VK][V4L2] supported controls: SPS=1 PPS=1 SCALING=1 DECODE_PARAMS=1 SLICE_PARAMS=0 PRED_WEIGHTS=0
+[V4L2VK] V4L2 session initialized: 1280x720, 4 output bufs, CAPTURE MMAP 17 bufs (EXPBUF'd)
+[V4L2VK][ALLOC] AllocateMemory: type=0 size=1048639 alloc_sz=1052672
+[V4L2VK][ALLOC] host alloc ptr=0xffffa8048000 size=1052672
+[V4L2VK] wait sem=0xffffa8017430 value=1
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=26960): 00 00 01 65 88 84 37 c4 22 2a e0 c0 85 f8 08 53
+[V4L2VK][H264] slice[0]: offset=0 type=7(I) first_mb=0 nal_ref_idc=3 hdr_bits=24 poc_bits=0 drpm_bits=2
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=0 nal_ref_idc=3 idr=1 slice_type=2
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8019c00 value=1
+[V4L2VK] wait sem=0xffffa8017430 value=2
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13920): 00 00 01 41 9a 38 6f e1 9a 93 09 f0 80 00 c8 0e
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=23 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=1 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa801a2e0 value=1
+[V4L2VK] wait sem=0xffffa8017430 value=3
+[V4L2VK] wait sem=0xffffa8019c00 value=2
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13888): 00 00 01 41 9a 54 1b d5 ea ed be 08 ee fb 48 4f
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=25 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=2 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK][ALLOC] AllocateMemory: type=1 size=2765087 alloc_sz=2768896
+[V4L2VK][ALLOC] host alloc ptr=0xffffa7491000 size=2768896
+[V4L2VK] wait sem=0xffffa8047cf0 value=0
+[V4L2VK] wait sem=0xffffa8047cf0 value=1
+[V4L2VK] wait sem=0xffffa8017430 value=4
+[V4L2VK] wait sem=0xffffa8019c00 value=3
+[V4L2VK] wait sem=0xffffa801a2e0 value=2
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13200): 00 00 01 41 9a 60 dd d7 45 fc 4f 0c 84 43 86 80
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=3 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=19
+[V4L2VK][ALLOC] AllocateMemory: type=0 size=921663 alloc_sz=925696
+[V4L2VK][ALLOC] host alloc ptr=0xffffa815a000 size=925696
+[V4L2VK][ALLOC] AllocateMemory: type=0 size=460863 alloc_sz=462848
+[V4L2VK][ALLOC] host alloc ptr=0xffffa823d000 size=462848
+[V4L2VK] wait sem=0xffffa8017430 value=5
+Pipeline is PREROLLED ...
+Setting pipeline to PLAYING ...
+Redistribute latency...
+New clock: GstSystemClock
+[V4L2VK] wait sem=0xffffa8017430 value=6
+[V4L2VK] wait sem=0xffffa8019c00 value=4
+[V4L2VK] wait sem=0xffffa801a2e0 value=3
+[V4L2VK] wait sem=0xffffa8047cf0 value=2
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12688): 00 00 01 41 9a 80 dc d7 85 82 18 01 5f 1c 55 ff
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK][ALLOC] AllocateMemory: type=0 size=921663 alloc_sz=925696
+[V4L2VK][ALLOC] host alloc ptr=0xffffa82bf000 size=925696
+[V4L2VK][ALLOC] AllocateMemory: type=0 size=460863 alloc_sz=462848
+[V4L2VK][ALLOC] host alloc ptr=0xffffa83a2000 size=462848
+[V4L2VK] wait sem=0xffffa8019c00 value=5
+[V4L2VK] wait sem=0xffffa8019c00 value=6
+[V4L2VK] wait sem=0xffffa801a2e0 value=4
+[V4L2VK] wait sem=0xffffa8047cf0 value=3
+[V4L2VK] wait sem=0xffffa8017430 value=7
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12672): 00 00 01 41 9a a0 dd 5f 23 4f c3 61 08 01 bd 29
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa801a2e0 value=5
+[V4L2VK] wait sem=0xffffa801a2e0 value=6
+[V4L2VK] wait sem=0xffffa8047cf0 value=4
+[V4L2VK] wait sem=0xffffa8017430 value=8
+[V4L2VK] wait sem=0xffffa8019c00 value=7
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13296): 00 00 01 41 9a c0 dd 5f 7e 17 27 00 06 0f a3 3b
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa8047cf0 value=5
+[V4L2VK] wait sem=0xffffa8047cf0 value=6
+[V4L2VK] wait sem=0xffffa8017430 value=9
+[V4L2VK] wait sem=0xffffa8019c00 value=8
+[V4L2VK] wait sem=0xffffa801a2e0 value=7
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12672): 00 00 01 41 9a e0 dc cd b5 70 b0 43 00 34 56 59
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=3 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=19
+[V4L2VK] wait sem=0xffffa8017430 value=10
+[V4L2VK] wait sem=0xffffa8017430 value=11
+[V4L2VK] wait sem=0xffffa8019c00 value=9
+[V4L2VK] wait sem=0xffffa801a2e0 value=8
+[V4L2VK] wait sem=0xffffa8047cf0 value=7
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12640): 00 00 01 41 9b 00 dc cd 3f 0d 84 20 06 f4 a7 bb
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8019c00 value=10
+[V4L2VK] wait sem=0xffffa8019c00 value=11
+[V4L2VK] wait sem=0xffffa801a2e0 value=9
+[V4L2VK] wait sem=0xffffa8047cf0 value=8
+[V4L2VK] wait sem=0xffffa8017430 value=12
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12768): 00 00 01 41 9b 20 dc be 1c 34 00 1d 33 46 26 92
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa801a2e0 value=10
+[V4L2VK] wait sem=0xffffa801a2e0 value=11
+[V4L2VK] wait sem=0xffffa8047cf0 value=9
+[V4L2VK] wait sem=0xffffa8017430 value=13
+[V4L2VK] wait sem=0xffffa8019c00 value=12
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13408): 00 00 01 41 9b 40 dc c4 f6 db f7 c1 18 40 00 c8
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa8047cf0 value=10
+[V4L2VK] wait sem=0xffffa8047cf0 value=11
+[V4L2VK] wait sem=0xffffa8017430 value=14
+[V4L2VK] wait sem=0xffffa8019c00 value=13
+[V4L2VK] wait sem=0xffffa801a2e0 value=12
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12656): 00 00 01 41 9b 60 dc cd 3f 0d 84 20 06 f4 a7 bb
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=3 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=19
+[V4L2VK] wait sem=0xffffa8017430 value=15
+[V4L2VK] wait sem=0xffffa8017430 value=16
+[V4L2VK] wait sem=0xffffa8019c00 value=14
+[V4L2VK] wait sem=0xffffa801a2e0 value=13
+[V4L2VK] wait sem=0xffffa8047cf0 value=12
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12528): 00 00 01 41 9b 80 dc a5 fc 33 c4 84 43 86 80 1b
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8019c00 value=15
+[V4L2VK] wait sem=0xffffa8019c00 value=16
+[V4L2VK] wait sem=0xffffa801a2e0 value=14
+[V4L2VK] wait sem=0xffffa8047cf0 value=13
+[V4L2VK] wait sem=0xffffa8017430 value=17
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12576): 00 00 01 41 9b a0 dc d7 85 82 18 09 6e 71 bd db
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa801a2e0 value=15
+[V4L2VK] wait sem=0xffffa801a2e0 value=16
+[V4L2VK] wait sem=0xffffa8047cf0 value=14
+[V4L2VK] wait sem=0xffffa8017430 value=18
+[V4L2VK] wait sem=0xffffa8019c00 value=17
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13152): 00 00 01 41 9b c0 dc cd 3f 28 42 00 6f 4a 7b bb
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa8047cf0 value=15
+[V4L2VK] wait sem=0xffffa8017430 value=19
+[V4L2VK] wait sem=0xffffa8019c00 value=18
+[V4L2VK] wait sem=0xffffa801a2e0 value=17
+[V4L2VK] wait sem=0xffffa8047cf0 value=16
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=33024): 00 00 01 65 88 82 17 c4 22 2a e0 c0 85 f8 08 51
+[V4L2VK][H264] slice[0]: offset=0 type=7(I) first_mb=0 nal_ref_idc=3 hdr_bits=26 poc_bits=0 drpm_bits=2
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=0 nal_ref_idc=3 idr=1 slice_type=2
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8017430 value=20
+[V4L2VK] wait sem=0xffffa8047cf0 value=17
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13328): 00 00 01 41 9a 38 23 98 be 6e 79 10 d1 d8 6a 0d
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=23 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=1 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa8019c00 value=19
+[V4L2VK] wait sem=0xffffa8047cf0 value=18
+[V4L2VK] wait sem=0xffffa8017430 value=21
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13952): 00 00 01 41 9a 54 08 e6 4a e3 47 72 c7 00 21 dc
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=25 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=2 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa801a2e0 value=18
+[V4L2VK] wait sem=0xffffa8047cf0 value=19
+[V4L2VK] wait sem=0xffffa8017430 value=22
+[V4L2VK] wait sem=0xffffa8019c00 value=20
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12672): 00 00 01 41 9a 60 47 29 7f 17 f0 b9 38 00 7c 9b
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=3 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=19
+[V4L2VK] wait sem=0xffffa8047cf0 value=20
+[V4L2VK] wait sem=0xffffa8047cf0 value=21
+[V4L2VK] wait sem=0xffffa8017430 value=23
+[V4L2VK] wait sem=0xffffa8019c00 value=21
+[V4L2VK] wait sem=0xffffa801a2e0 value=19
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12624): 00 00 01 41 9a 80 47 35 e0 84 76 00 71 7d 5e 9a
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8017430 value=24
+[V4L2VK] wait sem=0xffffa8017430 value=25
+[V4L2VK] wait sem=0xffffa8019c00 value=22
+[V4L2VK] wait sem=0xffffa801a2e0 value=20
+[V4L2VK] wait sem=0xffffa8047cf0 value=22
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12624): 00 00 01 41 9a a0 57 31 3d 36 ff d0 c7 1b e0 bb
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa8019c00 value=23
+[V4L2VK] wait sem=0xffffa8019c00 value=24
+[V4L2VK] wait sem=0xffffa801a2e0 value=21
+[V4L2VK] wait sem=0xffffa8047cf0 value=23
+[V4L2VK] wait sem=0xffffa8017430 value=26
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13120): 00 00 01 41 9a c0 57 29 7f 15 c2 20 84 2f e0 01
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa801a2e0 value=22
+[V4L2VK] wait sem=0xffffa801a2e0 value=23
+[V4L2VK] wait sem=0xffffa8047cf0 value=24
+[V4L2VK] wait sem=0xffffa8017430 value=27
+[V4L2VK] wait sem=0xffffa8019c00 value=25
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12736): 00 00 01 41 9a e0 57 35 e1 61 98 0c 26 34 b4 b0
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=3 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=19
+[V4L2VK] wait sem=0xffffa8047cf0 value=25
+[V4L2VK] wait sem=0xffffa8047cf0 value=26
+[V4L2VK] wait sem=0xffffa8017430 value=28
+[V4L2VK] wait sem=0xffffa8019c00 value=26
+[V4L2VK] wait sem=0xffffa801a2e0 value=24
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12624): 00 00 01 41 9b 00 67 33 4f c1 18 a8 04 c6 9e eb
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8017430 value=29
+[V4L2VK] wait sem=0xffffa8017430 value=30
+[V4L2VK] wait sem=0xffffa8019c00 value=27
+[V4L2VK] wait sem=0xffffa801a2e0 value=25
+[V4L2VK] wait sem=0xffffa8047cf0 value=27
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12672): 00 00 01 41 9b 20 67 2f 85 fc 00 2b d3 6a fa 9f
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa8019c00 value=28
+[V4L2VK] wait sem=0xffffa8019c00 value=29
+[V4L2VK] wait sem=0xffffa801a2e0 value=26
+[V4L2VK] wait sem=0xffffa8047cf0 value=28
+[V4L2VK] wait sem=0xffffa8017430 value=31
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=13104): 00 00 01 41 9b 40 77 35 e1 61 18 22 d8 93 00 48
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa801a2e0 value=27
+[V4L2VK] wait sem=0xffffa801a2e0 value=28
+[V4L2VK] wait sem=0xffffa8047cf0 value=29
+[V4L2VK] wait sem=0xffffa8017430 value=32
+[V4L2VK] wait sem=0xffffa8019c00 value=30
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12272): 00 00 01 41 9b 60 77 33 4f c1 18 88 04 c6 9e eb
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=3 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=19
+[V4L2VK] wait sem=0xffffa8047cf0 value=30
+[V4L2VK] wait sem=0xffffa8047cf0 value=31
+[V4L2VK] wait sem=0xffffa8017430 value=33
+[V4L2VK] wait sem=0xffffa8019c00 value=31
+[V4L2VK] wait sem=0xffffa801a2e0 value=29
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=12192): 00 00 01 41 9b 80 21 cb e1 cc 00 da e2 32 67 da
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=0 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=16
+[V4L2VK] wait sem=0xffffa8017430 value=34
+[V4L2VK] wait sem=0xffffa8017430 value=35
+[V4L2VK] wait sem=0xffffa8019c00 value=32
+[V4L2VK] wait sem=0xffffa801a2e0 value=30
+[V4L2VK] wait sem=0xffffa8047cf0 value=32
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=11600): 00 00 01 41 9b a0 25 cd 79 48 00 31 fa af e7 ef
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=1 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=17
+[V4L2VK] wait sem=0xffffa8019c00 value=33
+[V4L2VK] wait sem=0xffffa8019c00 value=34
+[V4L2VK] wait sem=0xffffa801a2e0 value=31
+[V4L2VK] wait sem=0xffffa8047cf0 value=33
+[V4L2VK] wait sem=0xffffa8017430 value=36
+[V4L2VK][H264] slice[0] raw bytes at offset=0 (bs_size=10832): 00 00 01 41 9b c0 2d cc 4f 6d bf 5c 11 c0 24 a3
+[V4L2VK][H264] slice[0]: offset=0 type=5(P) first_mb=0 nal_ref_idc=2 hdr_bits=22 poc_bits=0 drpm_bits=1
+[V4L2VK][H264] translated: 1280x720 mb profile=66 level=31 slices=1 dpb=3 nal_ref_idc=2 idr=0 slice_type=0
+[V4L2VK][V4L2] S_EXT_CTRLS: video_fd=8 request_fd=33 count=3
+[V4L2VK][V4L2] S_EXT_CTRLS: OK
+[V4L2VK][B0] cap idx=2 stride=1280 sizeimage=1843200 mmap_size=1843200 w=1280 h=720 dmabuf_mode=0 dma_buf_fd=18
+[V4L2VK] wait sem=0xffffa801a2e0 value=32
+[V4L2VK] wait sem=0xffffa8047cf0 value=34
+[V4L2VK] wait sem=0xffffa8017430 value=37
+[V4L2VK] wait sem=0xffffa8019c00 value=35
+Got EOS from element "pipeline0".
+Execution ended after 0:00:00.102561770
+Setting pipeline to NULL ...
+Freeing pipeline ...
+=== probe exit: 0 ===
