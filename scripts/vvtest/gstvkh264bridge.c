@@ -107,6 +107,14 @@ gst_vkh264bridge_class_init (GstVkH264BridgeClass *klass)
 static gboolean
 plugin_init (GstPlugin *plugin)
 {
+  /* TODO (for final review): guard registration on child-factory availability.
+   * Currently vkh264bridge is always registered at rank 258 even if
+   * vulkanh264dec or vulkandownload are absent (e.g. host without the ICD).
+   * On such hosts it would shadow other H264 decoders.  Fix: probe
+   *   gst_element_factory_find("vulkanh264dec") and
+   *   gst_element_factory_find("vulkandownload")
+   * here; return FALSE early if either is NULL.
+   * Not fixed now to avoid recompile/redeploy on the SBC mid-test. */
   return gst_element_register (plugin, "vkh264bridge",
                                GST_RANK_PRIMARY + 2,   /* 258 */
                                GST_TYPE_VKH264BRIDGE);

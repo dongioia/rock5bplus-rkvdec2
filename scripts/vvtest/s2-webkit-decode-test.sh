@@ -23,12 +23,14 @@ export WAYLAND_DISPLAY=wayland-1 XDG_RUNTIME_DIR=/run/user/1000
 # so decodebin can auto-plug it without seeing VulkanImage memory caps).
 [ "$FEED" = "vulkan" ] && export GST_PLUGIN_PATH="$HOME/vvtest${GST_PLUGIN_PATH:+:$GST_PLUGIN_PATH}"
 
-# Kill any leftover http.server from previous run
+# Kill any leftover http server from previous run (both old and new variant)
 pkill -f "http.server 8889" 2>/dev/null
+pkill -f "range_server.py 8889" 2>/dev/null
 sleep 0.5
 
-# Start HTTP server serving $HOME/vvtest/
-python3 -m http.server 8889 -d "$HOME/vvtest" >/tmp/httpd2.log 2>&1 & HTTPD=$!
+# Start 206-capable range server serving $HOME/vvtest/ (binds localhost only)
+RSRV="$(dirname "$0")/range_server.py"
+python3 "$RSRV" 8889 "$HOME/vvtest" >/tmp/httpd2.log 2>&1 & HTTPD=$!
 sleep 1
 
 # Fixup #1: write HTML into $HOME/vvtest BEFORE launching Epiphany
@@ -55,10 +57,17 @@ epiphany --incognito-mode "http://localhost:8889/s2test.html" >/tmp/s2.out 2>&1 
 EPIPID=$!
 
 HW_FUSER=none
+FUSER_LOG=()
 for i in $(seq 1 12); do
     sleep 1
     F=$(fuser /dev/video0 2>/dev/null)
-    [ -n "$F" ] && [ "$HW_FUSER" = none ] && HW_FUSER="t=${i}s"
+    if [ -n "$F" ]; then
+        FUSER_LOG+=("t=${i}s:busy")
+        [ "$HW_FUSER" = none ] && HW_FUSER="t=${i}s"
+    else
+        FUSER_LOG+=("t=${i}s:idle")
+    fi
+    [ "$i" = 5 ] && grim -o HDMI-A-1 /tmp/s2-5s.png 2>/dev/null
     [ "$i" = 9 ] && grim -o HDMI-A-1 /tmp/s2.png 2>/dev/null
 done
 
@@ -69,6 +78,7 @@ kill $HTTPD 2>/dev/null
 sleep 1
 
 echo "FEED=$FEED  FUSER_VIDEO0=$HW_FUSER"
+echo "FUSER_TIMELINE: ${FUSER_LOG[*]}"
 # Strip ANSI color codes and show decoder/VideoMeta/negotiation markers
 sed -E 's/\x1b\[[0-9;]*m//g' /tmp/s2.out \
   | grep -iE 'creating element|VideoMeta|not-negotiat|Failed to negotiate|webkitmediaplayer' \
