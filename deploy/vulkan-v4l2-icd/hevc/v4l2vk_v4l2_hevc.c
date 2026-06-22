@@ -263,12 +263,12 @@ v4l2vk_h265_translate_pps(const StdVideoH265PictureParameterSet *vk,
     * safe for practical tile sizes). UNCERTAIN: verify in Task 10.
     */
    {
-      uint8_t ncols = vk->num_tile_columns_minus1 < 19 ? vk->num_tile_columns_minus1 : 19;
+      uint8_t ncols = vk->num_tile_columns_minus1 < 19 ? vk->num_tile_columns_minus1 : 18;
       for (uint8_t i = 0; i <= ncols; i++)
          out->column_width_minus1[i] = (uint8_t)vk->column_width_minus1[i];
    }
    {
-      uint8_t nrows = vk->num_tile_rows_minus1 < 21 ? vk->num_tile_rows_minus1 : 21;
+      uint8_t nrows = vk->num_tile_rows_minus1 < 21 ? vk->num_tile_rows_minus1 : 20;
       for (uint8_t i = 0; i <= nrows; i++)
          out->row_height_minus1[i] = (uint8_t)vk->row_height_minus1[i];
    }
