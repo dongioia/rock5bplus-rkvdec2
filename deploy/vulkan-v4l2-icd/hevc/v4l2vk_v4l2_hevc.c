@@ -636,11 +636,11 @@ v4l2vk_h265_translate_decode_params(
 
          d->timestamp         = dpb[i].reference_ts;
          /*
-          * UNCERTAIN: ref.PicOrderCnt[0] is a H264 field (TopFieldOrderCnt).
-          * Used as HEVC poc proxy since v4l2vk_dpb_entry has no HEVC-specific
-          * PicOrderCntVal field. Task 10 strace-diff will verify.
+          * hevc-patch-04-dispatch: use hevc_pic_order_cnt_val populated from
+          * StdVideoDecodeH265ReferenceInfo.PicOrderCntVal in CmdDecodeVideoKHR.
+          * The old H264 proxy (ref.PicOrderCnt[0]) is incorrect for HEVC.
           */
-         d->pic_order_cnt_val = dpb[i].ref.PicOrderCnt[0];
+         d->pic_order_cnt_val = dpb[i].hevc_pic_order_cnt_val;
          d->field_pic         = 0; /* frame-based decode */
          d->reserved          = 0;
          d->flags             = 0;
