@@ -17,6 +17,7 @@
 - **No-regression:** every task that touches a shared file ends by re-running the H.264 byte-exact gate (`scripts/vvtest/s3-multires-gate.sh`, must stay all-PASS).
 - **Reviews:** each code task gets an independent review (cavecrew-reviewer or `/code-review`) before its commit; ICD edits are public-PoC-adjacent — keep commits Saverio-only, no Claude trailer.
 - **Bridge ranking:** MSE/`decodebin3` requires the bridge to outrank the raw decoder (Stage-3 finding): rank `vkh265bridge` high, `vulkanh265dec`/`vulkandownload` to 0.
+- **Effort weighting (not equal):** Tasks **5, 6, 7, 10** are ~60% of the real work — the SPS/PPS/RPS translate, the full slice-segment-header parser (the contested frontier), and the iterate-until-byte-exact loop. Tasks 0–4, 11–13 are comparatively mechanical. Do not read checkbox count as progress; expect 7 and 10 to dominate wall-clock.
 
 ---
 
@@ -154,12 +155,14 @@ git commit -m "hevc: Step-0 — golden v4l2slh265dec init control sequence"
 ### Task 2: Build plumbing — copy-in HEVC sources + meson, rebuild green
 
 **Files:**
-- Create: `deploy/vulkan-v4l2-icd/hevc/v4l2vk_v4l2_hevc.c` (stub), `deploy/vulkan-v4l2-icd/hevc/v4l2vk_v4l2_hevc.h` (stub)
+- Create: `deploy/vulkan-v4l2-icd/hevc/v4l2vk_codec.h` (the shared codec enum), `deploy/vulkan-v4l2-icd/hevc/v4l2vk_v4l2_hevc.c` (stub), `deploy/vulkan-v4l2-icd/hevc/v4l2vk_v4l2_hevc.h` (stub)
 - Create: `scripts/vvtest/hevc-build.sh`
 - Modify (via patcher): the volume `meson.build` to add `v4l2vk_v4l2_hevc.c`
 
 **Interfaces:**
-- Produces: `scripts/vvtest/hevc-build.sh` — copies `deploy/vulkan-v4l2-icd/hevc/*.{c,h}` into the volume `src/vulkan-v4l2/`, applies all `scripts/vvtest/hevc-patch-*.py` patchers, runs `ninja`, repackages the `.so` to `deploy/`. Consumed by every later task.
+- Produces: `enum v4l2vk_codec { V4L2VK_CODEC_H264 = 0, V4L2VK_CODEC_H265 = 1 }` in `v4l2vk_codec.h` (H264=0 so existing zero-init paths default to H.264). Consumed by Tasks 4/8/9 — every site the spec calls "codec-branched". `scripts/vvtest/hevc-build.sh` — copies `deploy/vulkan-v4l2-icd/hevc/*.{c,h}` into the volume `src/vulkan-v4l2/`, applies all `scripts/vvtest/hevc-patch-*.py` patchers, runs `ninja`, repackages the `.so` to `deploy/`. Consumed by every later task.
+
+- [ ] **Step 0: Define the codec enum** (`v4l2vk_codec.h`): `#ifndef V4L2VK_CODEC_H ... enum v4l2vk_codec { V4L2VK_CODEC_H264 = 0, V4L2VK_CODEC_H265 = 1 }; ... #endif`. Later patchers add `#include "v4l2vk_codec.h"` to `v4l2vk_v4l2.{c,h}`, `v4l2vk_vk_video.c`, `v4l2vk_vk_device.c` and store the codec on the session struct (defaulting to `V4L2VK_CODEC_H264`).
 
 - [ ] **Step 1: Write a compiling stub** `v4l2vk_v4l2_hevc.c` + `.h` (one no-op exported fn) so meson has a target.
 
@@ -327,7 +330,7 @@ docker run --rm -v mesa-sree-tree:/work/mesa-sree rock5b-dev-serena sh -lc '
 ssh rock5b 'sed -n "/struct v4l2_ctrl_hevc_sps {/,/};/p;/struct v4l2_ctrl_hevc_pps {/,/};/p;/struct v4l2_ctrl_hevc_scaling_matrix {/,/};/p" /usr/include/linux/v4l2-controls.h'
 ```
 
-- [ ] **Step 2: Write the translators** mirroring `v4l2vk_h264_translate_sps`/`_pps`/`_scaling` (read those first: `sed -n '399,512p' v4l2vk_v4l2_h264.c`). Map every field per Step 1. `general_level_idc` uses `v4l2vk_h265_level_idc_to_raw` (mirror `v4l2vk_h264_level_idc_to_raw` at h264.c:404; HEVC enum `STD_VIDEO_H265_LEVEL_IDC_1_0=0 … `→ raw `level×30`). Scaling fills 4x4/8x8/16x16/32x32 + dc_coef_16x16/32x32.
+- [ ] **Step 2: Write the translators** mirroring `v4l2vk_h264_translate_sps`/`_pps`/`_scaling` (read those first: `sed -n '369,522p' v4l2vk_v4l2_h264.c` — this window covers `v4l2vk_h264_level_idc_to_raw` at **h264.c:369**, `translate_sps` from **390**, plus `translate_pps`/`_scaling`). Map every field per Step 1. `general_level_idc` uses `v4l2vk_h265_level_idc_to_raw` (mirror `v4l2vk_h264_level_idc_to_raw` at **h264.c:369**; HEVC enum `STD_VIDEO_H265_LEVEL_IDC_1_0=0 … `→ raw `level×30`). Scaling fills 4x4/8x8/16x16/32x32 + dc_coef_16x16/32x32.
 
 - [ ] **Step 3: Build (compile is the gate for this struct-only task)**
 
@@ -364,7 +367,7 @@ docker run --rm -v mesa-sree-tree:/work/mesa-sree rock5b-dev-serena sh -lc 'sed 
 ssh rock5b 'sed -n "/v4l2_ctrl_hevc_ext_sps_st_rps {/,/};/p;/v4l2_ctrl_hevc_ext_sps_lt_rps {/,/};/p;/v4l2_ctrl_hevc_decode_params {/,/};/p" /usr/include/linux/v4l2-controls.h'
 ```
 
-- [ ] **Step 2: Implement the remap.** ST: std `used_by_curr_pic_flag`/`_s0`/`_s1` → V4L2 `used_by_curr_pic` bitmask; std `flags.delta_rps_sign` → V4L2 standalone `delta_rps_sign`; copy `num_negative/positive_pics`, `delta_poc_s0/s1_minus1[]`, `abs_delta_rps_minus1`, `delta_idx_minus1`, `use_delta_flag`. LT: std SoA (`lt_ref_pic_poc_lsb_sps[]` + `used_by_curr_pic_lt_sps_flag` bitmask) → V4L2 AoS (one entry each). decode_params: POC, `num_active_dpb_entries`, `poc_st_curr_before/after[]`, `poc_lt_curr[]`, dpb[] (mirror `v4l2vk_h264_translate_decode_params` at h264.c:515 for the DPB pattern), flags `IRAP/IDR/NO_OUTPUT`.
+- [ ] **Step 2: Implement the remap.** ST: std `used_by_curr_pic_flag`/`_s0`/`_s1` → V4L2 `used_by_curr_pic` bitmask; std `flags.delta_rps_sign` → V4L2 standalone `delta_rps_sign`; copy `num_negative/positive_pics`, `delta_poc_s0/s1_minus1[]`, `abs_delta_rps_minus1`, `delta_idx_minus1`, `use_delta_flag`. LT: std SoA (`lt_ref_pic_poc_lsb_sps[]` + `used_by_curr_pic_lt_sps_flag` bitmask) → V4L2 AoS (one entry each). decode_params: POC, `num_active_dpb_entries`, `poc_st_curr_before/after[]`, `poc_lt_curr[]`, dpb[] (mirror `v4l2vk_h264_translate_decode_params` at **h264.c:523** for the DPB pattern), flags `IRAP/IDR/NO_OUTPUT`.
 
 - [ ] **Step 3: Build clean**
 
@@ -391,20 +394,25 @@ git commit -m "hevc: RPS (ST/LT) field-remap + decode_params translate"
 
 - [ ] **Step 1: Read the H.264 slice parser as the structural template**
 
-Run: `docker run --rm -v mesa-sree-tree:/work/mesa-sree rock5b-dev-serena sh -lc 'sed -n "140,384p;589,683p" /work/mesa-sree/mesa/src/vulkan-v4l2/v4l2vk_v4l2_h264.c'` and the H.265 spec §7.3.6.1 slice_segment_header syntax (Source `vk-khr-h265-appendix` / kernel docs).
+Run: `docker run --rm -v mesa-sree-tree:/work/mesa-sree rock5b-dev-serena sh -lc 'sed -n "140,384p;583,683p" /work/mesa-sree/mesa/src/vulkan-v4l2/v4l2vk_v4l2_h264.c'` (the `583,683` window includes the `translate_slice_params` signature at 583) and the H.265 spec §7.3.6.1 slice_segment_header syntax (Source `vk-khr-h265-appendix` / kernel docs).
 
 - [ ] **Step 2: Write the failing unit test** `test_hevc_slice_parse.c` — feed the first slice of `hevc_case1.h265` (a known IDR) and assert `slice_type == V4L2_HEVC_SLICE_TYPE_I` (2) and `slice_segment_addr == 0` and `data_byte_offset > 0`.
 
 ```c
-/* compile: cc test_hevc_slice_parse.c v4l2vk_v4l2_hevc.c -I... -o t */
+/* compile: cc test_hevc_slice_parse.c v4l2vk_v4l2_hevc.c -I<vulkan/v4l2 includes> -o t */
 #include <assert.h>
-/* load hevc_case1 first-slice bytes (embedded or read from argv[1]) */
+/* read hevc_case1.h265 from argv[1]; scan Annex-B start codes (00 00 01);
+   HEVC NAL header is 2 bytes, nal_unit_type = (nal[0] >> 1) & 0x3F;
+   first VCL slice = first NAL with type 0..31 (an IDR_W_RADL=19/IDR_N_LP=20
+   for this clip). Call v4l2vk_h265_translate_slice_params on it. */
 int main(int argc, char** argv){
-  /* ... read file, find first VCL NAL, call v4l2vk_h265_translate_slice_params ... */
+  /* ... locate first VCL NAL per the rule above; build a 1-entry slice_offsets;
+     call v4l2vk_h265_translate_slice_params(...); ... */
   /* assert sp[0].slice_type == 2 && sp[0].slice_segment_addr == 0 && sp[0].data_byte_offset > 0; */
   return 0;
 }
 ```
+(VCL-NAL detection rule is concrete above; a competent agent fills the scan loop.)
 
 - [ ] **Step 3: Run it — expect FAIL (parser empty)**
 
@@ -434,12 +442,16 @@ git commit -m "hevc: slice-segment-header parser (in-scope fields, no weighted p
 - Consumes: Task 1 (`STEP0-init-sequence.md`), Task 5/6/7 (the frame-params).
 - Produces: `set_output_format(ctx, codec)` → `V4L2_PIX_FMT_HEVC_SLICE` for HEVC; HEVC control probe flags (incl. `EXT_SPS_ST_RPS`/`LT_RPS`); `v4l2vk_v4l2_set_init_paramset(ctx, codec, ...)` (generalizes `set_init_sps`, sets the controls Step-0 found non-request at init); `v4l2vk_v4l2_set_codec_controls(ctx, fd, codec, params)` (generalizes `set_h264_controls`, builds the HEVC `v4l2_ext_control` array request-based).
 
-- [ ] **Step 1: Read the H.264 control-setting code to generalize** (`sed -n '40,110p;230,260p;461,541p' v4l2vk_v4l2.c`).
+- [ ] **Step 1: Read the H.264 control-setting code to generalize** (`sed -n '40,110p;231,310p;485,581p' v4l2vk_v4l2.c`). NOTE the corrected windows: `v4l2vk_v4l2_set_h264_controls` spans **485–581** — it must be read whole, the tail (542–581) contains the actual `VIDIOC_S_EXT_CTRLS` ioctl + return.
 - [ ] **Step 2: Write `hevc-patch-03-v4l2.py`**: add HEVC CID probes (incl. EXT_SPS), branch `set_output_format` on codec, generalize `set_init_sps`→`set_init_paramset` (per Step-0 order), generalize `set_h264_controls`→`set_codec_controls` with an HEVC arm building controls from `v4l2vk_hevc_frame_params` (SPS, PPS, SCALING if has_scaling, DECODE_PARAMS, SLICE_PARAMS, EXT_SPS_ST_RPS, EXT_SPS_LT_RPS).
 - [ ] **Step 3: Build + H.264 gate (generalized signatures must not regress H.264)**
 
 Run: `bash scripts/vvtest/hevc-build.sh && scp deploy/vulkan-v4l2-icd/libvulkan_v4l2_video.so rock5b:vvtest/ && ssh rock5b 'bash ~/vvtest/s3-multires-gate.sh'`
-Expected: H.264 all PASS.
+Expected: H.264 all PASS. **Plus a full-frame (luma+chroma) check** — this task generalizes the byte-exact control-setting function and the luma-only gate could miss a chroma regression:
+```bash
+ssh rock5b 'cd ~/vvtest && export VK_ICD_FILENAMES=$PWD/v4l2vk_icd.aarch64.json GST_PLUGIN_PATH=$PWD && rm -f ~/.cache/gstreamer-1.0/registry.aarch64.bin && gst-launch-1.0 filesrc location=case1.h264 ! h264parse ! vkh264bridge ! filesink location=/tmp/c1.nv12 >/dev/null 2>&1 && head -c 1382400 /tmp/c1.nv12 > /tmp/c1_f0.nv12 && python3 nv12_tool.py compare --a ref_f0.nv12 --b /tmp/c1_f0.nv12 | grep byte_exact'
+```
+Expected: `byte_exact: True`.
 - [ ] **Step 4: Review + commit**
 
 ```bash
@@ -506,13 +518,13 @@ git commit -m "hevc: control payloads byte-match v4l2slh265dec golden"
 ### Task 11: gstvkh265bridge
 
 **Files:**
-- Create: `deploy/vulkan-v4l2-icd/hevc/gstvkh265bridge.c` (+ a tracked copy for the repo), Makefile entry
+- Create: `deploy/vulkan-v4l2-icd/hevc/gstvkh265bridge.c` (the tracked source; the repo copy IS this file)
 
 **Interfaces:**
 - Produces: a GstBin `vkh265bridge` wrapping `vulkanh265dec ! vulkandownload`, sink caps `video/x-h265`, src `video/x-raw` NV12 system-mem, rank 258. Mirror `scripts/vvtest/gstvkh264bridge.c` (swap element name + sink caps + the `plugin_init` guard on `libgstvulkan.so`).
 
-- [ ] **Step 1: Read `gstvkh264bridge.c`** and copy it to `gstvkh265bridge.c`, changing: element factory `vulkanh264dec`→`vulkanh265dec`, sink caps `video/x-h264`→`video/x-h265`, names `vkh264bridge`→`vkh265bridge`.
-- [ ] **Step 2: Build the plugin** (mirror the H264 bridge build), deploy to `~/vvtest`.
+- [ ] **Step 1: Read `scripts/vvtest/gstvkh264bridge.c`** and copy it to `gstvkh265bridge.c`, changing: element factory `vulkanh264dec`→`vulkanh265dec`; sink caps `video/x-h264, stream-format={byte-stream,avc,avc3}` → `video/x-h265, stream-format={hvc1,hev1,byte-stream}`; names `vkh264bridge`→`vkh265bridge`.
+- [ ] **Step 2: Build the plugin** using the gcc one-liner documented in `gstvkh264bridge.c` (lines 8–11): `gcc -shared -fPIC -O2 -o libgstvkh265bridge.so gstvkh265bridge.c $(pkg-config --cflags --libs gstreamer-1.0 gstreamer-base-1.0)`; deploy `libgstvkh265bridge.so` to `~/vvtest`.
 - [ ] **Step 3: Test — `gst-inspect` shows the bridge at rank 258**
 
 Run: `ssh rock5b 'cd ~/vvtest && export GST_PLUGIN_PATH=$PWD && gst-inspect-1.0 vkh265bridge | grep -i rank'`
@@ -535,7 +547,7 @@ git commit -m "hevc: gstvkh265bridge (vulkanh265dec+vulkandownload, NV12, rank 2
 - Consumes: all prior tasks. Produces: the integration proof — HEVC byte-exact vs ffmpeg across the DoD corpus.
 
 - [ ] **Step 1: Build the DoD corpus on the SBC** — clips that exercise the parser, not just geometry: 1280×720 (control), 640×360 (cropped, exercises the Stage-3 stride path for HEVC too), 1920×1080; each in an **I-only**, a **P** (`bframes=0`), and a **B** (`bframes=3`) variant; and a **≥2-ST-RPS** variant (longer GOP). All `weightp=0:weightb=0`.
-- [ ] **Step 2: Write `hevc-gate.sh`** — for each clip: `filesrc ! h265parse ! vkh265bridge ! filesink` NV12 vs `ffmpeg -i clip -pix_fmt nv12`; compare full-frame (luma+chroma) frame-0 with `nv12_tool.py compare`; report PASS/FAIL per clip.
+- [ ] **Step 2: Write `hevc-gate.sh`** — for each clip: `filesrc ! h265parse ! vkh265bridge ! filesink` NV12 vs `ffmpeg -i clip -pix_fmt nv12`. `nv12_tool.py compare` takes `--a --b` and compares whole files byte-for-byte, so **cut exactly one full NV12 frame from each side first** (`head -c $((W*H*3/2))`) then `python3 nv12_tool.py compare --a ref_f0 --b out_f0`. This is full-frame (luma+chroma) — a higher bar than the luma-only H.264 `s3-multires-gate.sh`. Report PASS/FAIL per clip.
 - [ ] **Step 3: Run — expect all PASS**
 
 Run: `scp scripts/vvtest/hevc-gate.sh rock5b:vvtest/ && ssh rock5b 'bash ~/vvtest/hevc-gate.sh'`
