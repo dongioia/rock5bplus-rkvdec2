@@ -1,16 +1,21 @@
 /* SPDX-License-Identifier: MIT */
 /*
- * HEVC V4L2 stateless translate — SPS/PPS/scaling struct->struct translators.
+ * HEVC V4L2 stateless translate — SPS/PPS/scaling struct->struct translators
+ * plus ST/LT RPS remap and decode_params translator.
  *
  * Task 5: level_idc_to_raw + translate_sps/pps/scaling.
+ * Task 6: translate_st_rps + translate_lt_rps + translate_decode_params.
+ *
  * Per-field byte correctness validated in Task 10 via strace-diff against
  * golden v4l2slh265dec trace.
  *
  * Field mapping reference:
  *   Vulkan side: mesa/include/vk_video/vulkan_video_codec_h265std.h
+ *                mesa/include/vk_video/vulkan_video_codec_h265std_decode.h
  *   V4L2 side:   /usr/include/linux/v4l2-controls.h (kernel 7.x)
  */
 #include "v4l2vk_v4l2_hevc.h"
+#include "v4l2vk_dpb.h"
 
 #include <string.h>
 
@@ -365,4 +370,317 @@ v4l2vk_h265_translate_scaling(const StdVideoH265ScalingLists *vk,
    /* DC coefficients */
    memcpy(out->scaling_list_dc_coef_16x16, vk->ScalingListDCCoef16x16, 6);
    memcpy(out->scaling_list_dc_coef_32x32, vk->ScalingListDCCoef32x32, 2);
+}
+
+/* -------------------------------------------------------------------------
+ * Short-term RPS translation
+ *
+ * Vulkan std layout (StdVideoH265ShortTermRefPicSet):
+ *   flags.inter_ref_pic_set_prediction_flag   : 1
+ *   flags.delta_rps_sign                      : 1  (standalone in V4L2)
+ *   delta_idx_minus1                          : u32 -> u8
+ *   use_delta_flag                            : u16 bitmask
+ *   abs_delta_rps_minus1                      : u16
+ *   used_by_curr_pic_flag                     : u16 (all-list bitmask, NOT used by V4L2)
+ *   used_by_curr_pic_s0_flag                  : u16 (negative-list bitmask)
+ *   used_by_curr_pic_s1_flag                  : u16 (positive-list bitmask)
+ *   num_negative_pics                         : u8
+ *   num_positive_pics                         : u8
+ *   delta_poc_s0_minus1[STD_VIDEO_H265_MAX_DPB_SIZE=16]  : u16[]
+ *   delta_poc_s1_minus1[STD_VIDEO_H265_MAX_DPB_SIZE=16]  : u16[]
+ *
+ * V4L2 layout (struct v4l2_ctrl_hevc_ext_sps_st_rps):
+ *   delta_idx_minus1                          : u8
+ *   delta_rps_sign                            : u8  (from flags.delta_rps_sign)
+ *   num_negative_pics                         : u8
+ *   num_positive_pics                         : u8
+ *   used_by_curr_pic                          : u32 bitmask
+ *     bits [0..num_negative_pics-1]           : from used_by_curr_pic_s0_flag
+ *     bits [num_negative_pics..num_negative_pics+num_positive_pics-1]: from used_by_curr_pic_s1_flag
+ *   use_delta_flag                            : u32 (from std u16, widened)
+ *   abs_delta_rps_minus1                      : u16
+ *   delta_poc_s0_minus1[16]                   : u16[] (max 16 entries)
+ *   delta_poc_s1_minus1[16]                   : u16[] (max 16 entries)
+ *   flags                                     : u16 (V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_INTER_REF_PIC_SET_PRED)
+ *
+ * Key delta (reason remap is NOT a memcpy):
+ *   std splits used_by_curr_pic into _s0_flag (negative list) and _s1_flag (positive list);
+ *   V4L2 merges them into a single bitmask: bits 0..N0-1 are s0, bits N0..N0+N1-1 are s1.
+ *   std flags.delta_rps_sign is a bitfield in a flags struct; V4L2 exposes it as a standalone u8.
+ *
+ * Array bounds:
+ *   STD_VIDEO_H265_MAX_DPB_SIZE = 16, V4L2 array size = 16.
+ *   Loop counts are clamped to min(num_*_pics, 16) on BOTH sides.
+ *
+ * UNCERTAIN (Task 10):
+ *   delta_idx_minus1: std is u32, V4L2 is u8. Spec says value 0..64; truncation safe
+ *   for valid streams but silently wrong for malformed ones.
+ * -------------------------------------------------------------------------
+ */
+uint32_t
+v4l2vk_h265_translate_st_rps(const StdVideoH265ShortTermRefPicSet *vk,
+                              uint32_t count,
+                              struct v4l2_ctrl_hevc_ext_sps_st_rps *out)
+{
+   /* Cap to V4L2 array capacity (64 per spec, frame_params holds 64) */
+   if (count > 64)
+      count = 64;
+
+   for (uint32_t s = 0; s < count; s++) {
+      const StdVideoH265ShortTermRefPicSet *src = &vk[s];
+      struct v4l2_ctrl_hevc_ext_sps_st_rps *dst = &out[s];
+
+      memset(dst, 0, sizeof(*dst));
+
+      /* Scalar fields */
+      dst->delta_idx_minus1   = (uint8_t)src->delta_idx_minus1;
+      dst->delta_rps_sign     = src->flags.delta_rps_sign ? 1 : 0;
+      dst->num_negative_pics  = src->num_negative_pics;
+      dst->num_positive_pics  = src->num_positive_pics;
+      dst->abs_delta_rps_minus1 = src->abs_delta_rps_minus1;
+
+      /* use_delta_flag: std u16 -> V4L2 u32 (widened, no sign extension) */
+      dst->use_delta_flag = (uint32_t)src->use_delta_flag;
+
+      /*
+       * used_by_curr_pic: merge s0 (negative) and s1 (positive) bitmasks.
+       * Bits [0..num_negative_pics-1]                        from s0_flag bit i.
+       * Bits [num_negative_pics..num_negative_pics+num_positive_pics-1] from s1_flag bit i.
+       *
+       * std fields are u16; max pics per direction = 15 (spec), so 16 bits suffice.
+       */
+      {
+         uint32_t used = 0;
+         uint8_t n0 = src->num_negative_pics;
+         uint8_t n1 = src->num_positive_pics;
+
+         /* clamp to 16 so we stay within the u16 source bitmasks */
+         if (n0 > 16) n0 = 16;
+         if (n1 > 16) n1 = 16;
+
+         for (uint8_t i = 0; i < n0; i++) {
+            if (src->used_by_curr_pic_s0_flag & (1u << i))
+               used |= (1u << i);
+         }
+         for (uint8_t i = 0; i < n1; i++) {
+            if (src->used_by_curr_pic_s1_flag & (1u << i))
+               used |= (1u << (n0 + i));
+         }
+         dst->used_by_curr_pic = used;
+      }
+
+      /*
+       * delta_poc_s0/s1_minus1: copy up to min(num_*_pics, 16) entries.
+       * STD_VIDEO_H265_MAX_DPB_SIZE = 16 = V4L2 array size; clamp is for
+       * corrupt/malformed streams that might set a larger count.
+       */
+      {
+         uint8_t n0 = src->num_negative_pics < 16 ? src->num_negative_pics : 16;
+         uint8_t n1 = src->num_positive_pics < 16 ? src->num_positive_pics : 16;
+
+         for (uint8_t i = 0; i < n0; i++)
+            dst->delta_poc_s0_minus1[i] = src->delta_poc_s0_minus1[i];
+         for (uint8_t i = 0; i < n1; i++)
+            dst->delta_poc_s1_minus1[i] = src->delta_poc_s1_minus1[i];
+      }
+
+      /* flags: inter_ref_pic_set_prediction_flag -> bit 0 */
+      if (src->flags.inter_ref_pic_set_prediction_flag)
+         dst->flags |= V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_INTER_REF_PIC_SET_PRED;
+   }
+
+   return count;
+}
+
+/* -------------------------------------------------------------------------
+ * Long-term RPS translation
+ *
+ * Vulkan std layout (StdVideoH265LongTermRefPicsSps) — struct-of-arrays:
+ *   used_by_curr_pic_lt_sps_flag      : u32 bitmask, bit i = used by current pic
+ *   lt_ref_pic_poc_lsb_sps[32]        : u32[] (poc LSB values)
+ *
+ *   (num_long_term_ref_pics_sps in the outer SPS struct gives the count)
+ *
+ * V4L2 layout (struct v4l2_ctrl_hevc_ext_sps_lt_rps) — array-of-structs,
+ * one element per LT reference:
+ *   lt_ref_pic_poc_lsb_sps            : u16 (lower 16 bits of std u32 value)
+ *   flags                             : u16 (V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT = 0x1)
+ *
+ * Key delta (reason remap is NOT a memcpy):
+ *   std uses SoA (parallel arrays + one bitmask);
+ *   V4L2 uses AoS (one struct per entry, bitmask bit -> per-entry flag).
+ *
+ * Array bounds:
+ *   std lt_ref_pic_poc_lsb_sps[STD_VIDEO_H265_MAX_LONG_TERM_REF_PICS_SPS=32]
+ *   std used_by_curr_pic_lt_sps_flag is a u32 bitmask (32 bits = 32 entries max)
+ *   count is clamped to min(count, 32) on both sides.
+ *
+ * UNCERTAIN (Task 10):
+ *   lt_ref_pic_poc_lsb_sps: std u32 -> V4L2 u16.  The POC LSB for LT refs is
+ *   bounded by MaxPicOrderCntLsb (= 2^(log2_max_pic_order_cnt_lsb_minus4+4)).
+ *   For log2_max+4 <= 16, value fits in u16.  For log2_max+4 > 16 (uncommon),
+ *   the upper bits are silently lost.  Flag for Task 10.
+ * -------------------------------------------------------------------------
+ */
+uint32_t
+v4l2vk_h265_translate_lt_rps(const StdVideoH265LongTermRefPicsSps *vk,
+                              uint32_t count,
+                              struct v4l2_ctrl_hevc_ext_sps_lt_rps *out)
+{
+   if (!vk)
+      return 0;
+
+   /* Cap to u32 bitmask capacity and std array size */
+   if (count > 32)
+      count = 32;
+
+   for (uint32_t i = 0; i < count; i++) {
+      memset(&out[i], 0, sizeof(out[i]));
+
+      /* SoA -> AoS: pick element i from the poc_lsb array */
+      out[i].lt_ref_pic_poc_lsb_sps = (uint16_t)vk->lt_ref_pic_poc_lsb_sps[i];
+
+      /* Bit i of the bitmask -> per-entry USED_LT flag */
+      if (vk->used_by_curr_pic_lt_sps_flag & (1u << i))
+         out[i].flags |= V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT;
+   }
+
+   return count;
+}
+
+/* -------------------------------------------------------------------------
+ * Decode params translation
+ *
+ * Fills struct v4l2_ctrl_hevc_decode_params for one HEVC frame.
+ *
+ * Field mapping (StdVideoDecodeH265PictureInfo -> v4l2_ctrl_hevc_decode_params):
+ *
+ *  vk_pic->PicOrderCntVal                     -> out->pic_order_cnt_val
+ *  vk_pic->NumDeltaPocsOfRefRpsIdx            -> out->num_delta_pocs_of_ref_rps_idx
+ *  vk_pic->NumBitsForSTRefPicSetInSlice       -> out->short_term_ref_pic_set_size
+ *    (same field, renamed in V4L2 to short_term_ref_pic_set_size)
+ *  out->long_term_ref_pic_set_size            -> 0 (no direct std source; UNCERTAIN)
+ *  out->num_active_dpb_entries                -> dpb_count (clamped to 16)
+ *
+ *  DPB: v4l2vk_dpb_entry -> v4l2_hevc_dpb_entry
+ *    dpb[i].reference_ts        -> dpb[i].timestamp
+ *    dpb[i].ref.PicOrderCnt[0] -> dpb[i].pic_order_cnt_val  (UNCERTAIN: H264 field used
+ *                                   as HEVC poc proxy; no HEVC-specific poc in dpb_entry)
+ *    (always)                   -> flags = V4L2_HEVC_DPB_ENTRY_LONG_TERM_REFERENCE set
+ *                                   if ref.flags.used_for_long_term_reference
+ *    field_pic                  -> 0 (frame-based decode)
+ *
+ *  RefPicSet index lists (V4L2 poc_*_curr[] hold DPB *slot indices*):
+ *    vk_pic->RefPicSetStCurrBefore[i] (0xFF = invalid) -> poc_st_curr_before[i]
+ *    vk_pic->RefPicSetStCurrAfter[i]                   -> poc_st_curr_after[i]
+ *    vk_pic->RefPicSetLtCurr[i]                        -> poc_lt_curr[i]
+ *    STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE = 8 (both sides)
+ *    V4L2_HEVC_DPB_ENTRIES_NUM_MAX = 16 (output array size; first 8 are used)
+ *
+ *  Flags:
+ *    vk_pic->flags.IrapPicFlag -> V4L2_HEVC_DECODE_PARAM_FLAG_IRAP_PIC
+ *    vk_pic->flags.IdrPicFlag  -> V4L2_HEVC_DECODE_PARAM_FLAG_IDR_PIC
+ *    V4L2_HEVC_DECODE_PARAM_FLAG_NO_OUTPUT_OF_PRIOR -> 0 (no source in std pic info)
+ *
+ * Array bounds:
+ *   poc_*_curr[] arrays: std size = 8 (STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE),
+ *   V4L2 array size = 16 (V4L2_HEVC_DPB_ENTRIES_NUM_MAX). Copy exactly 8 entries.
+ *   DPB: std size = V4L2VK_MAX_DPB_SLOTS = 16, V4L2 = 16. Clamp dpb_count to 16.
+ *
+ * UNCERTAIN (Task 10):
+ *   - poc_st_curr_before/after/lt_curr: V4L2 expects DPB slot indices
+ *     (0..num_active_dpb_entries-1); std RefPicSet*[] hold DPB slot indices
+ *     via the Vulkan slot numbering. Mapping should be 1:1 if slot_index ==
+ *     V4L2 DPB array index, but golden strace-diff will verify.
+ *   - dpb[i].pic_order_cnt_val: using ref.PicOrderCnt[0] (H264 field) as
+ *     HEVC POC proxy. Correct only if the DPB entry was populated with the
+ *     matching HEVC POC; no HEVC-specific field exists in v4l2vk_dpb_entry.
+ *   - long_term_ref_pic_set_size: set to 0 (no source in std PictureInfo).
+ * -------------------------------------------------------------------------
+ */
+void
+v4l2vk_h265_translate_decode_params(
+   const StdVideoDecodeH265PictureInfo *vk_pic,
+   const struct v4l2vk_dpb_entry *dpb,
+   uint32_t dpb_count,
+   struct v4l2_ctrl_hevc_decode_params *out)
+{
+   memset(out, 0, sizeof(*out));
+
+   if (!vk_pic)
+      return;
+
+   /* Current picture POC and metadata */
+   out->pic_order_cnt_val              = vk_pic->PicOrderCntVal;
+   out->num_delta_pocs_of_ref_rps_idx = vk_pic->NumDeltaPocsOfRefRpsIdx;
+
+   /*
+    * short_term_ref_pic_set_size: V4L2 name for NumBitsForSTRefPicSetInSlice.
+    * long_term_ref_pic_set_size: no matching field in StdVideoDecodeH265PictureInfo;
+    * left zero (UNCERTAIN — Task 10 will reveal if kernel needs this).
+    */
+   out->short_term_ref_pic_set_size = vk_pic->NumBitsForSTRefPicSetInSlice;
+   out->long_term_ref_pic_set_size  = 0;
+
+   /* DPB entries */
+   if (dpb && dpb_count > 0) {
+      if (dpb_count > V4L2_HEVC_DPB_ENTRIES_NUM_MAX)
+         dpb_count = V4L2_HEVC_DPB_ENTRIES_NUM_MAX;
+
+      out->num_active_dpb_entries = (uint8_t)dpb_count;
+
+      for (uint32_t i = 0; i < dpb_count; i++) {
+         struct v4l2_hevc_dpb_entry *d = &out->dpb[i];
+
+         d->timestamp         = dpb[i].reference_ts;
+         /*
+          * UNCERTAIN: ref.PicOrderCnt[0] is a H264 field (TopFieldOrderCnt).
+          * Used as HEVC poc proxy since v4l2vk_dpb_entry has no HEVC-specific
+          * PicOrderCntVal field. Task 10 strace-diff will verify.
+          */
+         d->pic_order_cnt_val = dpb[i].ref.PicOrderCnt[0];
+         d->field_pic         = 0; /* frame-based decode */
+         d->reserved          = 0;
+         d->flags             = 0;
+
+         if (dpb[i].ref.flags.used_for_long_term_reference)
+            d->flags |= V4L2_HEVC_DPB_ENTRY_LONG_TERM_REFERENCE;
+      }
+   }
+
+   /*
+    * RefPicSet current lists: Vulkan slot indices for ST/LT current references.
+    * STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE = 8.
+    * V4L2 arrays are V4L2_HEVC_DPB_ENTRIES_NUM_MAX = 16; copy the 8 std entries.
+    * 0xFF in std = "not present" (same sentinel value used by V4L2).
+    */
+   out->num_poc_st_curr_before = 0;
+   out->num_poc_st_curr_after  = 0;
+   out->num_poc_lt_curr        = 0;
+
+   for (uint32_t i = 0; i < STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE; i++) {
+      uint8_t idx;
+
+      idx = vk_pic->RefPicSetStCurrBefore[i];
+      out->poc_st_curr_before[i] = idx;
+      if (idx != 0xFF)
+         out->num_poc_st_curr_before = (uint8_t)(i + 1);
+
+      idx = vk_pic->RefPicSetStCurrAfter[i];
+      out->poc_st_curr_after[i] = idx;
+      if (idx != 0xFF)
+         out->num_poc_st_curr_after = (uint8_t)(i + 1);
+
+      idx = vk_pic->RefPicSetLtCurr[i];
+      out->poc_lt_curr[i] = idx;
+      if (idx != 0xFF)
+         out->num_poc_lt_curr = (uint8_t)(i + 1);
+   }
+
+   /* Decode flags */
+   if (vk_pic->flags.IrapPicFlag)
+      out->flags |= V4L2_HEVC_DECODE_PARAM_FLAG_IRAP_PIC;
+   if (vk_pic->flags.IdrPicFlag)
+      out->flags |= V4L2_HEVC_DECODE_PARAM_FLAG_IDR_PIC;
+   /* V4L2_HEVC_DECODE_PARAM_FLAG_NO_OUTPUT_OF_PRIOR: no source in std PictureInfo */
 }
