@@ -1021,11 +1021,14 @@ v4l2vk_h265_translate_slice_params(const uint8_t *bitstream, size_t size,
                   o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_CABAC_INIT;
 
             if (temporal_mvp) {
-               /* collocated_from_l0_flag: present for P and B when
-                * slice_temporal_mvp_enabled_flag (slice_type != I). Default 1
-                * when absent. collocated_ref_idx follows only when the chosen
-                * list has more than one active reference. */
-               uint32_t collocated_from_l0 = br_read_bit(&br);
+               /* collocated_from_l0_flag: H.265 §7.3.6.1 — present ONLY
+                * when slice_type == B (raw==0). For P slices it is inferred
+                * as 1 (absent from the bitstream). Reading it unconditionally
+                * for P slices steals a bit from the next syntax element and
+                * desyncs num_entry_point_offsets and everything after. */
+               uint32_t collocated_from_l0 = 1; /* inferred default (P) */
+               if (slice_type_raw == 0)          /* B only — §7.3.6.1 */
+                  collocated_from_l0 = br_read_bit(&br);
                if (collocated_from_l0)
                   o->flags |=
                      V4L2_HEVC_SLICE_PARAMS_FLAG_COLLOCATED_FROM_L0;

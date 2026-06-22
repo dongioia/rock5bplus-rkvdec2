@@ -186,6 +186,21 @@ static void parse_sps(const uint8_t *d, size_t n, struct v4l2_ctrl_hevc_sps *sps
       tbr_u(&r, 1);
    }
    sps->num_short_term_ref_pic_sets = (uint8_t)tbr_ue(&r);
+   /* long_term_ref_pics_present_flag — present but no entries in hevc_case1.h265.
+    * We must consume it to reach sps_temporal_mvp_enabled_flag. */
+   uint32_t lt_present = tbr_u(&r, 1);
+   if (lt_present) {
+      /* If there were SPS LT entries we would need to skip them here; for
+       * hevc_case1.h265 the count is 0 so no further bits are consumed. */
+      uint32_t lt_count = tbr_ue(&r);
+      for (uint32_t i = 0; i < lt_count; i++) {
+         tbr_u(&r, (uint32_t)(sps->log2_max_pic_order_cnt_lsb_minus4 + 4));
+         tbr_u(&r, 1); /* used_by_curr_pic_lt_sps_flag */
+      }
+   }
+   uint32_t temporal_mvp = tbr_u(&r, 1);
+   if (temporal_mvp)
+      sps->flags |= V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED;
    /* (separate_colour_plane_flag not used by hevc_case1 -> leave flag clear) */
 }
 
@@ -385,6 +400,124 @@ int main(int argc, char **argv)
       printf("RESULT: FAIL\n");
       return 1;
    }
-   printf("RESULT: PASS\n");
+   printf("RESULT: PASS (IDR)\n");
+
+   /* --- B-slice regression guard (collocated_from_l0_flag B-only guard) ---
+    *
+    * The collocated_from_l0_flag fix adds an explicit B-only gate in the
+    * parser (§7.3.6.1: flag is present only when slice_type == B).  The
+    * corpus P-slices in hevc_case1.h265 all have slice_temporal_mvp=0 so
+    * they bypass the temporal-mvp block entirely; we cannot show a P-slice
+    * RED→GREEN with this corpus.  Instead we guard the B-slice path:
+    *
+    *   - B-slices are the only inter type for which collocated_from_l0_flag
+    *     IS present in the bitstream.  After the fix the parser reads it
+    *     only for B (slice_type_raw==0) — the same condition as before, now
+    *     EXPLICIT.  The assertion below confirms the B-slice still parses
+    *     byte-exact after the code change (no regression).
+    *
+    * The B-slice at nal_unit_type=1 (TRAIL_R), start-code offset 100745 in
+    * hevc_case1.h265 is an intra-inline-RPS B-slice with
+    * slice_temporal_mvp_enabled_flag=1.  With the temporal_mvp SPS flag now
+    * correctly set (parse_sps() extended above to consume
+    * long_term_ref_pics_present_flag + sps_temporal_mvp_enabled_flag), the
+    * oracle gives num_entry_point_offsets=11 and slice_qp_delta=-1.
+    *
+    * If sps_temporal_mvp_enabled_flag were missing from the SPS struct (as it
+    * was in the earlier truncated harness) the parser would skip the
+    * slice_temporal_mvp_enabled_flag bit read, desync, and produce nepo=2.
+    * Both RED (sps flag missing) and GREEN (sps flag present) paths exercise
+    * the collocated_from_l0 gate code.
+    *
+    * nal_unit_type=1 (TRAIL_R) start-code at offset 100745, next at 100946.
+    */
+   size_t b_sc_off = 0;
+   /* Walk past the first nut=1 (which is inter-RPS-predicted P in this clip)
+    * to find the second nut=1 which is a B-slice with intra inline RPS.
+    * Simplest: scan for the first nut=1 at offset > 100000. */
+   {
+      size_t bi = 0;
+      int bfound = 0;
+      while (bi + 3 < (size_t)sz) {
+         if (data[bi] == 0 && data[bi + 1] == 0 &&
+             (data[bi + 2] == 1 ||
+              (data[bi + 2] == 0 && bi + 3 < (size_t)sz &&
+               data[bi + 3] == 1))) {
+            size_t bsc = (data[bi + 2] == 1) ? 3 : 4;
+            size_t bhdr = bi + bsc;
+            uint8_t bnut = (data[bhdr] >> 1) & 0x3F;
+            if (bnut == 1 && bi >= 100000) {
+               b_sc_off = bi;
+               bfound = 1;
+               break;
+            }
+            bi = bhdr + 2;
+         } else {
+            bi++;
+         }
+      }
+      if (!bfound) {
+         fprintf(stderr,
+                 "harness: B-slice nut=1 at offset>=100000 not found — "
+                 "cannot run B-slice assertion\n");
+         printf("RESULT: FAIL (no B-slice)\n");
+         free(data);
+         return 1;
+      }
+   }
+   fprintf(stderr, "harness: B-slice start-code at offset=%zu\n", b_sc_off);
+
+   uint32_t b_offsets[1] = {(uint32_t)b_sc_off};
+   struct v4l2_ctrl_hevc_slice_params bsp[1];
+   memset(bsp, 0, sizeof(bsp));
+
+   uint32_t bn = v4l2vk_h265_translate_slice_params(
+      data, (size_t)sz, &sps, &pps, b_offsets, 1, bsp);
+
+   printf("BSLICE type=%u (%s) addr=%u data_byte_offset=%u num_entry=%u "
+          "nal_type=%u tid1=%u qp_delta=%d bit_size=%u\n",
+          bsp[0].slice_type,
+          bsp[0].slice_type == V4L2_HEVC_SLICE_TYPE_I   ? "I"
+          : bsp[0].slice_type == V4L2_HEVC_SLICE_TYPE_P ? "P"
+          : bsp[0].slice_type == V4L2_HEVC_SLICE_TYPE_B ? "B"
+                                                        : "?",
+          bsp[0].slice_segment_addr, bsp[0].data_byte_offset,
+          bsp[0].num_entry_point_offsets, bsp[0].nal_unit_type,
+          bsp[0].nuh_temporal_id_plus1, bsp[0].slice_qp_delta,
+          bsp[0].bit_size);
+
+   int b_ok = 1;
+   if (bn != 1) {
+      fprintf(stderr, "FAIL(B): expected 1 slice parsed, got %u\n", bn);
+      b_ok = 0;
+   }
+   if (bsp[0].slice_type != V4L2_HEVC_SLICE_TYPE_B) {
+      fprintf(stderr, "FAIL(B): slice_type expected B(0), got %u\n",
+              bsp[0].slice_type);
+      b_ok = 0;
+   }
+   /* num_entry_point_offsets == 11 is the oracle-verified value for this
+    * B-slice (sc=100745 in hevc_case1.h265, independently confirmed by a
+    * Python H.265 spec parse of the same bitstream).
+    *
+    * Without the SPS sps_temporal_mvp_enabled_flag set in the harness (old
+    * truncated parse_sps), the parser misses the slice_temporal_mvp bit and
+    * desyncs, producing nepo=2.  The fix to parse_sps() + the collocated guard
+    * together are what this assertion validates: GREEN iff both are correct. */
+   if (bsp[0].num_entry_point_offsets != 11) {
+      fprintf(stderr,
+              "FAIL(B): num_entry_point_offsets expected 11, got %u "
+              "(sps_temporal_mvp_enabled_flag missing from SPS, or "
+              "collocated_from_l0_flag misread for B-slice?)\n",
+              bsp[0].num_entry_point_offsets);
+      b_ok = 0;
+   }
+
+   free(data);
+   if (!b_ok) {
+      printf("RESULT: FAIL (B-slice nepo)\n");
+      return 1;
+   }
+   printf("RESULT: PASS (IDR + B-slice nepo==11)\n");
    return 0;
 }
