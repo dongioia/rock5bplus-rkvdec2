@@ -1,0 +1,21 @@
+--- a/src/vulkan-v4l2/v4l2vk_vk_device.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_device.c
+@@ -280,7 +280,17 @@
+ 
+    const uint32_t img_width = image->ci.extent.width;
+    const uint32_t img_height = image->ci.extent.height;
+-   const uint32_t stride = v4l2vk_align_u32(img_width, 256u);
++   /* S3 fix: readback row stride MUST match the layout the frame was
++    * created and memcpy'd with (CreateImage NV12 + decode bulk copy use
++    * align16(width) = the V4L2 CAPTURE bytesperline).  Recover it from the
++    * stored plane-1 offset so it is correct for any width-alignment rule;
++    * the old align256(width) only matched at 256-multiple widths (1280) and
++    * drifted by (align256(w)-w) bytes/row otherwise (e.g. 768-640=128). */
++   const uint32_t h_aligned = v4l2vk_align_u32(img_height, 16u);
++   const uint32_t stride =
++      (image->plane_count > 1 && h_aligned)
++         ? (uint32_t)(image->planes[1].offset / h_aligned)
++         : v4l2vk_align_u32(img_width, 16u);
+    const uint32_t uv_height = (img_height + 1u) / 2u;
+    const uint64_t layer_size = (uint64_t)stride * (img_height + uv_height);
+ 
