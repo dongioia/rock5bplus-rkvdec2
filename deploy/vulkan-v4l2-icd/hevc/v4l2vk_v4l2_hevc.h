@@ -10,6 +10,7 @@
 #define V4L2VK_V4L2_HEVC_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Bring in ext_compat first (vendored EXT_SPS RPS structs for older kernels) */
@@ -146,5 +147,46 @@ void v4l2vk_h265_translate_decode_params(
    const struct v4l2vk_dpb_entry *dpb,
    uint32_t dpb_count,
    struct v4l2_ctrl_hevc_decode_params *out);
+
+/**
+ * v4l2vk_h265_translate_slice_params - parse each HEVC slice-segment header
+ * from the raw Annex-B bitstream into struct v4l2_ctrl_hevc_slice_params.
+ *
+ * The Vulkan Video H.265 *decode* std structs do NOT carry the per-slice
+ * header syntax (slice_type, addr, QP deltas, SAO/deblock flags, entry-point
+ * count, data_byte_offset, ...), so the V4L2 stateless rkvdec driver requires
+ * us to parse them out of the slice NAL ourselves. This walks
+ * slice_segment_header() per H.265 §7.3.6.1, gated by the SPS and PPS fields
+ * that were already translated by translate_sps/pps.
+ *
+ * @bitstream:     full Annex-B frame buffer (one access unit; may hold VPS/SPS/
+ *                 PPS/SEI NALs ahead of the slices).
+ * @size:          length of @bitstream in bytes.
+ * @sps:           translated SPS (gates: separate_colour_plane, SAO,
+ *                 num_short_term_ref_pic_sets, log2_max_pic_order_cnt_lsb,
+ *                 temporal MVP).
+ * @pps:           translated PPS (gates: dependent_slice_segments, output_flag,
+ *                 num_extra_slice_header_bits, cabac_init, weighted_pred/bipred,
+ *                 tiles, entropy_coding_sync, deblocking control, lists_mod).
+ * @slice_offsets: array of @slice_count byte offsets, each pointing at the
+ *                 Annex-B start code (00 00 01 / 00 00 00 01) preceding a slice
+ *                 segment NAL.
+ * @slice_count:   number of slice segments (clamped to 16 — array bound of
+ *                 struct v4l2vk_hevc_frame_params::slice_params[]).
+ * @out:           output array of at least min(@slice_count, 16) elements.
+ *
+ * Returns the number of slice headers parsed and written (= min(slice_count,16)).
+ *
+ * WEIGHTED PREDICTION IS OUT OF SCOPE: pred_weight_table() is never parsed;
+ * the parser stops the inter-prediction path at the PPS weighted_pred /
+ * weighted_bipred gate (both 0 for the in-scope clips, so the syntax element
+ * is absent per H.265 §7.3.6.1).
+ */
+uint32_t v4l2vk_h265_translate_slice_params(
+   const uint8_t *bitstream, size_t size,
+   const struct v4l2_ctrl_hevc_sps *sps,
+   const struct v4l2_ctrl_hevc_pps *pps,
+   const uint32_t *slice_offsets, uint32_t slice_count,
+   struct v4l2_ctrl_hevc_slice_params *out);
 
 #endif /* V4L2VK_V4L2_HEVC_H */

@@ -16,7 +16,9 @@
  */
 #include "v4l2vk_v4l2_hevc.h"
 #include "v4l2vk_dpb.h"
+#include "v4l2vk_bitreader.h"
 
+#include <stdio.h>
 #include <string.h>
 
 /* -------------------------------------------------------------------------
@@ -683,4 +685,522 @@ v4l2vk_h265_translate_decode_params(
    if (vk_pic->flags.IdrPicFlag)
       out->flags |= V4L2_HEVC_DECODE_PARAM_FLAG_IDR_PIC;
    /* V4L2_HEVC_DECODE_PARAM_FLAG_NO_OUTPUT_OF_PRIOR: no source in std PictureInfo */
+}
+
+/* -------------------------------------------------------------------------
+ * Slice-segment-header parser (the in-driver bitstream parse)
+ *
+ * Walks slice_segment_header() per ITU-T H.265 §7.3.6.1 for each slice NAL
+ * and fills struct v4l2_ctrl_hevc_slice_params with the ~20 fields that the
+ * Vulkan Video H.265 *decode* std structs do NOT carry. Gated by SPS/PPS.
+ *
+ * Bitstream model: parses over the raw Annex-B (EBSP) bytes via the shared
+ * v4l2vk_bitreader (same as the H.264 sibling). The reader does NOT strip
+ * emulation-prevention bytes (00 00 03). For the in-scope clips the slice
+ * *header* region carries no EPB, so EBSP and RBSP coincide there and the
+ * parsed values + byte offsets are exact. A header that itself contains an
+ * EPB before slice data is OUT OF SCOPE (mirrors the H.264 path's constraint).
+ *
+ * NOT parsed (out of scope, asserted-absent for in-scope clips):
+ *   - pred_weight_table()  : PPS weighted_pred/weighted_bipred are 0.
+ *   - ref_pic_lists_modification(): only reached for P/B with lists_mod; the
+ *     bits are skipped to keep bit accounting correct, values not stored.
+ * -------------------------------------------------------------------------
+ */
+
+/* Ceil(Log2(x)) for x >= 1; returns the number of bits to represent values
+ * 0 .. x-1 (i.e. fixed-length slice_segment_address width). */
+static uint32_t
+ceil_log2(uint32_t x)
+{
+   uint32_t n = 0;
+   uint32_t v = 1;
+   while (v < x) {
+      v <<= 1;
+      n++;
+   }
+   return n;
+}
+
+/*
+ * Parse one slice's short_term_ref_pic_set() inline in the slice header, when
+ * short_term_ref_pic_set_sps_flag == 0. Mirrors H.265 §7.3.7. Only the bit
+ * count matters here (returned via *out_bits) — the RPS *values* in the slice
+ * are not needed by rkvdec (it derives ref lists from decode_params), but the
+ * bits MUST be consumed so the following syntax (and num_entry_point_offsets)
+ * lands at the right position. stRpsIdx == num_short_term_ref_pic_sets means
+ * this is the explicitly-signalled slice RPS (no inter-RPS prediction allowed
+ * for that index per spec, but guard it anyway).
+ *
+ * @num_st_rps: sps->num_short_term_ref_pic_sets (count of SPS-signalled sets).
+ */
+static bool
+parse_short_term_rps(struct v4l2vk_bitreader *br, uint32_t st_rps_idx,
+                     uint32_t num_st_rps)
+{
+   uint32_t inter_rps_pred = 0;
+   if (st_rps_idx != 0)
+      inter_rps_pred = br_read_bit(br);
+
+   if (inter_rps_pred) {
+      /*
+       * Inter-RPS prediction for an INLINE slice RPS needs the referenced
+       * set's NumDeltaPocs to consume used_by_curr_pic_flag[j]/use_delta_flag[j]
+       * (H.265 §7.3.7). We deliberately do NOT carry the SPS RPS delta state,
+       * so this branch cannot be parsed without desyncing the reader. It is
+       * OUT OF SCOPE: the in-scope clips have num_short_term_ref_pic_sets==0
+       * (no SPS sets to predict from) so this is never taken. Signal failure
+       * to the caller so it bails LOUDLY instead of silently corrupting the
+       * downstream syntax. (Flagged for Task 10 if a P/B clip exercises it.)
+       */
+      return false;
+   }
+
+   uint32_t num_negative = br_read_ue(br);
+   uint32_t num_positive = br_read_ue(br);
+   /* Clamp loop counts defensively (spec bounds these by sps_max_dec_pic_
+    * buffering; a corrupt stream could overrun otherwise). */
+   if (num_negative > 16)
+      num_negative = 16;
+   if (num_positive > 16)
+      num_positive = 16;
+   for (uint32_t i = 0; i < num_negative; i++) {
+      br_read_ue(br);  /* delta_poc_s0_minus1[i] */
+      br_read_bit(br); /* used_by_curr_pic_s0_flag[i] */
+   }
+   for (uint32_t i = 0; i < num_positive; i++) {
+      br_read_ue(br);  /* delta_poc_s1_minus1[i] */
+      br_read_bit(br); /* used_by_curr_pic_s1_flag[i] */
+   }
+   return true;
+}
+
+uint32_t
+v4l2vk_h265_translate_slice_params(const uint8_t *bitstream, size_t size,
+                                   const struct v4l2_ctrl_hevc_sps *sps,
+                                   const struct v4l2_ctrl_hevc_pps *pps,
+                                   const uint32_t *slice_offsets,
+                                   uint32_t slice_count,
+                                   struct v4l2_ctrl_hevc_slice_params *out)
+{
+   if (slice_count > 16)
+      slice_count = 16;
+
+   memset(out, 0, sizeof(*out) * slice_count);
+
+   if (!bitstream || !sps || !pps || !slice_offsets)
+      return 0;
+
+   /* SPS / PPS gate values (pre-resolved once). */
+   const int sep_colour =
+      !!(sps->flags & V4L2_HEVC_SPS_FLAG_SEPARATE_COLOUR_PLANE);
+   const int sao_enabled =
+      !!(sps->flags & V4L2_HEVC_SPS_FLAG_SAMPLE_ADAPTIVE_OFFSET);
+   const int temporal_mvp =
+      !!(sps->flags & V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED);
+   const uint32_t num_st_rps = sps->num_short_term_ref_pic_sets;
+   const uint32_t poc_lsb_bits = sps->log2_max_pic_order_cnt_lsb_minus4 + 4;
+
+   const int dep_slice_enabled =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_DEPENDENT_SLICE_SEGMENT_ENABLED);
+   const int output_flag_present =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_OUTPUT_FLAG_PRESENT);
+   const uint32_t num_extra_bits = pps->num_extra_slice_header_bits;
+   const int cabac_init_present =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_CABAC_INIT_PRESENT);
+   const int lists_mod_present =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_LISTS_MODIFICATION_PRESENT);
+   const int weighted_pred =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_WEIGHTED_PRED);
+   const int weighted_bipred =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_WEIGHTED_BIPRED);
+   const int cu_chroma_qp_offsets =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_PPS_SLICE_CHROMA_QP_OFFSETS_PRESENT);
+   const int dbf_override_enabled =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_DEBLOCKING_FILTER_OVERRIDE_ENABLED);
+   const int pps_dbf_disabled =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_PPS_DISABLE_DEBLOCKING_FILTER);
+   const int pps_loop_filter_across =
+      !!(pps->flags &
+         V4L2_HEVC_PPS_FLAG_PPS_LOOP_FILTER_ACROSS_SLICES_ENABLED);
+   const int tiles_enabled =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_TILES_ENABLED);
+   const int entropy_sync =
+      !!(pps->flags & V4L2_HEVC_PPS_FLAG_ENTROPY_CODING_SYNC_ENABLED);
+   const int slice_hdr_ext_present =
+      !!(pps->flags &
+         V4L2_HEVC_PPS_FLAG_SLICE_SEGMENT_HEADER_EXTENSION_PRESENT);
+
+   /* PicSizeInCtbsY -> width of slice_segment_address field.
+    * CtbSizeY = 1 << (log2_min_luma_coding_block_size_minus3 + 3 +
+    *                  log2_diff_max_min_luma_coding_block_size).
+    * PicSizeInCtbsY = ceil(W/CtbSizeY) * ceil(H/CtbSizeY). */
+   const uint32_t ctb_log2 = sps->log2_min_luma_coding_block_size_minus3 + 3 +
+                             sps->log2_diff_max_min_luma_coding_block_size;
+   const uint32_t ctb_size = 1u << ctb_log2;
+   const uint32_t pic_w = sps->pic_width_in_luma_samples;
+   const uint32_t pic_h = sps->pic_height_in_luma_samples;
+   const uint32_t w_ctbs =
+      ctb_size ? (pic_w + ctb_size - 1) / ctb_size : 0;
+   const uint32_t h_ctbs =
+      ctb_size ? (pic_h + ctb_size - 1) / ctb_size : 0;
+   const uint32_t pic_size_ctbs = w_ctbs * h_ctbs;
+   const uint32_t addr_bits =
+      pic_size_ctbs > 1 ? ceil_log2(pic_size_ctbs) : 0;
+
+   uint32_t parsed = 0;
+
+   for (uint32_t s = 0; s < slice_count; s++) {
+      struct v4l2_ctrl_hevc_slice_params *o = &out[s];
+      uint32_t off = slice_offsets[s];
+
+      if (off >= size)
+         continue;
+
+      const uint8_t *nal = bitstream + off;
+      size_t avail = size - off;
+
+      /* Skip the Annex-B start code -> NAL header. */
+      size_t sc = v4l2vk_skip_start_code(nal, avail);
+      const uint8_t *nal_hdr = nal + sc;
+      size_t nal_avail = avail - sc;
+      if (nal_avail < 2)
+         continue;
+
+      /* HEVC NAL header is 2 bytes:
+       *   forbidden_zero_bit(1) nal_unit_type(6) nuh_layer_id(6)
+       *   nuh_temporal_id_plus1(3)
+       */
+      uint8_t nut = (nal_hdr[0] >> 1) & 0x3F;
+      uint8_t tid1 = nal_hdr[1] & 0x07;
+      o->nal_unit_type = nut;
+      o->nuh_temporal_id_plus1 = tid1;
+
+      /* slice_segment_header() starts after the 2-byte NAL header. */
+      struct v4l2vk_bitreader br;
+      br_init(&br, nal_hdr + 2, nal_avail - 2);
+
+      uint32_t first_slice = br_read_bit(&br);
+
+      /* IRAP NAL types are 16..23. */
+      if (nut >= 16 && nut <= 23)
+         br_read_bit(&br); /* no_output_of_prior_pics_flag */
+
+      br_read_ue(&br); /* slice_pic_parameter_set_id */
+
+      uint32_t dependent = 0;
+      if (!first_slice) {
+         if (dep_slice_enabled)
+            dependent = br_read_bit(&br);
+         /* slice_segment_address: u(Ceil(Log2(PicSizeInCtbsY))) */
+         uint32_t addr = 0;
+         for (uint32_t i = 0; i < addr_bits; i++)
+            addr = (addr << 1) | br_read_bit(&br);
+         o->slice_segment_addr = addr;
+      } else {
+         o->slice_segment_addr = 0;
+      }
+
+      if (dependent)
+         o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_DEPENDENT_SLICE_SEGMENT;
+
+      /* The remaining header is only present for an independent slice segment.
+       * For a dependent slice segment, the inherited values are carried by the
+       * decode_params/previous independent slice; rkvdec needs the addr +
+       * data_byte_offset + bit_size, which we still compute below. */
+      uint32_t slice_type_raw = 2; /* default I if dependent (inherited) */
+      if (!dependent) {
+         for (uint32_t i = 0; i < num_extra_bits; i++)
+            br_read_bit(&br); /* slice_reserved_flag[i] */
+
+         slice_type_raw = br_read_ue(&br);
+         /* HEVC slice_type: 0=B, 1=P, 2=I — identical to V4L2_HEVC_SLICE_TYPE_*.
+          * Clamp to the valid range (a corrupt value would index nothing). */
+         o->slice_type = (slice_type_raw <= 2) ? (uint8_t)slice_type_raw
+                                               : V4L2_HEVC_SLICE_TYPE_I;
+
+         if (output_flag_present)
+            br_read_bit(&br); /* pic_output_flag */
+
+         if (sep_colour) {
+            uint32_t cpid = br_read_bit(&br);
+            cpid = (cpid << 1) | br_read_bit(&br);
+            o->colour_plane_id = (uint8_t)cpid;
+         }
+
+         /* POC + RPS only for non-IDR. IDR_W_RADL=19, IDR_N_LP=20. */
+         if (nut != 19 && nut != 20) {
+            /* slice_pic_order_cnt_lsb: u(poc_lsb_bits) */
+            uint32_t poc_lsb = 0;
+            for (uint32_t i = 0; i < poc_lsb_bits; i++)
+               poc_lsb = (poc_lsb << 1) | br_read_bit(&br);
+            o->slice_pic_order_cnt = (int32_t)poc_lsb;
+
+            uint32_t st_rps_sps_flag = br_read_bit(&br);
+            uint32_t st_bits_start = br.bit_offset;
+            if (!st_rps_sps_flag) {
+               /* inline short_term_ref_pic_set(num_short_term_ref_pic_sets) */
+               if (!parse_short_term_rps(&br, num_st_rps, num_st_rps)) {
+                  fprintf(stderr,
+                          "[V4L2VK][H265] slice[%u]: inline inter-RPS-predicted "
+                          "short_term_ref_pic_set (unsupported) — header parse "
+                          "stopped early\n",
+                          s);
+                  parsed++;
+                  continue;
+               }
+               o->short_term_ref_pic_set_size =
+                  (uint16_t)(br.bit_offset - st_bits_start);
+            } else {
+               /* short_term_ref_pic_set_idx: u(Ceil(Log2(num_st_rps))) */
+               uint32_t idx_bits =
+                  num_st_rps > 1 ? ceil_log2(num_st_rps) : 0;
+               for (uint32_t i = 0; i < idx_bits; i++)
+                  br_read_bit(&br);
+               o->short_term_ref_pic_set_size = 0;
+            }
+
+            /* long_term_ref_pics: gated by SPS long_term_ref_pics_present.
+             * In scope clips have no long-term refs; if present we would need
+             * num_long_term_ref_pics_sps + num_long_term_pics here. Left to
+             * Task 10 if a clip exercises it (flagged). */
+
+            if (temporal_mvp)
+               br_read_bit(&br); /* slice_temporal_mvp_enabled_flag */
+         }
+
+         /* sample_adaptive_offset */
+         if (sao_enabled) {
+            if (br_read_bit(&br))
+               o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_LUMA;
+            /* slice_sao_chroma only when ChromaArrayType != 0.
+             * ChromaArrayType == chroma_format_idc unless separate_colour_plane,
+             * in which case it is 0. */
+            uint32_t chroma_array_type =
+               sep_colour ? 0 : sps->chroma_format_idc;
+            if (chroma_array_type != 0) {
+               if (br_read_bit(&br))
+                  o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_CHROMA;
+            }
+         }
+
+         /* Inter-prediction header (P=1, B=0). I=2 skips all of this. */
+         if (slice_type_raw == 0 || slice_type_raw == 1) {
+            uint32_t num_ref_l0 = pps->num_ref_idx_l0_default_active_minus1;
+            uint32_t num_ref_l1 = pps->num_ref_idx_l1_default_active_minus1;
+
+            uint32_t ref_override = br_read_bit(&br);
+            if (ref_override) {
+               num_ref_l0 = br_read_ue(&br); /* num_ref_idx_l0_active_minus1 */
+               if (slice_type_raw == 0)      /* B */
+                  num_ref_l1 = br_read_ue(&br);
+            }
+            if (num_ref_l0 > 15)
+               num_ref_l0 = 15;
+            if (num_ref_l1 > 15)
+               num_ref_l1 = 15;
+            o->num_ref_idx_l0_active_minus1 = (uint8_t)num_ref_l0;
+            o->num_ref_idx_l1_active_minus1 = (uint8_t)num_ref_l1;
+
+            /* ref_pic_lists_modification(): present iff lists_modification_
+             * present_flag && NumPicTotalCurr > 1. We don't track
+             * NumPicTotalCurr (needs full RPS derivation); the in-scope clips
+             * are I-only so this branch is never taken. Consume conservatively
+             * only when the gate flag is set AND we can't prove count<=1 — but
+             * since we can't, and a wrong skip desyncs the reader, we DO NOT
+             * speculatively skip. Flagged UNCERTAIN for Task 10 (P/B support).
+             */
+            (void)lists_mod_present;
+
+            if (slice_type_raw == 0) /* B: mvd_l1_zero_flag */
+               if (br_read_bit(&br))
+                  o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_MVD_L1_ZERO;
+
+            if (cabac_init_present)
+               if (br_read_bit(&br))
+                  o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_CABAC_INIT;
+
+            if (temporal_mvp) {
+               /* collocated_from_l0_flag: present for P and B when
+                * slice_temporal_mvp_enabled_flag (slice_type != I). Default 1
+                * when absent. collocated_ref_idx follows only when the chosen
+                * list has more than one active reference. */
+               uint32_t collocated_from_l0 = br_read_bit(&br);
+               if (collocated_from_l0)
+                  o->flags |=
+                     V4L2_HEVC_SLICE_PARAMS_FLAG_COLLOCATED_FROM_L0;
+               uint32_t ncols = collocated_from_l0 ? num_ref_l0 : num_ref_l1;
+               if (ncols > 0)
+                  o->collocated_ref_idx = (uint8_t)br_read_ue(&br);
+            }
+
+            /* pred_weight_table(): OUT OF SCOPE. In-scope clips have
+             * weighted_pred==0 / weighted_bipred==0, so the syntax element is
+             * ABSENT (H.265 §7.3.6.1). We never reach it. */
+            if ((weighted_pred && slice_type_raw == 1) ||
+                (weighted_bipred && slice_type_raw == 0)) {
+               /* Unsupported: bail without corrupting downstream — leave the
+                * remaining fields at their (memset) defaults. */
+               fprintf(stderr,
+                       "[V4L2VK][H265] slice[%u]: weighted prediction present "
+                       "(unsupported) — header parse stopped early\n",
+                       s);
+               parsed++;
+               continue;
+            }
+
+            uint32_t five_minus = br_read_ue(&br);
+            if (five_minus > 5)
+               five_minus = 5;
+            o->five_minus_max_num_merge_cand = (uint8_t)five_minus;
+         }
+
+         /* slice_qp_delta: se(v) — always present for non-dependent slices. */
+         o->slice_qp_delta = (int8_t)br_read_se(&br);
+
+         if (cu_chroma_qp_offsets) {
+            o->slice_cb_qp_offset = (int8_t)br_read_se(&br);
+            o->slice_cr_qp_offset = (int8_t)br_read_se(&br);
+         }
+
+         /* chroma_qp_offset_list / ACT offsets (SCC ext): not present in the
+          * in-scope Main-profile clips; gated by PPS range/scc-ext flags we do
+          * not translate. Left at defaults. */
+
+         /* deblocking_filter_override_flag + slice deblocking params. */
+         uint32_t deblocking_override = 0;
+         if (dbf_override_enabled)
+            deblocking_override = br_read_bit(&br);
+         if (deblocking_override) {
+            uint32_t slice_dbf_disabled = br_read_bit(&br);
+            if (slice_dbf_disabled)
+               o->flags |=
+                  V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED;
+            if (!slice_dbf_disabled) {
+               o->slice_beta_offset_div2 = (int8_t)br_read_se(&br);
+               o->slice_tc_offset_div2 = (int8_t)br_read_se(&br);
+            }
+         } else {
+            /* Inherit PPS deblocking offsets / disabled state. */
+            if (pps_dbf_disabled)
+               o->flags |=
+                  V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED;
+            o->slice_beta_offset_div2 = pps->pps_beta_offset_div2;
+            o->slice_tc_offset_div2 = pps->pps_tc_offset_div2;
+         }
+
+         /* slice_loop_filter_across_slices_enabled_flag:
+          * present iff pps_loop_filter_across_slices_enabled_flag &&
+          * (slice_sao_luma || slice_sao_chroma || !slice_deblocking_disabled). */
+         int slice_dbf_disabled =
+            !!(o->flags &
+               V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED);
+         int sao_luma =
+            !!(o->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_LUMA);
+         int sao_chroma =
+            !!(o->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_CHROMA);
+         if (pps_loop_filter_across &&
+             (sao_luma || sao_chroma || !slice_dbf_disabled)) {
+            if (br_read_bit(&br))
+               o->flags |=
+                  V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED;
+         }
+      } /* !dependent */
+
+      /* num_entry_point_offsets: present iff tiles || entropy_coding_sync.
+       * (Outside the !dependent block — also present for dependent slices.) */
+      if (tiles_enabled || entropy_sync) {
+         uint32_t nepo = br_read_ue(&br);
+         /* num_entry_point_offsets is bounded by the number of tile columns *
+          * tile rows (or CTB rows for WPP) of the picture; a 4K frame has at
+          * most a few hundred. Clamp defensively so a corrupt ue(v) cannot
+          * drive the skip loop past the buffer and desync data_byte_offset.
+          * The clamp affects the REPORTED count and the loop iterations
+          * together, keeping bit accounting consistent with what we store. */
+         if (nepo > 256)
+            nepo = 256;
+         o->num_entry_point_offsets = nepo;
+         if (nepo > 0) {
+            uint32_t offset_len_m1 = br_read_ue(&br);
+            uint32_t off_bits = offset_len_m1 + 1;
+            if (off_bits > 32)
+               off_bits = 32; /* spec caps at 32; guard reader */
+            for (uint32_t i = 0; i < nepo; i++)
+               br_skip_bits(&br, off_bits); /* entry_point_offset_minus1[i] */
+         }
+      }
+
+      if (slice_hdr_ext_present) {
+         uint32_t ext_len = br_read_ue(&br);
+         if (ext_len > 4096)
+            ext_len = 4096; /* guard */
+         for (uint32_t i = 0; i < ext_len; i++)
+            br_read_bit(&br); /* slice_segment_header_extension_data_byte */
+      }
+
+      /* byte_alignment(): alignment_bit_equal_to_one(1) then zero bits to the
+       * next byte boundary. After this the coded slice DATA begins. */
+      br_read_bit(&br); /* alignment_bit_equal_to_one */
+      while ((br.bit_offset & 7) != 0)
+         br_read_bit(&br); /* alignment_bit_equal_to_zero */
+
+      /*
+       * data_byte_offset: byte offset, measured from the start of the slice
+       * bitstream buffer (the Annex-B NAL INCLUDING its start code, which is
+       * what the OUTPUT buffer holds), to the first byte of coded slice data
+       * (after byte_alignment()).
+       *
+       *   = start_code_len + 2 (NAL header) + header_payload_bytes
+       *
+       * header_payload_bytes = br.bit_offset/8 (the reader started after the
+       * 2-byte NAL header and bit_offset is now byte-aligned).
+       *
+       * UNCERTAIN (Task 10 strace-diff): the exact base the golden uses —
+       * start-code-inclusive (this) vs NAL-header-relative (this minus sc).
+       * For the in-scope clip with no EPB in the header, EBSP and RBSP byte
+       * counts are equal so only the BASE is in question, not the count.
+       */
+      uint32_t header_payload_bytes = br.bit_offset >> 3;
+      o->data_byte_offset =
+         (uint32_t)(sc + 2 + header_payload_bytes);
+
+      /*
+       * bit_size: size (in bits) of the current slice data — the whole slice
+       * segment NAL payload (after the 2-byte NAL header) in bits. rkvdec
+       * consumes the full Annex-B unit. We size it from this slice's start
+       * code to the NEXT slice's start code if known (slice_offsets[s+1]),
+       * else to end-of-buffer.
+       *
+       * UNCERTAIN (Task 10): whether the golden measures bit_size over the
+       * NAL payload (this) or the whole NAL incl. start code + header.
+       */
+      size_t nal_end =
+         (s + 1 < slice_count) ? slice_offsets[s + 1] : size;
+      if (nal_end > size)
+         nal_end = size;
+      size_t nal_payload_bytes =
+         (nal_end > off + sc + 2) ? (nal_end - (off + sc + 2)) : 0;
+      o->bit_size = (uint32_t)(nal_payload_bytes * 8);
+
+      fprintf(stderr,
+              "[V4L2VK][H265] slice[%u]: off=%u nal_type=%u(%s) tid+1=%u "
+              "addr=%u type=%u(%s) qp_delta=%d nepo=%u "
+              "data_byte_offset=%u bit_size=%u st_rps_size=%u\n",
+              s, off, nut,
+              (nut == 19 || nut == 20)   ? "IDR"
+              : (nut >= 16 && nut <= 23) ? "IRAP"
+                                         : "VCL",
+              tid1, o->slice_segment_addr, o->slice_type,
+              o->slice_type == V4L2_HEVC_SLICE_TYPE_I   ? "I"
+              : o->slice_type == V4L2_HEVC_SLICE_TYPE_P ? "P"
+              : o->slice_type == V4L2_HEVC_SLICE_TYPE_B ? "B"
+                                                        : "?",
+              o->slice_qp_delta, o->num_entry_point_offsets,
+              o->data_byte_offset, o->bit_size,
+              o->short_term_ref_pic_set_size);
+
+      parsed++;
+   }
+
+   return parsed;
 }
