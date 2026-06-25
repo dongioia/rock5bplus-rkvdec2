@@ -23,7 +23,11 @@ Decode on rkvdec → DMA-BUF → PanVK HW-YUV sample → **on screen, no GPU→s
 
 Rationale: the one genuinely novel Step-2 unknown is **PanVK graphics-sample → present, no readback**, identical regardless of dmabuf origin. Prove it on the simplest reliable source.
 
-## Stage 0 — Kill-switch: can 1080p be zero-copied? (do this FIRST, before any present code)
+## Stage 0 — Kill-switch: can 1080p be zero-copied? (DONE → PASS)
+
+**RESULT (2026-06-25, `artifacts/phase-c/STAGE0-step2-1080p-dmabuf.md`): PASS — 1080p IS zero-copyable.** The Step-1 "1080p → system memory" was a gst negotiation artifact: the v4l2codecs decoder logs `GstVideoMeta support required, copying frames` and copies the **padded** 1080p hardware buffer to a packed system buffer **when downstream lacks GstVideoMeta support**. Proven: 1080p `! fakesink` (meta-unaware) copies; 1080p `! fakevideosink` (meta-aware) keeps the hardware dmabuf (0 copies). RULED OUT: CMA (CmaFree unchanged across decode), DPB/pool (baseline 1080p copies identically), and the `capture-io-mode` lever (no such property). **Imposes on Step-2: the dmabuf consumer MUST advertise `GST_VIDEO_META_API_TYPE` (one call, C-side) or zero-copy is lost at padded resolutions.** Resolves OQ-S2-1; refutes the ≤1280 carry-over. The original investigation method (below) is retained for record.
+
+### Stage-0 method (as designed)
 
 Step 1 found: under **default** gst negotiation, rkvdec CAPTURE is already dmabuf-backed at 720p (`STAGE0a`, no forced io-mode), and at **1280×1088** too — but **1920×1080 and 1366×768 came back as system memory, no `GstVideoMeta`**. So the variable is **width/stride, not an io-mode choice.** (Correcting the prior draft: `v4l2slh264dec` has **no `capture-io-mode` property** — verified by `gst-inspect-1.0` on the board; it is the `v4l2codecs` stateless element, not legacy mem2mem. Forcing io-mode is not a real lever.)
 
