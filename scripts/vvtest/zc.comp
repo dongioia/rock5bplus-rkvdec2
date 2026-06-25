@@ -1,0 +1,21 @@
+#version 450
+/* Phase-C Stage-1b: sample the imported rkvdec NV12 via PanVK's HW ycbcr
+ * conversion (combined sampler at set0/binding0 carries the immutable
+ * VkSamplerYcbcrConversion) and write packed RGBA8 to a storage buffer.
+ * texture() returns RGB already converted by the ycbcr sampler. */
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(set = 0, binding = 0) uniform sampler2D ytex;   /* ycbcr combined sampler */
+layout(set = 0, binding = 1) writeonly buffer Out { uint px[]; };
+layout(push_constant) uniform PC { uint w; uint h; } pc;
+
+void main()
+{
+    uvec2 g = gl_GlobalInvocationID.xy;
+    if (g.x >= pc.w || g.y >= pc.h)
+        return;
+    /* texel-center sample: NEAREST luma hits texel g exactly */
+    vec2 uv = (vec2(g) + 0.5) / vec2(pc.w, pc.h);
+    vec4 c = texture(ytex, uv);
+    uvec4 q = uvec4(round(clamp(c, 0.0, 1.0) * 255.0));
+    px[g.y * pc.w + g.x] = q.r | (q.g << 8) | (q.b << 16) | (q.a << 24);
+}

@@ -1,6 +1,7 @@
 # Phase-C Stage-1 — resume (start here next session)
 
-**Status:** Stage 0 PASS (kill-switch). Zero-copy via PanVK on RK3588 = feasible.
+**Status:** **STAGE 1 PASS (complete).** 1a import byte-exact (`STAGE1a-import-bytexact.md`, 3 geometries) + 1b HW-YUV sample CSC-correct (`STAGE1b-hwyuv-sample.md`, flat-chroma PSNR 82/79 dB @ 720p/1088). Zero-copy via PanVK feasible AND pixel-correct. `scripts/vvtest/zc_import_test.c` (both gates, 3× independently reviewed) + `zc.comp` + `zc-run.sh`. **Next = Step 2** (standalone no-copy on-screen pipeline, own spec). Carry-overs: (a) PanVK import bug `drmFormatModifierPlaneCount=2` workaround (upstream-report); (b) DMA-BUF domain bound — rkvdec dmabuf only for aligned widths (1280 ok; 1920/1366 → system mem) → Step-2 must confirm 1080p (primary browser res) reaches dmabuf; (c) edge chroma reconstruction is Mali HW fixed-function (validated visually in Step 2, not CPU-PSNR).
+**Status (orig):** Stage 0 PASS (kill-switch). Zero-copy via PanVK on RK3588 = feasible.
 **Plan:** `docs/superpowers/specs/2026-06-25-vulkanvideo-rk3588-phaseC-zerocopy-spike.md` §Stage-1 (twice indep-reviewed). This note = the actionable delta.
 
 ## What's already proven / ready
