@@ -26,7 +26,16 @@ Both: import + submit + fence-wait + destroy per frame; gst HW decode common to 
 ## Step-2 COMPLETE
 Zero-copy via PanVK on RK3588 is: **feasible** (Stage 1), **pixel-correct** (1a byte-exact import, 1b/2a HW-YUV CSC 80 dB), **on-screen** (2b: window visible, 30 frames, no readback), and **quantified beneficial** (this: ~80–85% less per-frame video CPU vs vulkandownload, scaling with resolution). System mesa pin untouched throughout; isolated `~/mesa-zc/` deploy.
 
-Optional hardening NOT done (not required to claim Step-2; documented for later): frame pipelining (overlap decode/render/present), swapchain recreate on OOD/SUBOPTIMAL, a real pipelined-throughput benchmark.
+## Pipelining (deferred item — now done, in `zc_measure.c` depth ring)
+Added an in-flight ring (depth 1..4) to the zerocopy path to answer "is throughput decode-bound?". Result (stable):
+| res | depth 1 | depth 2 | depth 4 |
+|---|---|---|---|
+| 720p (demo) | 287.4 fps | 287.0 | 287.5 |
+| 1080p (c1080) | 102.6 fps | 102.6 | 102.7 |
+
+**No throughput change with depth → render is NOT the bottleneck; throughput is decode-bound** (rkvdec ceiling ~287 fps @720p / ~103 @1080p; the sub-ms GPU op overlapped with decode buys nothing). The zerocopy CPU advantage holds at every depth (the ring adds negligible bookkeeping CPU). Honest scope: a blocking serial `dec_next` pull means this measures *decode* throughput — it confirms render isn't the limiter, not that pipelining is "harmless under render-bound load." The ring (the recycle-hazard-prone in-flight pool) was independently reviewed: leak/UAF/double-free-free; GstSample held until the slot fence (no recycle-under-GPU); held D≤4 + appsink 8 ≤ 12 < the 17-entry rkvdec CAPTURE pool (strace-verified) so the decoder never starves.
+
+Still NOT done (documented; not required to claim Step-2): **swapchain recreate on OOD/SUBOPTIMAL** — deferred because it cannot be verified in a one-shot run (OOD only triggers on a live window resize/reconfigure); belongs to the real-player / Step-3 context.
 
 ## Next
 Step-3 — in-browser zero-copy (WebKit): the next phase, its own spec + review cycle, with the "no WebKit patch" decision made with this Step-1/2 information.

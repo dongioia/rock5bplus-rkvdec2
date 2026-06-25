@@ -121,7 +121,7 @@ static void vk_render_setup(struct vk *v,uint32_t W,uint32_t H){
     VkPipelineColorBlendAttachmentState ba={.colorWriteMask=0xF};VkPipelineColorBlendStateCreateInfo cb={.sType=VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,.attachmentCount=1,.pAttachments=&ba};
     VkGraphicsPipelineCreateInfo gp={.sType=VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,.stageCount=2,.pStages=st,.pVertexInputState=&vi,.pInputAssemblyState=&ia,.pViewportState=&vps,.pRasterizationState=&rs,.pMultisampleState=&ms,.pColorBlendState=&cb,.layout=v->pll,.renderPass=v->rp,.subpass=0};
     CHECK(vkCreateGraphicsPipelines(v->dev,VK_NULL_HANDLE,1,&gp,NULL,&v->pipe));vkDestroyShaderModule(v->dev,sv,NULL);vkDestroyShaderModule(v->dev,sf,NULL);free(vb);free(fbuf);
-    VkDescriptorPoolSize ps={VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,1};VkDescriptorPoolCreateInfo dp={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,.maxSets=1,.poolSizeCount=1,.pPoolSizes=&ps};
+    VkDescriptorPoolSize ps={VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,8};VkDescriptorPoolCreateInfo dp={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,.maxSets=8,.poolSizeCount=1,.pPoolSizes=&ps};   /* up to 8 in-flight (pipelined depth) */
     CHECK(vkCreateDescriptorPool(v->dev,&dp,NULL,&v->dpool));
 }
 /* copy-mode staging buffer (hoisted) */
@@ -156,47 +156,65 @@ static void cend(struct vk *v,VkCommandBuffer c){CHECK(vkEndCommandBuffer(c));Vk
     VkFenceCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};VkFence f;CHECK(vkCreateFence(v->dev,&fi,NULL,&f));CHECK(vkQueueSubmit(v->q,1,&s,f));CHECK(vkWaitForFences(v->dev,1,&f,VK_TRUE,UINT64_MAX));vkDestroyFence(v->dev,f,NULL);vkFreeCommandBuffers(v->dev,v->pool,1,&c);}
 
 int main(int argc,char **argv){
-    if(argc<3){fprintf(stderr,"usage: %s <clip> <copy|zerocopy> [maxframes]\n",argv[0]);return 2;}
+    if(argc<3){fprintf(stderr,"usage: %s <clip> <copy|zerocopy> [maxframes] [depth]\n",argv[0]);return 2;}
     int zerocopy = !strcmp(argv[2],"zerocopy");
     int maxf = argc>3 ? atoi(argv[3]) : 100000;
+    int D = argc>4 ? atoi(argv[4]) : 1; if(D<1)D=1; if(D>4)D=4;   /* in-flight depth. Held D + appsink(8) must stay < the rkvdec CAPTURE pool (17 @720p, from strace) so the decoder never starves; re-check the pool count if run above 1080p. */
+    if(!zerocopy) D=1;   /* copy = synchronous baseline */
     gst_init(&argc,&argv);
     struct vk v;memset(&v,0,sizeof(v));vk_init(&v);
     struct decoder d;if(dec_start(&d,argv[1])){fprintf(stderr,"decode fail\n");return 1;}
     int setup=0,presented=0;struct frame f;double t0=0,c0=0;
-    while(presented<maxf && dec_next(&d,&f)==0){
-        if(!setup){ if(zerocopy)vk_render_setup(&v,f.width,f.height); else vk_copy_setup(&v,f.width,f.height); setup=1; t0=wall(); c0=cpu(); }
-        VkDeviceMemory mem;VkImageView yview=VK_NULL_HANDLE;
-        VkImage img=import_frame(&v,&f,&mem,zerocopy?&yview:NULL);
-        if(img==VK_NULL_HANDLE){gst_sample_unref(f.sample);break;}
-        VkCommandBuffer c=cbeg(&v);
-        if(zerocopy){
-            VkImageMemoryBarrier ab={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.dstAccessMask=VK_ACCESS_SHADER_READ_BIT,.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED,.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=img,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
+
+    if(zerocopy){
+        /* pipelined ring: D frames in flight, no per-frame wait until the slot is reused */
+        VkFence fen[4];VkCommandBuffer cmd[4];VkImage img[4];VkDeviceMemory mem[4];VkImageView view[4];VkDescriptorSet ds[4];GstSample *samp[4];int inuse[4]={0,0,0,0};
+        for(int s=0;s<D;s++){VkFenceCreateInfo fi={.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};CHECK(vkCreateFence(v.dev,&fi,NULL,&fen[s]));
+            VkCommandBufferAllocateInfo ca={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,.commandPool=v.pool,.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY,.commandBufferCount=1};CHECK(vkAllocateCommandBuffers(v.dev,&ca,&cmd[s]));}
+        int i=0;
+        while(presented<maxf && dec_next(&d,&f)==0){
+            if(!setup){vk_render_setup(&v,f.width,f.height);setup=1;t0=wall();c0=cpu();}
+            int s=i%D;
+            if(inuse[s]){ CHECK(vkWaitForFences(v.dev,1,&fen[s],VK_TRUE,UINT64_MAX));
+                vkFreeDescriptorSets(v.dev,v.dpool,1,&ds[s]);vkDestroyImageView(v.dev,view[s],NULL);vkDestroyImage(v.dev,img[s],NULL);vkFreeMemory(v.dev,mem[s],NULL);gst_sample_unref(samp[s]);inuse[s]=0; }
+            VkImageView yv;VkImage im=import_frame(&v,&f,&mem[s],&yv);
+            if(im==VK_NULL_HANDLE){gst_sample_unref(f.sample);break;}
+            img[s]=im;view[s]=yv;samp[s]=f.sample;
+            VkDescriptorSetAllocateInfo da={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,.descriptorPool=v.dpool,.descriptorSetCount=1,.pSetLayouts=&v.dsl};CHECK(vkAllocateDescriptorSets(v.dev,&da,&ds[s]));
+            VkDescriptorImageInfo di={.sampler=v.samp,.imageView=yv,.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+            VkWriteDescriptorSet w={.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=ds[s],.dstBinding=0,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=&di};vkUpdateDescriptorSets(v.dev,1,&w,0,NULL);
+            VkCommandBuffer c=cmd[s];CHECK(vkResetCommandBuffer(c,0));
+            VkCommandBufferBeginInfo bi={.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};CHECK(vkBeginCommandBuffer(c,&bi));
+            VkImageMemoryBarrier ab={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.dstAccessMask=VK_ACCESS_SHADER_READ_BIT,.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED,.newLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=im,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
             vkCmdPipelineBarrier(c,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,0,0,NULL,0,NULL,1,&ab);
-            VkDescriptorSetAllocateInfo da={.sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,.descriptorPool=v.dpool,.descriptorSetCount=1,.pSetLayouts=&v.dsl};VkDescriptorSet ds;CHECK(vkAllocateDescriptorSets(v.dev,&da,&ds));
-            VkDescriptorImageInfo di={.sampler=v.samp,.imageView=yview,.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-            VkWriteDescriptorSet w={.sType=VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,.dstSet=ds,.dstBinding=0,.descriptorCount=1,.descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,.pImageInfo=&di};vkUpdateDescriptorSets(v.dev,1,&w,0,NULL);
             VkClearValue cv={.color={{0,0,0,1}}};VkRenderPassBeginInfo rb={.sType=VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,.renderPass=v.rp,.framebuffer=v.fb,.renderArea={{0,0},{v.rw,v.rh}},.clearValueCount=1,.pClearValues=&cv};
-            vkCmdBeginRenderPass(c,&rb,VK_SUBPASS_CONTENTS_INLINE);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,v.pipe);vkCmdBindDescriptorSets(c,VK_PIPELINE_BIND_POINT_GRAPHICS,v.pll,0,1,&ds,0,NULL);vkCmdDraw(c,3,1,0,0);vkCmdEndRenderPass(c);
-            cend(&v,c);vkFreeDescriptorSets(v.dev,v.dpool,1,&ds);vkDestroyImageView(v.dev,yview,NULL);
-        } else {
+            vkCmdBeginRenderPass(c,&rb,VK_SUBPASS_CONTENTS_INLINE);vkCmdBindPipeline(c,VK_PIPELINE_BIND_POINT_GRAPHICS,v.pipe);vkCmdBindDescriptorSets(c,VK_PIPELINE_BIND_POINT_GRAPHICS,v.pll,0,1,&ds[s],0,NULL);vkCmdDraw(c,3,1,0,0);vkCmdEndRenderPass(c);CHECK(vkEndCommandBuffer(c));
+            CHECK(vkResetFences(v.dev,1,&fen[s]));
+            VkSubmitInfo si={.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO,.commandBufferCount=1,.pCommandBuffers=&c};CHECK(vkQueueSubmit(v.q,1,&si,fen[s]));
+            inuse[s]=1;i++;presented++;
+        }
+        for(int s=0;s<D;s++) if(inuse[s]){CHECK(vkWaitForFences(v.dev,1,&fen[s],VK_TRUE,UINT64_MAX));vkFreeDescriptorSets(v.dev,v.dpool,1,&ds[s]);vkDestroyImageView(v.dev,view[s],NULL);vkDestroyImage(v.dev,img[s],NULL);vkFreeMemory(v.dev,mem[s],NULL);gst_sample_unref(samp[s]);}
+    } else {
+        /* copy = synchronous baseline (vulkandownload-equivalent readback) */
+        while(presented<maxf && dec_next(&d,&f)==0){
+            if(!setup){vk_copy_setup(&v,f.width,f.height);setup=1;t0=wall();c0=cpu();}
+            VkDeviceMemory mem;VkImage img=import_frame(&v,&f,&mem,NULL);
+            if(img==VK_NULL_HANDLE){gst_sample_unref(f.sample);break;}
+            VkCommandBuffer c=cbeg(&v);
             VkImageMemoryBarrier ab={.sType=VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,.dstAccessMask=VK_ACCESS_TRANSFER_READ_BIT,.oldLayout=VK_IMAGE_LAYOUT_UNDEFINED,.newLayout=VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=img,.subresourceRange={VK_IMAGE_ASPECT_COLOR_BIT,0,1,0,1}};
             vkCmdPipelineBarrier(c,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,NULL,0,NULL,1,&ab);
             VkBufferImageCopy cp[2]={{.bufferOffset=0,.imageSubresource={VK_IMAGE_ASPECT_PLANE_0_BIT,0,0,1},.imageExtent={f.width,f.height,1}},
                 {.bufferOffset=(VkDeviceSize)f.width*f.height,.imageSubresource={VK_IMAGE_ASPECT_PLANE_1_BIT,0,0,1},.imageExtent={f.width/2,f.height/2,1}}};
-            vkCmdCopyImageToBuffer(c,img,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,v.stg,2,cp);
-            cend(&v,c);
-            /* read the WHOLE NV12 buffer (both planes, every cache line) like a real
-             * consumer that hands the frame to the next stage — still conservative vs a
-             * real memcpy/upload (this only reads). vulkandownload pays at least this. */
+            vkCmdCopyImageToBuffer(c,img,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,v.stg,2,cp);cend(&v,c);
+            /* full-frame consumer read (both planes, every cache line); conservative vs a real memcpy/upload */
             void *m;CHECK(vkMapMemory(v.dev,v.stgmem,0,VK_WHOLE_SIZE,0,&m));volatile uint8_t s=0;const uint8_t *p=m;
             size_t sz=(size_t)f.width*f.height+(size_t)f.width*(f.height/2);for(size_t i=0;i<sz;i+=64)s+=p[i];(void)s;vkUnmapMemory(v.dev,v.stgmem);
+            vkDestroyImage(v.dev,img,NULL);vkFreeMemory(v.dev,mem,NULL);gst_sample_unref(f.sample);presented++;
         }
-        vkDestroyImage(v.dev,img,NULL);vkFreeMemory(v.dev,mem,NULL);gst_sample_unref(f.sample);
-        presented++;
     }
     double dt=wall()-t0, dc=cpu()-c0;
     gst_element_set_state(d.pipe,GST_STATE_NULL);
-    printf("MODE=%-8s frames=%d wall=%.3fs fps=%.1f cpu=%.3fs cpu_ms/frame=%.3f cpu_util=%.1f%%\n",
-           argv[2],presented,dt,presented/dt,dc,1000.0*dc/presented,100.0*dc/dt);
+    printf("MODE=%-8s depth=%d frames=%d wall=%.3fs fps=%.1f cpu=%.3fs cpu_ms/frame=%.3f cpu_util=%.1f%%\n",
+           argv[2],D,presented,dt,presented/dt,dc,1000.0*dc/presented,100.0*dc/dt);
     return presented>0?0:1;
 }
