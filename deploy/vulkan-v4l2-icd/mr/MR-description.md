@@ -7,21 +7,38 @@
 
 ## MR title
 
-v4l2-video: init-SPS fix, NV12 stride fix, HEVC Main 8-bit decode
+v4l2-video: HEVC Main 8-bit decode, plus H.264 init-SPS and NV12 stride fixes
 
 ## MR description (paste into the GitLab MR body)
 
-Following up on #14987 — the changes I've been running on an RK3588 (Radxa Rock 5B+), on top of `5955e6e`.
+Matches the channel's house style (terse; `### What does this MR do and why?` template, as in e.g. !42210 and !42339; commits carry the detail).
 
-- **H.264 SPS set non-request at session init** — the blank-decode fix I reported earlier (note 3528237). rkvdec wants the SPS once as a plain control before CAPTURE setup; without it the per-request controls match v4l2slh264dec but the hardware writes a blank frame.
-- **NV12 readback stride taken from the image layout** — instead of rounding the width up to 256, so non-256-multiple widths (640, etc.) stop tearing.
-- **HEVC Main 8-bit 4:2:0 decode** — advertise `VK_KHR_video_decode_h265`, translate the std structures to the V4L2 HEVC controls (including the EXT_SPS ST/LT RPS that VDPU381 needs), and parse the slice segment header. The bit-reader and start-code helpers are factored out of the H.264 parser into a shared header.
+```
+### What does this MR do and why?
 
-Validation on RK3588: byte-exact against ffmpeg on H.264 and HEVC across I/P/B, more than one short-term RPS, and 360p/720p/1080p including cropped sizes; both also play in WebKitGTK (Epiphany) through a small GStreamer bridge. Not conformance-tested.
+Follow-up to #14987 — three changes I've been running on an RK3588 (Rock 5B+),
+on top of 5955e6e:
 
-Scope is the working changes, as you suggested: Main profile, 8-bit, 4:2:0. Weighted prediction isn't parsed, and the long-term-reference DPB flag isn't wired yet (no test stream used long-term references). Happy to iterate from here.
+- v4l2-video: set the H.264 SPS non-request at session init (the blank-decode
+  fix from note 3528237). rkvdec needs the SPS once as a plain control before
+  CAPTURE setup, otherwise it writes a blank frame.
+- v4l2-video: take the NV12 readback stride from the image layout rather than
+  rounding the width up to 256, so non-256-multiple widths (640 etc.) stop
+  tearing.
+- v4l2-video: add HEVC Main 8-bit 4:2:0 decode — advertise
+  VK_KHR_video_decode_h265, translate the std structs to the V4L2 HEVC controls
+  (incl. the EXT_SPS ST/LT RPS VDPU381 needs), and parse the slice header.
 
-The GStreamer bridge and the byte-exact test harness live outside this MR; I can share them if they're useful.
+Byte-exact against ffmpeg on RK3588 for H.264 and HEVC across I/P/B, more than
+one short-term RPS, and 360p/720p/1080p including cropped sizes; both also play
+in WebKitGTK through a small GStreamer bridge. Not conformance-tested.
+
+Scope is the working changes, as you suggested: Main 8-bit 4:2:0. Weighted
+prediction isn't parsed and the long-term-reference DPB flag isn't wired yet
+(no test stream used long-term references). Happy to iterate.
+```
+
+(The GStreamer bridge and the byte-exact harness live outside this MR; available on request.)
 
 ---
 
