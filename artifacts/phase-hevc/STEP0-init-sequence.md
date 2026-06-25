@@ -65,15 +65,22 @@ V4L2_CTRL_CLASS_CODEC_STATELESS = 0x00a40000
 
 0xa40a90  V4L2_CID_STATELESS_HEVC_SPS              type=HEVC_SPS             size=40
 0xa40a91  V4L2_CID_STATELESS_HEVC_PPS              type=HEVC_PPS             size=64
-0xa40a92  (no VPS control — not queried, not present in V4L2 HEVC stateless API)
+0xa40a92  V4L2_CID_STATELESS_HEVC_SLICE_PARAMS     (NOT queried by golden)
 0xa40a93  V4L2_CID_STATELESS_HEVC_SCALING_MATRIX   type=HEVC_SCALING_MATRIX  size=1000
 0xa40a94  V4L2_CID_STATELESS_HEVC_DECODE_PARAMS    type=HEVC_DECODE_PARAMS   size=328
 0xa40a98  V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS   type=HEVC_EXT_SPS_ST_RPS  size=80
 0xa40a99  V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS   type=HEVC_EXT_SPS_LT_RPS  size=4
 ```
 
-Note: VPS (`0xa40a92`) is absent from the V4L2 stateless HEVC API. VPS data is
-embedded in `struct v4l2_ctrl_hevc_sps` by the driver — no separate VPS control exists.
+Note on `0xa40a92`: this is `V4L2_CID_STATELESS_HEVC_SLICE_PARAMS`
+(`V4L2_CID_CODEC_STATELESS_BASE + 402`), **not** a VPS control. The golden
+`v4l2slh265dec` does **not** query or set it — rkvdec's HEVC path is frame-based
+(slice info carried in DECODE_PARAMS), so SLICE_PARAMS is unused. There is genuinely
+no VPS control in the V4L2 stateless HEVC API; VPS data is folded into
+`struct v4l2_ctrl_hevc_sps`. (Earlier revision of this doc mislabeled `0xa40a92`
+as VPS — corrected during Task 10.) This is the direct evidence for the Task-10
+control-SET fix: ours must send `{SPS,PPS,SCALING,DECODE_PARAMS}` and must NOT send
+SLICE_PARAMS.
 
 ---
 
