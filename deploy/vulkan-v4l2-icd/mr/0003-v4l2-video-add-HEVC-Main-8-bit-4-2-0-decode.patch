@@ -1,0 +1,2793 @@
+From 4c471723e3ed3addf57852ea05de7f38165ce911 Mon Sep 17 00:00:00 2001
+From: Saverio Pavone <pavone.lawyer@gmail.com>
+Date: Thu, 25 Jun 2026 16:17:57 +0000
+Subject: [PATCH 3/3] v4l2-video: add HEVC Main 8-bit 4:2:0 decode
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Mirror the H.264 path for HEVC on rkvdec's V4L2 stateless API: advertise
+VK_KHR_video_decode_h265, translate the Vulkan std structures into the V4L2
+HEVC controls (SPS, PPS, scaling matrix, short/long-term RPS, decode params),
+and parse the slice segment header for the fields the hardware needs. The RPS
+goes through the EXT_SPS ST/LT controls that VDPU381 requires. The bit-reader
+and start-code helpers are factored out of the H.264 parser into a shared
+v4l2vk_bitreader.h.
+
+Scope is Main profile, 8-bit, 4:2:0; weighted prediction is not parsed
+(the long-term-reference DPB flag is also not wired yet — no test stream had
+long-term references). Validated byte-exact against ffmpeg on an RK3588 across
+I/P/B, more than one short-term RPS, and 360p/720p/1080p including cropped
+sizes, and playing in WebKitGTK through a small GStreamer bridge.
+
+Signed-off-by: Saverio Pavone <pavone.lawyer@gmail.com>
+Assisted-by: Claude:claude-opus-4-8
+---
+ src/vulkan-v4l2/meson.build                 |    1 +
+ src/vulkan-v4l2/v4l2vk_bitreader.h          |  107 ++
+ src/vulkan-v4l2/v4l2vk_codec.h              |   12 +
+ src/vulkan-v4l2/v4l2vk_device_exts.h        |    3 +
+ src/vulkan-v4l2/v4l2vk_dpb.h                |    3 +-
+ src/vulkan-v4l2/v4l2vk_hevc_ext_compat.h    |   75 ++
+ src/vulkan-v4l2/v4l2vk_v4l2.c               |  211 ++++
+ src/vulkan-v4l2/v4l2vk_v4l2.h               |   30 +
+ src/vulkan-v4l2/v4l2vk_v4l2_h264.c          |   92 +-
+ src/vulkan-v4l2/v4l2vk_v4l2_hevc.c          | 1206 +++++++++++++++++++
+ src/vulkan-v4l2/v4l2vk_v4l2_hevc.h          |  192 +++
+ src/vulkan-v4l2/v4l2vk_vk_device.c          |  165 ++-
+ src/vulkan-v4l2/v4l2vk_vk_device.h          |   12 +
+ src/vulkan-v4l2/v4l2vk_vk_physical_device.c |    7 +
+ src/vulkan-v4l2/v4l2vk_vk_video.c           |  258 +++-
+ src/vulkan-v4l2/v4l2vk_vk_video.h           |    7 +
+ 16 files changed, 2238 insertions(+), 143 deletions(-)
+ create mode 100644 src/vulkan-v4l2/v4l2vk_bitreader.h
+ create mode 100644 src/vulkan-v4l2/v4l2vk_codec.h
+ create mode 100644 src/vulkan-v4l2/v4l2vk_hevc_ext_compat.h
+ create mode 100644 src/vulkan-v4l2/v4l2vk_v4l2_hevc.c
+ create mode 100644 src/vulkan-v4l2/v4l2vk_v4l2_hevc.h
+
+diff --git a/src/vulkan-v4l2/meson.build b/src/vulkan-v4l2/meson.build
+index c91fde6..6b98c42 100644
+--- a/src/vulkan-v4l2/meson.build
++++ b/src/vulkan-v4l2/meson.build
+@@ -5,6 +5,7 @@ v4l2vk_vk_files = files(
+   'v4l2vk_vk_video.c',
+   'v4l2vk_v4l2.c',
+   'v4l2vk_v4l2_h264.c',
++  'v4l2vk_v4l2_hevc.c',
+   'v4l2vk_vk_device_memory.c',
+   'v4l2vk_vk_query_pool.c',
+   'v4l2vk_vk_image.c',
+diff --git a/src/vulkan-v4l2/v4l2vk_bitreader.h b/src/vulkan-v4l2/v4l2vk_bitreader.h
+new file mode 100644
+index 0000000..3911196
+--- /dev/null
++++ b/src/vulkan-v4l2/v4l2vk_bitreader.h
+@@ -0,0 +1,107 @@
++/* SPDX-License-Identifier: MIT
++ *
++ * Copyright © 2026 Amazon.com, Inc. or its affiliates
++ *     Sreerenj Balachandran <sreerenj@amazon.com>
++ *
++ * Shared codec-agnostic Annex-B bit-reader and start-code helpers.
++ * Used by both the H.264 and HEVC slice parsers.
++ */
++#ifndef V4L2VK_BITREADER_H
++#define V4L2VK_BITREADER_H
++
++#include <stdint.h>
++#include <stddef.h>
++
++/* ---- Minimal Annex-B bitstream reader ----
++ *
++ * We need to parse just enough of each slice header to extract:
++ *   - nal_ref_idc, nal_unit_type  (from NAL header)
++ *   - first_mb_in_slice           (ue(v))
++ *   - slice_type                  (ue(v))
++ *
++ * This avoids the need for a full parser while giving the V4L2
++ * stateless driver the critical fields it validates.
++ */
++
++struct v4l2vk_bitreader {
++   const uint8_t *data;
++   size_t size; /* bytes */
++   uint32_t bit_offset;
++};
++
++static inline void
++br_init(struct v4l2vk_bitreader *br, const uint8_t *data, size_t size)
++{
++   br->data = data;
++   br->size = size;
++   br->bit_offset = 0;
++}
++
++static inline int
++br_eof(const struct v4l2vk_bitreader *br)
++{
++   return (br->bit_offset >> 3) >= br->size;
++}
++
++static inline uint32_t
++br_read_bit(struct v4l2vk_bitreader *br)
++{
++   if (br_eof(br))
++      return 0;
++   uint32_t byte_idx = br->bit_offset >> 3;
++   uint32_t bit_idx = 7 - (br->bit_offset & 7);
++   br->bit_offset++;
++   return (br->data[byte_idx] >> bit_idx) & 1;
++}
++
++/* Read unsigned exp-Golomb coded value.
++ * Codeword: M zero-bits, 1-bit, M info-bits.
++ * Value = 2^M - 1 + INFO.
++ */
++static inline uint32_t
++br_read_ue(struct v4l2vk_bitreader *br)
++{
++   uint32_t leading_zeros = 0;
++   while (!br_eof(br) && br_read_bit(br) == 0)
++      leading_zeros++;
++   if (leading_zeros > 31)
++      return 0; /* overflow protection */
++   uint32_t info = 0;
++   for (uint32_t i = 0; i < leading_zeros; i++)
++      info = (info << 1) | br_read_bit(br);
++   return (1u << leading_zeros) - 1 + info;
++}
++
++/* Read signed exp-Golomb coded value */
++static inline int32_t
++br_read_se(struct v4l2vk_bitreader *br)
++{
++   uint32_t v = br_read_ue(br);
++   if (v & 1)
++      return (int32_t)((v + 1) >> 1);
++   else
++      return -(int32_t)(v >> 1);
++}
++
++static inline void
++br_skip_bits(struct v4l2vk_bitreader *br, uint32_t n)
++{
++   br->bit_offset += n;
++}
++
++/*
++ * Skip past any Annex-B start code (00 00 01 or 00 00 00 01) at the
++ * given position, returning the offset of the NAL header byte.
++ */
++static inline size_t
++v4l2vk_skip_start_code(const uint8_t *data, size_t size)
++{
++   if (size >= 4 && data[0] == 0 && data[1] == 0 && data[2] == 0 &&
++       data[3] == 1)
++      return 4;
++   if (size >= 3 && data[0] == 0 && data[1] == 0 && data[2] == 1)
++      return 3;
++   return 0; /* no start code — data starts at NAL header */
++}
++
++#endif /* V4L2VK_BITREADER_H */
+diff --git a/src/vulkan-v4l2/v4l2vk_codec.h b/src/vulkan-v4l2/v4l2vk_codec.h
+new file mode 100644
+index 0000000..1885699
+--- /dev/null
++++ b/src/vulkan-v4l2/v4l2vk_codec.h
+@@ -0,0 +1,12 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef V4L2VK_CODEC_H
++#define V4L2VK_CODEC_H
++
++/* Codec discriminator shared by all codec-branched sites.
++ * H264=0 so existing zero-init paths default to H.264. */
++enum v4l2vk_codec {
++   V4L2VK_CODEC_H264 = 0,
++   V4L2VK_CODEC_H265 = 1,
++};
++
++#endif /* V4L2VK_CODEC_H */
+diff --git a/src/vulkan-v4l2/v4l2vk_device_exts.h b/src/vulkan-v4l2/v4l2vk_device_exts.h
+index 8039871..a27a603 100644
+--- a/src/vulkan-v4l2/v4l2vk_device_exts.h
++++ b/src/vulkan-v4l2/v4l2vk_device_exts.h
+@@ -19,6 +19,9 @@ static const VkExtensionProperties v4l2vk_device_exts[] = {
+     VK_KHR_VIDEO_DECODE_QUEUE_SPEC_VERSION},
+    {VK_KHR_VIDEO_DECODE_H264_EXTENSION_NAME,
+     VK_KHR_VIDEO_DECODE_H264_SPEC_VERSION},
++   /* H265 ext entry */
++   {VK_KHR_VIDEO_DECODE_H265_EXTENSION_NAME,
++    VK_KHR_VIDEO_DECODE_H265_SPEC_VERSION},
+    {VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME, 1},
+    {VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,
+     VK_KHR_EXTERNAL_MEMORY_SPEC_VERSION},
+diff --git a/src/vulkan-v4l2/v4l2vk_dpb.h b/src/vulkan-v4l2/v4l2vk_dpb.h
+index 7fb27e1..0a8b6c0 100644
+--- a/src/vulkan-v4l2/v4l2vk_dpb.h
++++ b/src/vulkan-v4l2/v4l2vk_dpb.h
+@@ -14,7 +14,8 @@
+ 
+ struct v4l2vk_dpb_entry {
+    VkVideoPictureResourceInfoKHR resource;
+-   StdVideoDecodeH264ReferenceInfo ref;
++   StdVideoDecodeH264ReferenceInfo ref;    /* H264 reference info (field PicOrderCnt[]) */
++   int32_t hevc_pic_order_cnt_val;         /* HEVC PicOrderCntVal */
+    uint8_t slot_index;
+    uint8_t valid;
+    uint64_t reference_ts; /* V4L2 timestamp: slot_index * 1000 */
+diff --git a/src/vulkan-v4l2/v4l2vk_hevc_ext_compat.h b/src/vulkan-v4l2/v4l2vk_hevc_ext_compat.h
+new file mode 100644
+index 0000000..19e43ad
+--- /dev/null
++++ b/src/vulkan-v4l2/v4l2vk_hevc_ext_compat.h
+@@ -0,0 +1,75 @@
++/* SPDX-License-Identifier: MIT */
++/* Vendored mainline V4L2 HEVC EXT_SPS RPS uAPI for build envs whose
++ * linux/v4l2-controls.h predates it (container header stops at +407).
++ * Field layout copied verbatim from kernel 7.1 linux/v4l2-controls.h.
++ * All guarded — a newer system header wins. */
++#ifndef V4L2VK_HEVC_EXT_COMPAT_H
++#define V4L2VK_HEVC_EXT_COMPAT_H
++#include <linux/v4l2-controls.h>
++#include <linux/types.h>
++
++#ifndef V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS
++#define V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 408)
++#define V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS  (V4L2_CID_CODEC_STATELESS_BASE + 409)
++
++#define V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_INTER_REF_PIC_SET_PRED	0x1
++
++/*
++ * struct v4l2_ctrl_hevc_ext_sps_st_rps - HEVC short term RPS parameters
++ *
++ * Dynamic size 1-dimension array for short term RPS. The number of elements
++ * is v4l2_ctrl_hevc_sps::num_short_term_ref_pic_sets. It can contain up to 65 elements.
++ *
++ * @delta_idx_minus1: Specifies the delta compare to the index. See details in section 7.4.8
++ *                    "Short-term reference picture set semantics" of the specification.
++ * @delta_rps_sign: Sign of the delta as specified in section 7.4.8 "Short-term reference picture
++ *                  set semantics" of the specification.
++ * @abs_delta_rps_minus1: Absolute delta RPS as specified in section 7.4.8 "Short-term reference
++ *                        picture set semantics" of the specification.
++ * @num_negative_pics: Number of short-term RPS entries that have picture order count values less
++ *                     than the picture order count value of the current picture.
++ * @num_positive_pics: Number of short-term RPS entries that have picture order count values
++ *                     greater than the picture order count value of the current picture.
++ * @used_by_curr_pic: Bit j specifies if short-term RPS j is used by the current picture.
++ * @use_delta_flag: Bit j equals to 1 specifies that the j-th entry in the source candidate
++ *                  short-term RPS is included in this candidate short-term RPS.
++ * @delta_poc_s0_minus1: Specifies the negative picture order count delta for the i-th entry in
++ *                       the short-term RPS. See details in section 7.4.8 "Short-term reference
++ *                       picture set semantics" of the specification.
++ * @delta_poc_s1_minus1: Specifies the positive picture order count delta for the i-th entry in
++ *                       the short-term RPS. See details in section 7.4.8 "Short-term reference
++ *                       picture set semantics" of the specification.
++ * @flags: See V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_{}
++ */
++struct v4l2_ctrl_hevc_ext_sps_st_rps {
++	__u8	delta_idx_minus1;
++	__u8	delta_rps_sign;
++	__u8	num_negative_pics;
++	__u8	num_positive_pics;
++	__u32	used_by_curr_pic;
++	__u32	use_delta_flag;
++	__u16	abs_delta_rps_minus1;
++	__u16	delta_poc_s0_minus1[16];
++	__u16	delta_poc_s1_minus1[16];
++	__u16	flags;
++};
++
++#define V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT		0x1
++
++/*
++ * struct v4l2_ctrl_hevc_ext_sps_lt_rps - HEVC long term RPS parameters
++ *
++ * Dynamic size 1-dimension array for long term RPS. The number of elements
++ * is v4l2_ctrl_hevc_sps::num_long_term_ref_pics_sps. It can contain up to 65 elements.
++ *
++ * @lt_ref_pic_poc_lsb_sps: picture order count modulo MaxPicOrderCntLsb of the i-th candidate
++ *                          long-term reference picture.
++ * @flags: See V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_{}
++ */
++struct v4l2_ctrl_hevc_ext_sps_lt_rps {
++	__u16	lt_ref_pic_poc_lsb_sps;
++	__u16	flags;
++};
++
++#endif /* V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS */
++#endif /* V4L2VK_HEVC_EXT_COMPAT_H */
+diff --git a/src/vulkan-v4l2/v4l2vk_v4l2.c b/src/vulkan-v4l2/v4l2vk_v4l2.c
+index b3ba528..5227085 100644
+--- a/src/vulkan-v4l2/v4l2vk_v4l2.c
++++ b/src/vulkan-v4l2/v4l2vk_v4l2.c
+@@ -6,6 +6,9 @@
+ #include "v4l2vk_v4l2.h"
+ #include "v4l2vk_log.h"
+ #include "v4l2vk_v4l2_h264.h"
++#include "v4l2vk_hevc_ext_compat.h"
++#include "v4l2vk_v4l2_hevc.h"
++#include "v4l2vk_codec.h"
+ 
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -108,6 +111,15 @@ v4l2vk_v4l2_context_create(int video_fd, int media_fd, uint32_t w, uint32_t h)
+    PROBE_CTRL(has_ctrl_decode_params, V4L2_CID_STATELESS_H264_DECODE_PARAMS);
+    PROBE_CTRL(has_ctrl_slice_params, V4L2_CID_STATELESS_H264_SLICE_PARAMS);
+    PROBE_CTRL(has_ctrl_pred_weights, V4L2_CID_STATELESS_H264_PRED_WEIGHTS);
++
++   /* Probe HEVC stateless controls (EXT_SPS CIDs from hevc_ext_compat.h) */
++   PROBE_CTRL(has_ctrl_hevc_sps, V4L2_CID_STATELESS_HEVC_SPS);
++   PROBE_CTRL(has_ctrl_hevc_pps, V4L2_CID_STATELESS_HEVC_PPS);
++   PROBE_CTRL(has_ctrl_hevc_scaling, V4L2_CID_STATELESS_HEVC_SCALING_MATRIX);
++   PROBE_CTRL(has_ctrl_hevc_decode_params, V4L2_CID_STATELESS_HEVC_DECODE_PARAMS);
++   PROBE_CTRL(has_ctrl_hevc_slice_params, V4L2_CID_STATELESS_HEVC_SLICE_PARAMS);
++   PROBE_CTRL(has_ctrl_hevc_ext_sps_st_rps, V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS);
++   PROBE_CTRL(has_ctrl_hevc_ext_sps_lt_rps, V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS);
+ #undef PROBE_CTRL
+ 
+    fprintf(stderr,
+@@ -116,6 +128,13 @@ v4l2vk_v4l2_context_create(int video_fd, int media_fd, uint32_t w, uint32_t h)
+            ctx->has_ctrl_sps, ctx->has_ctrl_pps, ctx->has_ctrl_scaling,
+            ctx->has_ctrl_decode_params, ctx->has_ctrl_slice_params,
+            ctx->has_ctrl_pred_weights);
++   fprintf(stderr,
++           "[V4L2VK][V4L2] HEVC controls: SPS=%d PPS=%d SCALING=%d "
++           "DECODE_PARAMS=%d SLICE_PARAMS=%d ST_RPS=%d LT_RPS=%d\n",
++           ctx->has_ctrl_hevc_sps, ctx->has_ctrl_hevc_pps,
++           ctx->has_ctrl_hevc_scaling, ctx->has_ctrl_hevc_decode_params,
++           ctx->has_ctrl_hevc_slice_params, ctx->has_ctrl_hevc_ext_sps_st_rps,
++           ctx->has_ctrl_hevc_ext_sps_lt_rps);
+ 
+    return ctx;
+ }
+@@ -189,6 +208,37 @@ v4l2vk_v4l2_set_output_format(struct v4l2vk_v4l2_context *ctx, uint32_t w,
+    return 0;
+ }
+ 
++/* set_output_format_codec: selects pixelformat from codec enum.
++ * H264 (0) -> H264_SLICE (same as set_output_format).
++ * H265 (1) -> HEVC_SLICE. */
++int
++v4l2vk_v4l2_set_output_format_codec(struct v4l2vk_v4l2_context *ctx,
++                                    uint32_t w, uint32_t h, int codec)
++{
++   uint32_t pixfmt = (codec == V4L2VK_CODEC_H265)
++                     ? V4L2_PIX_FMT_HEVC_SLICE
++                     : V4L2_PIX_FMT_H264_SLICE;
++
++   struct v4l2_format fmt;
++   memset(&fmt, 0, sizeof(fmt));
++   fmt.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
++   fmt.fmt.pix_mp.width = w;
++   fmt.fmt.pix_mp.height = h;
++   fmt.fmt.pix_mp.pixelformat = pixfmt;
++   fmt.fmt.pix_mp.num_planes = 1;
++   fmt.fmt.pix_mp.plane_fmt[0].sizeimage = 1024 * 1024;
++
++   if (xioctl(ctx->video_fd, VIDIOC_S_FMT, &fmt) < 0) {
++      V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] S_FMT OUTPUT (codec=%d) failed: %s\n",
++                       codec, strerror(errno));
++      return -errno;
++   }
++   ctx->output_stride = fmt.fmt.pix_mp.plane_fmt[0].bytesperline;
++   V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] OUTPUT fmt (codec=%d): %ux%u\n",
++                    codec, fmt.fmt.pix_mp.width, fmt.fmt.pix_mp.height);
++   return 0;
++}
++
+ int
+ v4l2vk_v4l2_set_capture_format(struct v4l2vk_v4l2_context *ctx, uint32_t w,
+                                uint32_t h, uint32_t *stride,
+@@ -252,6 +302,46 @@ v4l2vk_v4l2_set_init_sps(struct v4l2vk_v4l2_context *ctx,
+    return 0;
+ }
+ 
++/* set_init_paramset: generalized non-request init control.
++ * H264: sets V4L2_CID_STATELESS_H264_SPS (= set_init_sps behavior).
++ * H265: sets V4L2_CID_STATELESS_HEVC_SPS (single non-request
++ *   ctrl between S_FMT(OUTPUT,HEVC_SLICE) and CAPTURE setup). */
++int
++v4l2vk_v4l2_set_init_paramset(struct v4l2vk_v4l2_context *ctx,
++                              int codec, const void *params)
++{
++   struct v4l2_ext_control ctrl;
++   memset(&ctrl, 0, sizeof(ctrl));
++
++   if (codec == V4L2VK_CODEC_H265) {
++      const struct v4l2vk_hevc_frame_params *hp =
++         (const struct v4l2vk_hevc_frame_params *)params;
++      ctrl.id   = V4L2_CID_STATELESS_HEVC_SPS;
++      ctrl.size = sizeof(hp->sps);
++      ctrl.ptr  = (void *)&hp->sps;
++   } else {
++      const struct v4l2vk_h264_frame_params *hp =
++         (const struct v4l2vk_h264_frame_params *)params;
++      ctrl.id   = V4L2_CID_STATELESS_H264_SPS;
++      ctrl.size = sizeof(hp->sps);
++      ctrl.ptr  = (void *)&hp->sps;
++   }
++
++   struct v4l2_ext_controls ext;
++   memset(&ext, 0, sizeof(ext));
++   ext.which    = V4L2_CTRL_WHICH_CUR_VAL;
++   ext.count    = 1;
++   ext.controls = &ctrl;
++
++   if (xioctl(ctx->video_fd, VIDIOC_S_EXT_CTRLS, &ext) < 0) {
++      V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] init_paramset (codec=%d) failed: %s\n",
++                       codec, strerror(errno));
++      return -errno;
++   }
++   V4L2VK_LOGI_V4L2("[V4L2VK][V4L2] init_paramset (codec=%d) OK\n", codec);
++   return 0;
++}
++
+ /* --- Streaming --- */
+ 
+ int
+@@ -476,6 +566,20 @@ v4l2vk_ctrl_name(uint32_t id)
+       return "SLICE_PARAMS";
+    case V4L2_CID_STATELESS_H264_PRED_WEIGHTS:
+       return "PRED_WEIGHTS";
++   case V4L2_CID_STATELESS_HEVC_SPS:
++      return "HEVC_SPS";
++   case V4L2_CID_STATELESS_HEVC_PPS:
++      return "HEVC_PPS";
++   case V4L2_CID_STATELESS_HEVC_SCALING_MATRIX:
++      return "HEVC_SCALING_MATRIX";
++   case V4L2_CID_STATELESS_HEVC_DECODE_PARAMS:
++      return "HEVC_DECODE_PARAMS";
++   case V4L2_CID_STATELESS_HEVC_SLICE_PARAMS:
++      return "HEVC_SLICE_PARAMS";
++   case V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS:
++      return "HEVC_EXT_SPS_ST_RPS";
++   case V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS:
++      return "HEVC_EXT_SPS_LT_RPS";
+    default:
+       return "UNKNOWN";
+    }
+@@ -579,6 +683,113 @@ v4l2vk_v4l2_set_h264_controls(struct v4l2vk_v4l2_context *ctx, int request_fd,
+    return 0;
+ }
+ 
++/* set_codec_controls: generalized per-request codec control setter.
++ * H264: delegates unchanged to set_h264_controls.
++ * H265: builds control array from v4l2vk_hevc_frame_params:
++ *   SPS, PPS, SCALING (has_scaling), DECODE_PARAMS, SLICE_PARAMS (slice_count),
++ *   EXT_SPS_ST_RPS (st_rps_count), EXT_SPS_LT_RPS (lt_rps_count). */
++int
++v4l2vk_v4l2_set_codec_controls(struct v4l2vk_v4l2_context *ctx,
++                               int request_fd, int codec,
++                               const void *params)
++{
++   if (codec == V4L2VK_CODEC_H265) {
++      const struct v4l2vk_hevc_frame_params *hp =
++         (const struct v4l2vk_hevc_frame_params *)params;
++
++      /* 7 possible controls: SPS PPS SCALING DECODE_PARAMS SLICE_PARAMS
++       * EXT_SPS_ST_RPS EXT_SPS_LT_RPS */
++      struct v4l2_ext_control ctrls[7];
++      uint32_t n = 0;
++      memset(ctrls, 0, sizeof(ctrls));
++
++      if (ctx->has_ctrl_hevc_sps) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_SPS;
++         ctrls[n].size = sizeof(hp->sps);
++         ctrls[n].ptr  = (void *)&hp->sps;
++         n++;
++      }
++      if (ctx->has_ctrl_hevc_pps) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_PPS;
++         ctrls[n].size = sizeof(hp->pps);
++         ctrls[n].ptr  = (void *)&hp->pps;
++         n++;
++      }
++      if (ctx->has_ctrl_hevc_scaling && hp->has_scaling) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_SCALING_MATRIX;
++         ctrls[n].size = sizeof(hp->scaling);
++         ctrls[n].ptr  = (void *)&hp->scaling;
++         n++;
++      }
++      if (ctx->has_ctrl_hevc_decode_params) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_DECODE_PARAMS;
++         ctrls[n].size = sizeof(hp->decode_params);
++         ctrls[n].ptr  = (void *)&hp->decode_params;
++         n++;
++      }
++      if (ctx->has_ctrl_hevc_slice_params && hp->slice_count > 0) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_SLICE_PARAMS;
++         ctrls[n].size = sizeof(struct v4l2_ctrl_hevc_slice_params)
++                         * hp->slice_count;
++         ctrls[n].ptr  = (void *)hp->slice_params;
++         n++;
++      }
++      if (ctx->has_ctrl_hevc_ext_sps_st_rps && hp->st_rps_count > 0) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_EXT_SPS_ST_RPS;
++         ctrls[n].size = sizeof(struct v4l2_ctrl_hevc_ext_sps_st_rps)
++                         * hp->st_rps_count;
++         ctrls[n].ptr  = (void *)hp->st_rps;
++         n++;
++      }
++      if (ctx->has_ctrl_hevc_ext_sps_lt_rps && hp->lt_rps_count > 0) {
++         ctrls[n].id   = V4L2_CID_STATELESS_HEVC_EXT_SPS_LT_RPS;
++         ctrls[n].size = sizeof(struct v4l2_ctrl_hevc_ext_sps_lt_rps)
++                         * hp->lt_rps_count;
++         ctrls[n].ptr  = (void *)hp->lt_rps;
++         n++;
++      }
++
++      fprintf(stderr,
++              "[V4L2VK][V4L2] HEVC S_EXT_CTRLS: video_fd=%d request_fd=%d count=%u\n",
++              ctx->video_fd, request_fd, n);
++
++      struct v4l2_ext_controls ext_ctrls;
++      memset(&ext_ctrls, 0, sizeof(ext_ctrls));
++      ext_ctrls.which      = V4L2_CTRL_WHICH_REQUEST_VAL;
++      ext_ctrls.request_fd = request_fd;
++      ext_ctrls.count      = n;
++      ext_ctrls.controls   = ctrls;
++
++      if (xioctl(ctx->video_fd, VIDIOC_S_EXT_CTRLS, &ext_ctrls) < 0) {
++         int err = errno;
++         fprintf(stderr,
++                 "[V4L2VK][V4L2] HEVC S_EXT_CTRLS FAILED: %s (errno=%d) error_idx=%u\n",
++                 strerror(err), err, ext_ctrls.error_idx);
++         for (uint32_t i = 0; i < n; i++) {
++            struct v4l2_ext_controls single;
++            memset(&single, 0, sizeof(single));
++            single.which      = V4L2_CTRL_WHICH_REQUEST_VAL;
++            single.request_fd = request_fd;
++            single.count      = 1;
++            single.controls   = &ctrls[i];
++            int rc = xioctl(ctx->video_fd, VIDIOC_S_EXT_CTRLS, &single);
++            fprintf(stderr,
++                    "[V4L2VK][V4L2]   ctrl 0x%08x (%s) size=%u: %s\n",
++                    ctrls[i].id, v4l2vk_ctrl_name(ctrls[i].id),
++                    ctrls[i].size, rc < 0 ? strerror(errno) : "OK");
++         }
++         return -err;
++      }
++      fprintf(stderr, "[V4L2VK][V4L2] HEVC S_EXT_CTRLS: OK\n");
++      return 0;
++   }
++
++   /* H264 (default): delegate unchanged to existing function */
++   return v4l2vk_v4l2_set_h264_controls(
++      ctx, request_fd,
++      (const struct v4l2vk_h264_frame_params *)params);
++}
++
+ int
+ v4l2vk_v4l2_queue_output(struct v4l2vk_v4l2_context *ctx, uint32_t buf_idx,
+                          int request_fd, const void *bitstream, size_t size,
+diff --git a/src/vulkan-v4l2/v4l2vk_v4l2.h b/src/vulkan-v4l2/v4l2vk_v4l2.h
+index 0cdf580..36bdeaf 100644
+--- a/src/vulkan-v4l2/v4l2vk_v4l2.h
++++ b/src/vulkan-v4l2/v4l2vk_v4l2.h
+@@ -53,9 +53,19 @@ struct v4l2vk_v4l2_context {
+    bool has_ctrl_decode_params;
+    bool has_ctrl_slice_params;
+    bool has_ctrl_pred_weights;
++
++   /* Which HEVC stateless controls the kernel driver supports */
++   bool has_ctrl_hevc_sps;
++   bool has_ctrl_hevc_pps;
++   bool has_ctrl_hevc_scaling;
++   bool has_ctrl_hevc_decode_params;
++   bool has_ctrl_hevc_slice_params;
++   bool has_ctrl_hevc_ext_sps_st_rps;
++   bool has_ctrl_hevc_ext_sps_lt_rps;
+ };
+ 
+ struct v4l2vk_h264_frame_params;
++struct v4l2vk_hevc_frame_params;
+ 
+ /* Context lifecycle */
+ struct v4l2vk_v4l2_context *
+@@ -65,6 +75,11 @@ void v4l2vk_v4l2_context_destroy(struct v4l2vk_v4l2_context *ctx);
+ /* Format & streaming */
+ int v4l2vk_v4l2_set_output_format(struct v4l2vk_v4l2_context *ctx, uint32_t w,
+                                   uint32_t h);
++
++/* set_output_format_codec: selects pixelformat from codec.
++ * codec=0 (H264) -> H264_SLICE; codec=1 (H265) -> HEVC_SLICE. */
++int v4l2vk_v4l2_set_output_format_codec(struct v4l2vk_v4l2_context *ctx,
++                                        uint32_t w, uint32_t h, int codec);
+ int v4l2vk_v4l2_set_capture_format(struct v4l2vk_v4l2_context *ctx, uint32_t w,
+                                    uint32_t h, uint32_t *stride,
+                                    uint32_t *sizeimage);
+@@ -85,6 +100,21 @@ v4l2vk_v4l2_set_h264_controls(struct v4l2vk_v4l2_context *ctx, int request_fd,
+ 
+ int v4l2vk_v4l2_set_init_sps(struct v4l2vk_v4l2_context *ctx,
+                             const struct v4l2vk_h264_frame_params *params);
++
++/* Generalized non-request SPS init for either codec.
++ * H264: sets V4L2_CID_STATELESS_H264_SPS (same as set_init_sps).
++ * H265: sets V4L2_CID_STATELESS_HEVC_SPS (single non-request init SPS).
++ * codec: 0=H264, 1=H265. params: matching frame_params pointer. */
++int v4l2vk_v4l2_set_init_paramset(struct v4l2vk_v4l2_context *ctx,
++                                  int codec, const void *params);
++
++/* Generalized per-request codec control setter.
++ * H264: delegates to set_h264_controls (identical behavior).
++ * H265: builds control array from v4l2vk_hevc_frame_params.
++ * codec: 0=H264, 1=H265. params: matching frame_params pointer. */
++int v4l2vk_v4l2_set_codec_controls(struct v4l2vk_v4l2_context *ctx,
++                                   int request_fd, int codec,
++                                   const void *params);
+ int v4l2vk_v4l2_queue_output(struct v4l2vk_v4l2_context *ctx, uint32_t buf_idx,
+                              int request_fd, const void *bitstream, size_t size,
+                              uint64_t timestamp);
+diff --git a/src/vulkan-v4l2/v4l2vk_v4l2_h264.c b/src/vulkan-v4l2/v4l2vk_v4l2_h264.c
+index 0fe4eb9..dfd908d 100644
+--- a/src/vulkan-v4l2/v4l2vk_v4l2_h264.c
++++ b/src/vulkan-v4l2/v4l2vk_v4l2_h264.c
+@@ -9,97 +9,7 @@
+ #include <stdio.h>
+ #include <string.h>
+ 
+-/* ---- Minimal H.264 bitstream reader for slice header parsing ----
+- *
+- * We need to parse just enough of each slice header to extract:
+- *   - nal_ref_idc, nal_unit_type  (from NAL header)
+- *   - first_mb_in_slice           (ue(v))
+- *   - slice_type                  (ue(v))
+- *
+- * This avoids the need for a full H.264 parser while giving the V4L2
+- * stateless driver the critical fields it validates.
+- */
+-
+-struct v4l2vk_bitreader {
+-   const uint8_t *data;
+-   size_t size; /* bytes */
+-   uint32_t bit_offset;
+-};
+-
+-static inline void
+-br_init(struct v4l2vk_bitreader *br, const uint8_t *data, size_t size)
+-{
+-   br->data = data;
+-   br->size = size;
+-   br->bit_offset = 0;
+-}
+-
+-static inline int
+-br_eof(const struct v4l2vk_bitreader *br)
+-{
+-   return (br->bit_offset >> 3) >= br->size;
+-}
+-
+-static inline uint32_t
+-br_read_bit(struct v4l2vk_bitreader *br)
+-{
+-   if (br_eof(br))
+-      return 0;
+-   uint32_t byte_idx = br->bit_offset >> 3;
+-   uint32_t bit_idx = 7 - (br->bit_offset & 7);
+-   br->bit_offset++;
+-   return (br->data[byte_idx] >> bit_idx) & 1;
+-}
+-
+-/* Read unsigned exp-Golomb coded value.
+- * Codeword: M zero-bits, 1-bit, M info-bits.
+- * Value = 2^M - 1 + INFO.
+- */
+-static uint32_t
+-br_read_ue(struct v4l2vk_bitreader *br)
+-{
+-   uint32_t leading_zeros = 0;
+-   while (!br_eof(br) && br_read_bit(br) == 0)
+-      leading_zeros++;
+-   if (leading_zeros > 31)
+-      return 0; /* overflow protection */
+-   uint32_t info = 0;
+-   for (uint32_t i = 0; i < leading_zeros; i++)
+-      info = (info << 1) | br_read_bit(br);
+-   return (1u << leading_zeros) - 1 + info;
+-}
+-
+-/* Read signed exp-Golomb coded value */
+-static int32_t
+-br_read_se(struct v4l2vk_bitreader *br)
+-{
+-   uint32_t v = br_read_ue(br);
+-   if (v & 1)
+-      return (int32_t)((v + 1) >> 1);
+-   else
+-      return -(int32_t)(v >> 1);
+-}
+-
+-static inline void
+-br_skip_bits(struct v4l2vk_bitreader *br, uint32_t n)
+-{
+-   br->bit_offset += n;
+-}
+-
+-/*
+- * Skip past any Annex-B start code (00 00 01 or 00 00 00 01) at the
+- * given position, returning the offset of the NAL header byte.
+- */
+-static size_t
+-v4l2vk_skip_start_code(const uint8_t *data, size_t size)
+-{
+-   if (size >= 4 && data[0] == 0 && data[1] == 0 && data[2] == 0 &&
+-       data[3] == 1)
+-      return 4;
+-   if (size >= 3 && data[0] == 0 && data[1] == 0 && data[2] == 1)
+-      return 3;
+-   return 0; /* no start code — data starts at NAL header */
+-}
++#include "v4l2vk_bitreader.h"
+ 
+ /*
+  * Parsed slice header fields that we need for V4L2.
+diff --git a/src/vulkan-v4l2/v4l2vk_v4l2_hevc.c b/src/vulkan-v4l2/v4l2vk_v4l2_hevc.c
+new file mode 100644
+index 0000000..3d56deb
+--- /dev/null
++++ b/src/vulkan-v4l2/v4l2vk_v4l2_hevc.c
+@@ -0,0 +1,1206 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * HEVC V4L2 stateless translate — SPS/PPS/scaling struct->struct translators
++ * plus ST/LT RPS remap and decode_params translator.
++ *
++ * Covers level_idc_to_raw, translate_sps/pps/scaling, translate_st_rps,
++ * translate_lt_rps and translate_decode_params.
++ *
++ * Field mapping reference:
++ *   Vulkan side: mesa/include/vk_video/vulkan_video_codec_h265std.h
++ *                mesa/include/vk_video/vulkan_video_codec_h265std_decode.h
++ *   V4L2 side:   /usr/include/linux/v4l2-controls.h (kernel 7.x)
++ */
++#include "v4l2vk_v4l2_hevc.h"
++#include "v4l2vk_dpb.h"
++#include "v4l2vk_bitreader.h"
++
++#include <stdio.h>
++#include <string.h>
++
++/* -------------------------------------------------------------------------
++ * Level enum -> raw general_level_idc
++ *
++ * HEVC spec Annex A.4: general_level_idc = Level * 30.
++ * Vulkan StdVideoH265LevelIdc enum values 0..12 in ascending level order,
++ * with no 1.1/1.2/1.3 (HEVC skips those vs H.264).
++ *
++ * Enum mapping (from vulkan_video_codec_h265std.h):
++ *   STD_VIDEO_H265_LEVEL_IDC_1_0 = 0  -> 30
++ *   STD_VIDEO_H265_LEVEL_IDC_2_0 = 1  -> 60
++ *   STD_VIDEO_H265_LEVEL_IDC_2_1 = 2  -> 63
++ *   STD_VIDEO_H265_LEVEL_IDC_3_0 = 3  -> 90
++ *   STD_VIDEO_H265_LEVEL_IDC_3_1 = 4  -> 93
++ *   STD_VIDEO_H265_LEVEL_IDC_4_0 = 5  -> 120
++ *   STD_VIDEO_H265_LEVEL_IDC_4_1 = 6  -> 123
++ *   STD_VIDEO_H265_LEVEL_IDC_5_0 = 7  -> 150
++ *   STD_VIDEO_H265_LEVEL_IDC_5_1 = 8  -> 153
++ *   STD_VIDEO_H265_LEVEL_IDC_5_2 = 9  -> 156
++ *   STD_VIDEO_H265_LEVEL_IDC_6_0 = 10 -> 180
++ *   STD_VIDEO_H265_LEVEL_IDC_6_1 = 11 -> 183
++ *   STD_VIDEO_H265_LEVEL_IDC_6_2 = 12 -> 186
++ * -------------------------------------------------------------------------
++ */
++uint8_t
++v4l2vk_h265_level_idc_to_raw(StdVideoH265LevelIdc lvl)
++{
++   static const uint8_t map[] = {
++      [STD_VIDEO_H265_LEVEL_IDC_1_0] = 30,
++      [STD_VIDEO_H265_LEVEL_IDC_2_0] = 60,
++      [STD_VIDEO_H265_LEVEL_IDC_2_1] = 63,
++      [STD_VIDEO_H265_LEVEL_IDC_3_0] = 90,
++      [STD_VIDEO_H265_LEVEL_IDC_3_1] = 93,
++      [STD_VIDEO_H265_LEVEL_IDC_4_0] = 120,
++      [STD_VIDEO_H265_LEVEL_IDC_4_1] = 123,
++      [STD_VIDEO_H265_LEVEL_IDC_5_0] = 150,
++      [STD_VIDEO_H265_LEVEL_IDC_5_1] = 153,
++      [STD_VIDEO_H265_LEVEL_IDC_5_2] = 156,
++      [STD_VIDEO_H265_LEVEL_IDC_6_0] = 180,
++      [STD_VIDEO_H265_LEVEL_IDC_6_1] = 183,
++      [STD_VIDEO_H265_LEVEL_IDC_6_2] = 186,
++   };
++   if ((unsigned)lvl < sizeof(map) / sizeof(map[0]))
++      return map[lvl];
++   return 0;
++}
++
++/* -------------------------------------------------------------------------
++ * SPS translation
++ *
++ * Field mapping (std -> V4L2):
++ *
++ *  sps_video_parameter_set_id    -> video_parameter_set_id
++ *  sps_seq_parameter_set_id      -> seq_parameter_set_id
++ *  pic_width_in_luma_samples     -> pic_width_in_luma_samples  (u32 -> u16, safe for 4K)
++ *  pic_height_in_luma_samples    -> pic_height_in_luma_samples (u32 -> u16)
++ *  bit_depth_luma_minus8         -> bit_depth_luma_minus8
++ *  bit_depth_chroma_minus8       -> bit_depth_chroma_minus8
++ *  log2_max_pic_order_cnt_lsb_minus4           -> log2_max_pic_order_cnt_lsb_minus4
++ *  pDecPicBufMgr->[sps_max_sub_layers_minus1]  -> sps_max_dec_pic_buffering_minus1
++ *  pDecPicBufMgr->[sps_max_sub_layers_minus1]  -> sps_max_num_reorder_pics
++ *  pDecPicBufMgr->[sps_max_sub_layers_minus1]  -> sps_max_latency_increase_plus1
++ *  log2_min_luma_coding_block_size_minus3       -> log2_min_luma_coding_block_size_minus3
++ *  log2_diff_max_min_luma_coding_block_size     -> log2_diff_max_min_luma_coding_block_size
++ *  log2_min_luma_transform_block_size_minus2    -> log2_min_luma_transform_block_size_minus2
++ *  log2_diff_max_min_luma_transform_block_size  -> log2_diff_max_min_luma_transform_block_size
++ *  max_transform_hierarchy_depth_inter          -> max_transform_hierarchy_depth_inter
++ *  max_transform_hierarchy_depth_intra          -> max_transform_hierarchy_depth_intra
++ *  pcm_sample_bit_depth_luma_minus1             -> pcm_sample_bit_depth_luma_minus1
++ *  pcm_sample_bit_depth_chroma_minus1           -> pcm_sample_bit_depth_chroma_minus1
++ *  log2_min_pcm_luma_coding_block_size_minus3   -> log2_min_pcm_luma_coding_block_size_minus3
++ *  log2_diff_max_min_pcm_luma_coding_block_size -> log2_diff_max_min_pcm_luma_coding_block_size
++ *  num_short_term_ref_pic_sets   -> num_short_term_ref_pic_sets
++ *  num_long_term_ref_pics_sps    -> num_long_term_ref_pics_sps
++ *  chroma_format_idc (enum)      -> chroma_format_idc (uint8_t, enum value == idc integer)
++ *  sps_max_sub_layers_minus1     -> sps_max_sub_layers_minus1
++ *
++ *  Flags (StdVideoH265SpsFlags -> V4L2_HEVC_SPS_FLAG_*):
++ *    separate_colour_plane_flag            -> SEPARATE_COLOUR_PLANE
++ *    scaling_list_enabled_flag             -> SCALING_LIST_ENABLED
++ *    amp_enabled_flag                      -> AMP_ENABLED
++ *    sample_adaptive_offset_enabled_flag   -> SAMPLE_ADAPTIVE_OFFSET
++ *    pcm_enabled_flag                      -> PCM_ENABLED
++ *    pcm_loop_filter_disabled_flag         -> PCM_LOOP_FILTER_DISABLED
++ *    long_term_ref_pics_present_flag       -> LONG_TERM_REF_PICS_PRESENT
++ *    sps_temporal_mvp_enabled_flag         -> SPS_TEMPORAL_MVP_ENABLED
++ *    strong_intra_smoothing_enabled_flag   -> STRONG_INTRA_SMOOTHING_ENABLED
++ *
++ *  UNCERTAIN/UNSET (no direct V4L2 equivalent, or not in SPS struct):
++ *    - conf_win_*_offset: conformance window — no matching V4L2 SPS field; kernel
++ *      derives display crop from VUI or slice_segment header; left zero.
++ *    - pProfileTierLevel->general_level_idc: NOT in v4l2_ctrl_hevc_sps (it goes into
++ *      higher-level session params); left out here.
++ *    - pProfileTierLevel->general_profile_idc: same — not in v4l2_ctrl_hevc_sps.
++ *    - sps_sub_layer_ordering_info_present_flag, sps_temporal_id_nesting_flag,
++ *      conformance_window_flag: no corresponding V4L2 SPS flag bit.
++ * -------------------------------------------------------------------------
++ */
++void
++v4l2vk_h265_translate_sps(const StdVideoH265SequenceParameterSet *vk,
++                           struct v4l2_ctrl_hevc_sps *out)
++{
++   memset(out, 0, sizeof(*out));
++
++   out->video_parameter_set_id = vk->sps_video_parameter_set_id;
++   out->seq_parameter_set_id   = vk->sps_seq_parameter_set_id;
++
++   /* Dimensions: std uses u32, V4L2 uses u16; safe for any real resolution */
++   out->pic_width_in_luma_samples  = (uint16_t)vk->pic_width_in_luma_samples;
++   out->pic_height_in_luma_samples = (uint16_t)vk->pic_height_in_luma_samples;
++
++   out->bit_depth_luma_minus8             = vk->bit_depth_luma_minus8;
++   out->bit_depth_chroma_minus8           = vk->bit_depth_chroma_minus8;
++   out->log2_max_pic_order_cnt_lsb_minus4 = vk->log2_max_pic_order_cnt_lsb_minus4;
++
++   /*
++    * DecPicBufMgr values are arrays indexed by sub-layer.
++    * V4L2 exposes only the highest sub-layer (index = sps_max_sub_layers_minus1).
++    */
++   if (vk->pDecPicBufMgr) {
++      uint8_t idx = vk->sps_max_sub_layers_minus1;
++      out->sps_max_dec_pic_buffering_minus1 =
++         vk->pDecPicBufMgr->max_dec_pic_buffering_minus1[idx];
++      out->sps_max_num_reorder_pics =
++         vk->pDecPicBufMgr->max_num_reorder_pics[idx];
++      out->sps_max_latency_increase_plus1 =
++         (uint8_t)vk->pDecPicBufMgr->max_latency_increase_plus1[idx];
++   }
++
++   out->log2_min_luma_coding_block_size_minus3      = vk->log2_min_luma_coding_block_size_minus3;
++   out->log2_diff_max_min_luma_coding_block_size    = vk->log2_diff_max_min_luma_coding_block_size;
++   out->log2_min_luma_transform_block_size_minus2   = vk->log2_min_luma_transform_block_size_minus2;
++   out->log2_diff_max_min_luma_transform_block_size = vk->log2_diff_max_min_luma_transform_block_size;
++   out->max_transform_hierarchy_depth_inter         = vk->max_transform_hierarchy_depth_inter;
++   out->max_transform_hierarchy_depth_intra         = vk->max_transform_hierarchy_depth_intra;
++
++   out->pcm_sample_bit_depth_luma_minus1            = vk->pcm_sample_bit_depth_luma_minus1;
++   out->pcm_sample_bit_depth_chroma_minus1          = vk->pcm_sample_bit_depth_chroma_minus1;
++   out->log2_min_pcm_luma_coding_block_size_minus3  = vk->log2_min_pcm_luma_coding_block_size_minus3;
++   out->log2_diff_max_min_pcm_luma_coding_block_size =
++      vk->log2_diff_max_min_pcm_luma_coding_block_size;
++
++   out->num_short_term_ref_pic_sets = vk->num_short_term_ref_pic_sets;
++   out->num_long_term_ref_pics_sps  = vk->num_long_term_ref_pics_sps;
++
++   /* chroma_format_idc: enum value == idc integer (0=mono,1=420,2=422,3=444) */
++   out->chroma_format_idc      = (uint8_t)vk->chroma_format_idc;
++   out->sps_max_sub_layers_minus1 = vk->sps_max_sub_layers_minus1;
++
++   /* Flags */
++   if (vk->flags.separate_colour_plane_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_SEPARATE_COLOUR_PLANE;
++   if (vk->flags.scaling_list_enabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_SCALING_LIST_ENABLED;
++   if (vk->flags.amp_enabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_AMP_ENABLED;
++   if (vk->flags.sample_adaptive_offset_enabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_SAMPLE_ADAPTIVE_OFFSET;
++   if (vk->flags.pcm_enabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_PCM_ENABLED;
++   if (vk->flags.pcm_loop_filter_disabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_PCM_LOOP_FILTER_DISABLED;
++   if (vk->flags.long_term_ref_pics_present_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_LONG_TERM_REF_PICS_PRESENT;
++   if (vk->flags.sps_temporal_mvp_enabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED;
++   if (vk->flags.strong_intra_smoothing_enabled_flag)
++      out->flags |= V4L2_HEVC_SPS_FLAG_STRONG_INTRA_SMOOTHING_ENABLED;
++}
++
++/* -------------------------------------------------------------------------
++ * PPS translation
++ *
++ * Field mapping (std -> V4L2):
++ *
++ *  pps_pic_parameter_set_id              -> pic_parameter_set_id
++ *  num_extra_slice_header_bits           -> num_extra_slice_header_bits
++ *  num_ref_idx_l0_default_active_minus1  -> num_ref_idx_l0_default_active_minus1
++ *  num_ref_idx_l1_default_active_minus1  -> num_ref_idx_l1_default_active_minus1
++ *  init_qp_minus26                       -> init_qp_minus26
++ *  diff_cu_qp_delta_depth                -> diff_cu_qp_delta_depth
++ *  pps_cb_qp_offset                      -> pps_cb_qp_offset
++ *  pps_cr_qp_offset                      -> pps_cr_qp_offset
++ *  num_tile_columns_minus1               -> num_tile_columns_minus1
++ *  num_tile_rows_minus1                  -> num_tile_rows_minus1
++ *  column_width_minus1[0..N-1]           -> column_width_minus1[0..N-1] (u16 -> u8, tile col width in CTBs; safe for reasonable tile sizes)
++ *  row_height_minus1[0..M-1]             -> row_height_minus1[0..M-1]   (u16 -> u8)
++ *  pps_beta_offset_div2                  -> pps_beta_offset_div2
++ *  pps_tc_offset_div2                    -> pps_tc_offset_div2
++ *  log2_parallel_merge_level_minus2      -> log2_parallel_merge_level_minus2
++ *
++ *  Flags (StdVideoH265PpsFlags -> V4L2_HEVC_PPS_FLAG_*):
++ *    dependent_slice_segments_enabled_flag     -> DEPENDENT_SLICE_SEGMENT_ENABLED
++ *    output_flag_present_flag                  -> OUTPUT_FLAG_PRESENT
++ *    sign_data_hiding_enabled_flag             -> SIGN_DATA_HIDING_ENABLED
++ *    cabac_init_present_flag                   -> CABAC_INIT_PRESENT
++ *    constrained_intra_pred_flag               -> CONSTRAINED_INTRA_PRED
++ *    transform_skip_enabled_flag               -> TRANSFORM_SKIP_ENABLED
++ *    cu_qp_delta_enabled_flag                  -> CU_QP_DELTA_ENABLED
++ *    pps_slice_chroma_qp_offsets_present_flag  -> PPS_SLICE_CHROMA_QP_OFFSETS_PRESENT
++ *    weighted_pred_flag                        -> WEIGHTED_PRED
++ *    weighted_bipred_flag                      -> WEIGHTED_BIPRED
++ *    transquant_bypass_enabled_flag            -> TRANSQUANT_BYPASS_ENABLED
++ *    tiles_enabled_flag                        -> TILES_ENABLED
++ *    entropy_coding_sync_enabled_flag          -> ENTROPY_CODING_SYNC_ENABLED
++ *    loop_filter_across_tiles_enabled_flag     -> LOOP_FILTER_ACROSS_TILES_ENABLED
++ *    pps_loop_filter_across_slices_enabled_flag -> PPS_LOOP_FILTER_ACROSS_SLICES_ENABLED
++ *    deblocking_filter_override_enabled_flag   -> DEBLOCKING_FILTER_OVERRIDE_ENABLED
++ *    pps_deblocking_filter_disabled_flag       -> PPS_DISABLE_DEBLOCKING_FILTER
++ *    lists_modification_present_flag           -> LISTS_MODIFICATION_PRESENT
++ *    slice_segment_header_extension_present_flag -> SLICE_SEGMENT_HEADER_EXTENSION_PRESENT
++ *    deblocking_filter_control_present_flag    -> DEBLOCKING_FILTER_CONTROL_PRESENT
++ *    uniform_spacing_flag                      -> UNIFORM_SPACING
++ *
++ *  UNCERTAIN/UNSET:
++ *    - pps_seq_parameter_set_id: present in std PPS but NOT in v4l2_ctrl_hevc_pps; left out.
++ *    - sps_video_parameter_set_id: same — not in V4L2 PPS.
++ *    - column_width_minus1/row_height_minus1: std uses u16, V4L2 uses u8. Values are
++ *      tile dimensions in CTBs (typically 1-20), so truncation is safe in practice.
++ *      Flagged UNCERTAIN: the u16->u8 truncation is unverified for tile sizes
++ *      beyond the practical range.
++ *    - Extension fields (cross_component_prediction_enabled_flag, chroma_qp_offset_list_*,
++ *      pps_curr_pic_ref_enabled_flag, residual_adaptive_colour_transform_enabled_flag,
++ *      pps_slice_act_qp_offsets_present_flag, pps_palette_predictor_initializers_present_flag,
++ *      monochrome_palette_flag, pps_range_extension_flag, pps_extension_present_flag,
++ *      pps_scc_extension_flag): no matching V4L2 PPS flag bits — left zero.
++ * -------------------------------------------------------------------------
++ */
++void
++v4l2vk_h265_translate_pps(const StdVideoH265PictureParameterSet *vk,
++                           struct v4l2_ctrl_hevc_pps *out)
++{
++   memset(out, 0, sizeof(*out));
++
++   out->pic_parameter_set_id             = vk->pps_pic_parameter_set_id;
++   out->num_extra_slice_header_bits      = vk->num_extra_slice_header_bits;
++   out->num_ref_idx_l0_default_active_minus1 = vk->num_ref_idx_l0_default_active_minus1;
++   out->num_ref_idx_l1_default_active_minus1 = vk->num_ref_idx_l1_default_active_minus1;
++   out->init_qp_minus26                  = vk->init_qp_minus26;
++   out->diff_cu_qp_delta_depth           = vk->diff_cu_qp_delta_depth;
++   out->pps_cb_qp_offset                 = vk->pps_cb_qp_offset;
++   out->pps_cr_qp_offset                 = vk->pps_cr_qp_offset;
++   out->num_tile_columns_minus1          = vk->num_tile_columns_minus1;
++   out->num_tile_rows_minus1             = vk->num_tile_rows_minus1;
++
++   /*
++    * Tile column/row arrays: std u16[19]/u16[21], V4L2 u8[20]/u8[22].
++    * Copy min(std_count, v4l2_count) entries; truncate u16->u8 (tile dims in CTBs,
++    * safe for practical tile sizes). UNCERTAIN: unverified beyond that range.
++    */
++   {
++      uint8_t ncols = vk->num_tile_columns_minus1 < 19 ? vk->num_tile_columns_minus1 : 18;
++      for (uint8_t i = 0; i <= ncols; i++)
++         out->column_width_minus1[i] = (uint8_t)vk->column_width_minus1[i];
++   }
++   {
++      uint8_t nrows = vk->num_tile_rows_minus1 < 21 ? vk->num_tile_rows_minus1 : 20;
++      for (uint8_t i = 0; i <= nrows; i++)
++         out->row_height_minus1[i] = (uint8_t)vk->row_height_minus1[i];
++   }
++
++   out->pps_beta_offset_div2            = vk->pps_beta_offset_div2;
++   out->pps_tc_offset_div2              = vk->pps_tc_offset_div2;
++   out->log2_parallel_merge_level_minus2 = vk->log2_parallel_merge_level_minus2;
++
++   /* Flags */
++   if (vk->flags.dependent_slice_segments_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_DEPENDENT_SLICE_SEGMENT_ENABLED;
++   if (vk->flags.output_flag_present_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_OUTPUT_FLAG_PRESENT;
++   if (vk->flags.sign_data_hiding_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_SIGN_DATA_HIDING_ENABLED;
++   if (vk->flags.cabac_init_present_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_CABAC_INIT_PRESENT;
++   if (vk->flags.constrained_intra_pred_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_CONSTRAINED_INTRA_PRED;
++   if (vk->flags.transform_skip_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_TRANSFORM_SKIP_ENABLED;
++   if (vk->flags.cu_qp_delta_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_CU_QP_DELTA_ENABLED;
++   if (vk->flags.pps_slice_chroma_qp_offsets_present_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_PPS_SLICE_CHROMA_QP_OFFSETS_PRESENT;
++   if (vk->flags.weighted_pred_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_WEIGHTED_PRED;
++   if (vk->flags.weighted_bipred_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_WEIGHTED_BIPRED;
++   if (vk->flags.transquant_bypass_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_TRANSQUANT_BYPASS_ENABLED;
++   if (vk->flags.tiles_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_TILES_ENABLED;
++   if (vk->flags.entropy_coding_sync_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_ENTROPY_CODING_SYNC_ENABLED;
++   if (vk->flags.loop_filter_across_tiles_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_LOOP_FILTER_ACROSS_TILES_ENABLED;
++   if (vk->flags.pps_loop_filter_across_slices_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_PPS_LOOP_FILTER_ACROSS_SLICES_ENABLED;
++   if (vk->flags.deblocking_filter_override_enabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_DEBLOCKING_FILTER_OVERRIDE_ENABLED;
++   if (vk->flags.pps_deblocking_filter_disabled_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_PPS_DISABLE_DEBLOCKING_FILTER;
++   if (vk->flags.lists_modification_present_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_LISTS_MODIFICATION_PRESENT;
++   if (vk->flags.slice_segment_header_extension_present_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_SLICE_SEGMENT_HEADER_EXTENSION_PRESENT;
++   if (vk->flags.deblocking_filter_control_present_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_DEBLOCKING_FILTER_CONTROL_PRESENT;
++   if (vk->flags.uniform_spacing_flag)
++      out->flags |= V4L2_HEVC_PPS_FLAG_UNIFORM_SPACING;
++}
++
++/* -------------------------------------------------------------------------
++ * Scaling matrix translation
++ *
++ * Field mapping (StdVideoH265ScalingLists -> v4l2_ctrl_hevc_scaling_matrix):
++ *
++ *  ScalingList4x4[6][16]           -> scaling_list_4x4[6][16]
++ *  ScalingList8x8[6][64]           -> scaling_list_8x8[6][64]
++ *  ScalingList16x16[6][64]         -> scaling_list_16x16[6][64]
++ *  ScalingList32x32[2][64]         -> scaling_list_32x32[2][64]
++ *  ScalingListDCCoef16x16[6]       -> scaling_list_dc_coef_16x16[6]
++ *  ScalingListDCCoef32x32[2]       -> scaling_list_dc_coef_32x32[2]
++ *
++ * All sizes match exactly between std and V4L2 (verified from headers).
++ * -------------------------------------------------------------------------
++ */
++void
++v4l2vk_h265_translate_scaling(const StdVideoH265ScalingLists *vk,
++                               struct v4l2_ctrl_hevc_scaling_matrix *out)
++{
++   memset(out, 0, sizeof(*out));
++
++   if (!vk)
++      return;
++
++   /* 4x4: 6 lists of 16 elements */
++   for (int i = 0; i < 6; i++)
++      memcpy(out->scaling_list_4x4[i], vk->ScalingList4x4[i], 16);
++
++   /* 8x8: 6 lists of 64 elements */
++   for (int i = 0; i < 6; i++)
++      memcpy(out->scaling_list_8x8[i], vk->ScalingList8x8[i], 64);
++
++   /* 16x16: 6 lists of 64 elements */
++   for (int i = 0; i < 6; i++)
++      memcpy(out->scaling_list_16x16[i], vk->ScalingList16x16[i], 64);
++
++   /* 32x32: 2 lists of 64 elements */
++   for (int i = 0; i < 2; i++)
++      memcpy(out->scaling_list_32x32[i], vk->ScalingList32x32[i], 64);
++
++   /* DC coefficients */
++   memcpy(out->scaling_list_dc_coef_16x16, vk->ScalingListDCCoef16x16, 6);
++   memcpy(out->scaling_list_dc_coef_32x32, vk->ScalingListDCCoef32x32, 2);
++}
++
++/* -------------------------------------------------------------------------
++ * Short-term RPS translation
++ *
++ * Vulkan std layout (StdVideoH265ShortTermRefPicSet):
++ *   flags.inter_ref_pic_set_prediction_flag   : 1
++ *   flags.delta_rps_sign                      : 1  (standalone in V4L2)
++ *   delta_idx_minus1                          : u32 -> u8
++ *   use_delta_flag                            : u16 bitmask
++ *   abs_delta_rps_minus1                      : u16
++ *   used_by_curr_pic_flag                     : u16 (all-list bitmask, NOT used by V4L2)
++ *   used_by_curr_pic_s0_flag                  : u16 (negative-list bitmask)
++ *   used_by_curr_pic_s1_flag                  : u16 (positive-list bitmask)
++ *   num_negative_pics                         : u8
++ *   num_positive_pics                         : u8
++ *   delta_poc_s0_minus1[STD_VIDEO_H265_MAX_DPB_SIZE=16]  : u16[]
++ *   delta_poc_s1_minus1[STD_VIDEO_H265_MAX_DPB_SIZE=16]  : u16[]
++ *
++ * V4L2 layout (struct v4l2_ctrl_hevc_ext_sps_st_rps):
++ *   delta_idx_minus1                          : u8
++ *   delta_rps_sign                            : u8  (from flags.delta_rps_sign)
++ *   num_negative_pics                         : u8
++ *   num_positive_pics                         : u8
++ *   used_by_curr_pic                          : u32 bitmask
++ *     bits [0..num_negative_pics-1]           : from used_by_curr_pic_s0_flag
++ *     bits [num_negative_pics..num_negative_pics+num_positive_pics-1]: from used_by_curr_pic_s1_flag
++ *   use_delta_flag                            : u32 (from std u16, widened)
++ *   abs_delta_rps_minus1                      : u16
++ *   delta_poc_s0_minus1[16]                   : u16[] (max 16 entries)
++ *   delta_poc_s1_minus1[16]                   : u16[] (max 16 entries)
++ *   flags                                     : u16 (V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_INTER_REF_PIC_SET_PRED)
++ *
++ * Key delta (reason remap is NOT a memcpy):
++ *   std splits used_by_curr_pic into _s0_flag (negative list) and _s1_flag (positive list);
++ *   V4L2 merges them into a single bitmask: bits 0..N0-1 are s0, bits N0..N0+N1-1 are s1.
++ *   std flags.delta_rps_sign is a bitfield in a flags struct; V4L2 exposes it as a standalone u8.
++ *
++ * Array bounds:
++ *   STD_VIDEO_H265_MAX_DPB_SIZE = 16, V4L2 array size = 16.
++ *   Loop counts are clamped to min(num_*_pics, 16) on BOTH sides.
++ *
++ * UNCERTAIN:
++ *   delta_idx_minus1: std is u32, V4L2 is u8. Spec says value 0..64; truncation safe
++ *   for valid streams but silently wrong for malformed ones.
++ * -------------------------------------------------------------------------
++ */
++uint32_t
++v4l2vk_h265_translate_st_rps(const StdVideoH265ShortTermRefPicSet *vk,
++                              uint32_t count,
++                              struct v4l2_ctrl_hevc_ext_sps_st_rps *out)
++{
++   /* Cap to V4L2 array capacity (64 per spec, frame_params holds 64) */
++   if (count > 64)
++      count = 64;
++
++   for (uint32_t s = 0; s < count; s++) {
++      const StdVideoH265ShortTermRefPicSet *src = &vk[s];
++      struct v4l2_ctrl_hevc_ext_sps_st_rps *dst = &out[s];
++
++      memset(dst, 0, sizeof(*dst));
++
++      /* Scalar fields */
++      dst->delta_idx_minus1   = (uint8_t)src->delta_idx_minus1;
++      dst->delta_rps_sign     = src->flags.delta_rps_sign ? 1 : 0;
++      dst->num_negative_pics  = src->num_negative_pics;
++      dst->num_positive_pics  = src->num_positive_pics;
++      dst->abs_delta_rps_minus1 = src->abs_delta_rps_minus1;
++
++      /* use_delta_flag: std u16 -> V4L2 u32 (widened, no sign extension) */
++      dst->use_delta_flag = (uint32_t)src->use_delta_flag;
++
++      /*
++       * used_by_curr_pic: merge s0 (negative) and s1 (positive) bitmasks.
++       * Bits [0..num_negative_pics-1]                        from s0_flag bit i.
++       * Bits [num_negative_pics..num_negative_pics+num_positive_pics-1] from s1_flag bit i.
++       *
++       * std fields are u16; max pics per direction = 15 (spec), so 16 bits suffice.
++       */
++      {
++         uint32_t used = 0;
++         uint8_t n0 = src->num_negative_pics;
++         uint8_t n1 = src->num_positive_pics;
++
++         /* clamp to 16 so we stay within the u16 source bitmasks */
++         if (n0 > 16) n0 = 16;
++         if (n1 > 16) n1 = 16;
++
++         for (uint8_t i = 0; i < n0; i++) {
++            if (src->used_by_curr_pic_s0_flag & (1u << i))
++               used |= (1u << i);
++         }
++         for (uint8_t i = 0; i < n1; i++) {
++            if (src->used_by_curr_pic_s1_flag & (1u << i))
++               used |= (1u << (n0 + i));
++         }
++         dst->used_by_curr_pic = used;
++      }
++
++      /*
++       * delta_poc_s0/s1_minus1: copy up to min(num_*_pics, 16) entries.
++       * STD_VIDEO_H265_MAX_DPB_SIZE = 16 = V4L2 array size; clamp is for
++       * corrupt/malformed streams that might set a larger count.
++       */
++      {
++         uint8_t n0 = src->num_negative_pics < 16 ? src->num_negative_pics : 16;
++         uint8_t n1 = src->num_positive_pics < 16 ? src->num_positive_pics : 16;
++
++         for (uint8_t i = 0; i < n0; i++)
++            dst->delta_poc_s0_minus1[i] = src->delta_poc_s0_minus1[i];
++         for (uint8_t i = 0; i < n1; i++)
++            dst->delta_poc_s1_minus1[i] = src->delta_poc_s1_minus1[i];
++      }
++
++      /* flags: inter_ref_pic_set_prediction_flag -> bit 0 */
++      if (src->flags.inter_ref_pic_set_prediction_flag)
++         dst->flags |= V4L2_HEVC_EXT_SPS_ST_RPS_FLAG_INTER_REF_PIC_SET_PRED;
++   }
++
++   return count;
++}
++
++/* -------------------------------------------------------------------------
++ * Long-term RPS translation
++ *
++ * Vulkan std layout (StdVideoH265LongTermRefPicsSps) — struct-of-arrays:
++ *   used_by_curr_pic_lt_sps_flag      : u32 bitmask, bit i = used by current pic
++ *   lt_ref_pic_poc_lsb_sps[32]        : u32[] (poc LSB values)
++ *
++ *   (num_long_term_ref_pics_sps in the outer SPS struct gives the count)
++ *
++ * V4L2 layout (struct v4l2_ctrl_hevc_ext_sps_lt_rps) — array-of-structs,
++ * one element per LT reference:
++ *   lt_ref_pic_poc_lsb_sps            : u16 (lower 16 bits of std u32 value)
++ *   flags                             : u16 (V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT = 0x1)
++ *
++ * Key delta (reason remap is NOT a memcpy):
++ *   std uses SoA (parallel arrays + one bitmask);
++ *   V4L2 uses AoS (one struct per entry, bitmask bit -> per-entry flag).
++ *
++ * Array bounds:
++ *   std lt_ref_pic_poc_lsb_sps[STD_VIDEO_H265_MAX_LONG_TERM_REF_PICS_SPS=32]
++ *   std used_by_curr_pic_lt_sps_flag is a u32 bitmask (32 bits = 32 entries max)
++ *   count is clamped to min(count, 32) on both sides.
++ *
++ * UNCERTAIN:
++ *   lt_ref_pic_poc_lsb_sps: std u32 -> V4L2 u16.  The POC LSB for LT refs is
++ *   bounded by MaxPicOrderCntLsb (= 2^(log2_max_pic_order_cnt_lsb_minus4+4)).
++ *   For log2_max+4 <= 16, value fits in u16.  For log2_max+4 > 16 (uncommon),
++ *   the upper bits are silently lost.
++ * -------------------------------------------------------------------------
++ */
++uint32_t
++v4l2vk_h265_translate_lt_rps(const StdVideoH265LongTermRefPicsSps *vk,
++                              uint32_t count,
++                              struct v4l2_ctrl_hevc_ext_sps_lt_rps *out)
++{
++   if (!vk)
++      return 0;
++
++   /* Cap to u32 bitmask capacity and std array size */
++   if (count > 32)
++      count = 32;
++
++   for (uint32_t i = 0; i < count; i++) {
++      memset(&out[i], 0, sizeof(out[i]));
++
++      /* SoA -> AoS: pick element i from the poc_lsb array */
++      out[i].lt_ref_pic_poc_lsb_sps = (uint16_t)vk->lt_ref_pic_poc_lsb_sps[i];
++
++      /* Bit i of the bitmask -> per-entry USED_LT flag */
++      if (vk->used_by_curr_pic_lt_sps_flag & (1u << i))
++         out[i].flags |= V4L2_HEVC_EXT_SPS_LT_RPS_FLAG_USED_LT;
++   }
++
++   return count;
++}
++
++/* -------------------------------------------------------------------------
++ * Decode params translation
++ *
++ * Fills struct v4l2_ctrl_hevc_decode_params for one HEVC frame.
++ *
++ * Field mapping (StdVideoDecodeH265PictureInfo -> v4l2_ctrl_hevc_decode_params):
++ *
++ *  vk_pic->PicOrderCntVal                     -> out->pic_order_cnt_val
++ *  vk_pic->NumDeltaPocsOfRefRpsIdx            -> out->num_delta_pocs_of_ref_rps_idx
++ *  vk_pic->NumBitsForSTRefPicSetInSlice       -> out->short_term_ref_pic_set_size
++ *    (same field, renamed in V4L2 to short_term_ref_pic_set_size)
++ *  out->long_term_ref_pic_set_size            -> 0 (no direct std source; UNCERTAIN)
++ *  out->num_active_dpb_entries                -> dpb_count (clamped to 16)
++ *
++ *  DPB: v4l2vk_dpb_entry -> v4l2_hevc_dpb_entry
++ *    dpb[i].reference_ts            -> dpb[i].timestamp
++ *    dpb[i].hevc_pic_order_cnt_val -> dpb[i].pic_order_cnt_val  (populated from
++ *                                   StdVideoDecodeH265ReferenceInfo.PicOrderCntVal)
++ *    (always)                   -> flags = V4L2_HEVC_DPB_ENTRY_LONG_TERM_REFERENCE set
++ *                                   if ref.flags.used_for_long_term_reference
++ *    field_pic                  -> 0 (frame-based decode)
++ *
++ *  RefPicSet index lists (V4L2 poc_*_curr[] hold DPB *slot indices*):
++ *    vk_pic->RefPicSetStCurrBefore[i] (0xFF = invalid) -> poc_st_curr_before[i]
++ *    vk_pic->RefPicSetStCurrAfter[i]                   -> poc_st_curr_after[i]
++ *    vk_pic->RefPicSetLtCurr[i]                        -> poc_lt_curr[i]
++ *    STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE = 8 (both sides)
++ *    V4L2_HEVC_DPB_ENTRIES_NUM_MAX = 16 (output array size; first 8 are used)
++ *
++ *  Flags:
++ *    vk_pic->flags.IrapPicFlag -> V4L2_HEVC_DECODE_PARAM_FLAG_IRAP_PIC
++ *    vk_pic->flags.IdrPicFlag  -> V4L2_HEVC_DECODE_PARAM_FLAG_IDR_PIC
++ *    V4L2_HEVC_DECODE_PARAM_FLAG_NO_OUTPUT_OF_PRIOR -> 0 (no source in std pic info)
++ *
++ * Array bounds:
++ *   poc_*_curr[] arrays: std size = 8 (STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE),
++ *   V4L2 array size = 16 (V4L2_HEVC_DPB_ENTRIES_NUM_MAX). Copy exactly 8 entries.
++ *   DPB: std size = V4L2VK_MAX_DPB_SLOTS = 16, V4L2 = 16. Clamp dpb_count to 16.
++ *
++ * UNCERTAIN:
++ *   - poc_st_curr_before/after/lt_curr: V4L2 expects DPB slot indices
++ *     (0..num_active_dpb_entries-1); std RefPicSet*[] hold DPB slot indices
++ *     via the Vulkan slot numbering. Mapping should be 1:1 if slot_index ==
++ *     V4L2 DPB array index.
++ *   - dpb[i].pic_order_cnt_val: taken from hevc_pic_order_cnt_val, populated
++ *     from StdVideoDecodeH265ReferenceInfo.PicOrderCntVal.
++ *   - long_term_ref_pic_set_size: set to 0 (no source in std PictureInfo).
++ * -------------------------------------------------------------------------
++ */
++void
++v4l2vk_h265_translate_decode_params(
++   const StdVideoDecodeH265PictureInfo *vk_pic,
++   const struct v4l2vk_dpb_entry *dpb,
++   uint32_t dpb_count,
++   struct v4l2_ctrl_hevc_decode_params *out)
++{
++   memset(out, 0, sizeof(*out));
++
++   if (!vk_pic)
++      return;
++
++   /* Current picture POC and metadata */
++   out->pic_order_cnt_val              = vk_pic->PicOrderCntVal;
++   out->num_delta_pocs_of_ref_rps_idx = vk_pic->NumDeltaPocsOfRefRpsIdx;
++
++   /*
++    * short_term_ref_pic_set_size: V4L2 name for NumBitsForSTRefPicSetInSlice.
++    * long_term_ref_pic_set_size: no matching field in StdVideoDecodeH265PictureInfo;
++    * left zero (UNCERTAIN — unclear whether the kernel needs this).
++    */
++   out->short_term_ref_pic_set_size = vk_pic->NumBitsForSTRefPicSetInSlice;
++   out->long_term_ref_pic_set_size  = 0;
++
++   /* DPB entries */
++   if (dpb && dpb_count > 0) {
++      if (dpb_count > V4L2_HEVC_DPB_ENTRIES_NUM_MAX)
++         dpb_count = V4L2_HEVC_DPB_ENTRIES_NUM_MAX;
++
++      out->num_active_dpb_entries = (uint8_t)dpb_count;
++
++      for (uint32_t i = 0; i < dpb_count; i++) {
++         struct v4l2_hevc_dpb_entry *d = &out->dpb[i];
++
++         d->timestamp         = dpb[i].reference_ts;
++         /*
++          * Use hevc_pic_order_cnt_val populated from
++          * StdVideoDecodeH265ReferenceInfo.PicOrderCntVal in CmdDecodeVideoKHR.
++          * The old H264 proxy (ref.PicOrderCnt[0]) is incorrect for HEVC.
++          */
++         d->pic_order_cnt_val = dpb[i].hevc_pic_order_cnt_val;
++         d->field_pic         = 0; /* frame-based decode */
++         d->reserved          = 0;
++         d->flags             = 0;
++
++         if (dpb[i].ref.flags.used_for_long_term_reference)
++            d->flags |= V4L2_HEVC_DPB_ENTRY_LONG_TERM_REFERENCE;
++      }
++   }
++
++   /*
++    * RefPicSet current lists: Vulkan slot indices for ST/LT current references.
++    * STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE = 8.
++    * V4L2 arrays are V4L2_HEVC_DPB_ENTRIES_NUM_MAX = 16; copy the 8 std entries.
++    * 0xFF in std = "not present" (same sentinel value used by V4L2).
++    */
++   out->num_poc_st_curr_before = 0;
++   out->num_poc_st_curr_after  = 0;
++   out->num_poc_lt_curr        = 0;
++
++   for (uint32_t i = 0; i < STD_VIDEO_DECODE_H265_REF_PIC_SET_LIST_SIZE; i++) {
++      uint8_t idx;
++
++      idx = vk_pic->RefPicSetStCurrBefore[i];
++      out->poc_st_curr_before[i] = idx;
++      if (idx != 0xFF)
++         out->num_poc_st_curr_before = (uint8_t)(i + 1);
++
++      idx = vk_pic->RefPicSetStCurrAfter[i];
++      out->poc_st_curr_after[i] = idx;
++      if (idx != 0xFF)
++         out->num_poc_st_curr_after = (uint8_t)(i + 1);
++
++      idx = vk_pic->RefPicSetLtCurr[i];
++      out->poc_lt_curr[i] = idx;
++      if (idx != 0xFF)
++         out->num_poc_lt_curr = (uint8_t)(i + 1);
++   }
++
++   /* Decode flags */
++   if (vk_pic->flags.IrapPicFlag)
++      out->flags |= V4L2_HEVC_DECODE_PARAM_FLAG_IRAP_PIC;
++   if (vk_pic->flags.IdrPicFlag)
++      out->flags |= V4L2_HEVC_DECODE_PARAM_FLAG_IDR_PIC;
++   /* V4L2_HEVC_DECODE_PARAM_FLAG_NO_OUTPUT_OF_PRIOR: no source in std PictureInfo */
++}
++
++/* -------------------------------------------------------------------------
++ * Slice-segment-header parser (the in-driver bitstream parse)
++ *
++ * Walks slice_segment_header() per ITU-T H.265 §7.3.6.1 for each slice NAL
++ * and fills struct v4l2_ctrl_hevc_slice_params with the ~20 fields that the
++ * Vulkan Video H.265 *decode* std structs do NOT carry. Gated by SPS/PPS.
++ *
++ * Bitstream model: parses over the raw Annex-B (EBSP) bytes via the shared
++ * v4l2vk_bitreader (same as the H.264 sibling). The reader does NOT strip
++ * emulation-prevention bytes (00 00 03). For the in-scope clips the slice
++ * *header* region carries no EPB, so EBSP and RBSP coincide there and the
++ * parsed values + byte offsets are exact. A header that itself contains an
++ * EPB before slice data is OUT OF SCOPE (mirrors the H.264 path's constraint).
++ *
++ * NOT parsed (out of scope, asserted-absent for in-scope clips):
++ *   - pred_weight_table()  : PPS weighted_pred/weighted_bipred are 0.
++ *   - ref_pic_lists_modification(): only reached for P/B with lists_mod; the
++ *     bits are skipped to keep bit accounting correct, values not stored.
++ * -------------------------------------------------------------------------
++ */
++
++/* Ceil(Log2(x)) for x >= 1; returns the number of bits to represent values
++ * 0 .. x-1 (i.e. fixed-length slice_segment_address width). */
++static uint32_t
++ceil_log2(uint32_t x)
++{
++   uint32_t n = 0;
++   uint32_t v = 1;
++   while (v < x) {
++      v <<= 1;
++      n++;
++   }
++   return n;
++}
++
++/*
++ * Parse one slice's short_term_ref_pic_set() inline in the slice header, when
++ * short_term_ref_pic_set_sps_flag == 0. Mirrors H.265 §7.3.7. Only the bit
++ * count matters here (returned via *out_bits) — the RPS *values* in the slice
++ * are not needed by rkvdec (it derives ref lists from decode_params), but the
++ * bits MUST be consumed so the following syntax (and num_entry_point_offsets)
++ * lands at the right position. stRpsIdx == num_short_term_ref_pic_sets means
++ * this is the explicitly-signalled slice RPS (no inter-RPS prediction allowed
++ * for that index per spec, but guard it anyway).
++ *
++ * @num_st_rps: sps->num_short_term_ref_pic_sets (count of SPS-signalled sets).
++ */
++static bool
++parse_short_term_rps(struct v4l2vk_bitreader *br, uint32_t st_rps_idx,
++                     uint32_t num_st_rps)
++{
++   uint32_t inter_rps_pred = 0;
++   if (st_rps_idx != 0)
++      inter_rps_pred = br_read_bit(br);
++
++   if (inter_rps_pred) {
++      /*
++       * Inter-RPS prediction for an INLINE slice RPS needs the referenced
++       * set's NumDeltaPocs to consume used_by_curr_pic_flag[j]/use_delta_flag[j]
++       * (H.265 §7.3.7). We deliberately do NOT carry the SPS RPS delta state,
++       * so this branch cannot be parsed without desyncing the reader. It is
++       * OUT OF SCOPE: the in-scope clips have num_short_term_ref_pic_sets==0
++       * (no SPS sets to predict from) so this is never taken. Signal failure
++       * to the caller so it bails LOUDLY instead of silently corrupting the
++       * downstream syntax. (Flagged for when a P/B clip exercises it.)
++       */
++      return false;
++   }
++
++   uint32_t num_negative = br_read_ue(br);
++   uint32_t num_positive = br_read_ue(br);
++   /* Clamp loop counts defensively (spec bounds these by sps_max_dec_pic_
++    * buffering; a corrupt stream could overrun otherwise). */
++   if (num_negative > 16)
++      num_negative = 16;
++   if (num_positive > 16)
++      num_positive = 16;
++   for (uint32_t i = 0; i < num_negative; i++) {
++      br_read_ue(br);  /* delta_poc_s0_minus1[i] */
++      br_read_bit(br); /* used_by_curr_pic_s0_flag[i] */
++   }
++   for (uint32_t i = 0; i < num_positive; i++) {
++      br_read_ue(br);  /* delta_poc_s1_minus1[i] */
++      br_read_bit(br); /* used_by_curr_pic_s1_flag[i] */
++   }
++   return true;
++}
++
++uint32_t
++v4l2vk_h265_translate_slice_params(const uint8_t *bitstream, size_t size,
++                                   const struct v4l2_ctrl_hevc_sps *sps,
++                                   const struct v4l2_ctrl_hevc_pps *pps,
++                                   const uint32_t *slice_offsets,
++                                   uint32_t slice_count,
++                                   struct v4l2_ctrl_hevc_slice_params *out)
++{
++   if (slice_count > 16)
++      slice_count = 16;
++
++   memset(out, 0, sizeof(*out) * slice_count);
++
++   if (!bitstream || !sps || !pps || !slice_offsets)
++      return 0;
++
++   /* SPS / PPS gate values (pre-resolved once). */
++   const int sep_colour =
++      !!(sps->flags & V4L2_HEVC_SPS_FLAG_SEPARATE_COLOUR_PLANE);
++   const int sao_enabled =
++      !!(sps->flags & V4L2_HEVC_SPS_FLAG_SAMPLE_ADAPTIVE_OFFSET);
++   const int temporal_mvp =
++      !!(sps->flags & V4L2_HEVC_SPS_FLAG_SPS_TEMPORAL_MVP_ENABLED);
++   const uint32_t num_st_rps = sps->num_short_term_ref_pic_sets;
++   const uint32_t poc_lsb_bits = sps->log2_max_pic_order_cnt_lsb_minus4 + 4;
++
++   const int dep_slice_enabled =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_DEPENDENT_SLICE_SEGMENT_ENABLED);
++   const int output_flag_present =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_OUTPUT_FLAG_PRESENT);
++   const uint32_t num_extra_bits = pps->num_extra_slice_header_bits;
++   const int cabac_init_present =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_CABAC_INIT_PRESENT);
++   const int lists_mod_present =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_LISTS_MODIFICATION_PRESENT);
++   const int weighted_pred =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_WEIGHTED_PRED);
++   const int weighted_bipred =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_WEIGHTED_BIPRED);
++   const int cu_chroma_qp_offsets =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_PPS_SLICE_CHROMA_QP_OFFSETS_PRESENT);
++   const int dbf_override_enabled =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_DEBLOCKING_FILTER_OVERRIDE_ENABLED);
++   const int pps_dbf_disabled =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_PPS_DISABLE_DEBLOCKING_FILTER);
++   const int pps_loop_filter_across =
++      !!(pps->flags &
++         V4L2_HEVC_PPS_FLAG_PPS_LOOP_FILTER_ACROSS_SLICES_ENABLED);
++   const int tiles_enabled =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_TILES_ENABLED);
++   const int entropy_sync =
++      !!(pps->flags & V4L2_HEVC_PPS_FLAG_ENTROPY_CODING_SYNC_ENABLED);
++   const int slice_hdr_ext_present =
++      !!(pps->flags &
++         V4L2_HEVC_PPS_FLAG_SLICE_SEGMENT_HEADER_EXTENSION_PRESENT);
++
++   /* PicSizeInCtbsY -> width of slice_segment_address field.
++    * CtbSizeY = 1 << (log2_min_luma_coding_block_size_minus3 + 3 +
++    *                  log2_diff_max_min_luma_coding_block_size).
++    * PicSizeInCtbsY = ceil(W/CtbSizeY) * ceil(H/CtbSizeY). */
++   const uint32_t ctb_log2 = sps->log2_min_luma_coding_block_size_minus3 + 3 +
++                             sps->log2_diff_max_min_luma_coding_block_size;
++   const uint32_t ctb_size = 1u << ctb_log2;
++   const uint32_t pic_w = sps->pic_width_in_luma_samples;
++   const uint32_t pic_h = sps->pic_height_in_luma_samples;
++   const uint32_t w_ctbs =
++      ctb_size ? (pic_w + ctb_size - 1) / ctb_size : 0;
++   const uint32_t h_ctbs =
++      ctb_size ? (pic_h + ctb_size - 1) / ctb_size : 0;
++   const uint32_t pic_size_ctbs = w_ctbs * h_ctbs;
++   const uint32_t addr_bits =
++      pic_size_ctbs > 1 ? ceil_log2(pic_size_ctbs) : 0;
++
++   uint32_t parsed = 0;
++
++   for (uint32_t s = 0; s < slice_count; s++) {
++      struct v4l2_ctrl_hevc_slice_params *o = &out[s];
++      uint32_t off = slice_offsets[s];
++
++      if (off >= size)
++         continue;
++
++      const uint8_t *nal = bitstream + off;
++      size_t avail = size - off;
++
++      /* Skip the Annex-B start code -> NAL header. */
++      size_t sc = v4l2vk_skip_start_code(nal, avail);
++      const uint8_t *nal_hdr = nal + sc;
++      size_t nal_avail = avail - sc;
++      if (nal_avail < 2)
++         continue;
++
++      /* HEVC NAL header is 2 bytes:
++       *   forbidden_zero_bit(1) nal_unit_type(6) nuh_layer_id(6)
++       *   nuh_temporal_id_plus1(3)
++       */
++      uint8_t nut = (nal_hdr[0] >> 1) & 0x3F;
++      uint8_t tid1 = nal_hdr[1] & 0x07;
++      o->nal_unit_type = nut;
++      o->nuh_temporal_id_plus1 = tid1;
++
++      /* slice_segment_header() starts after the 2-byte NAL header. */
++      struct v4l2vk_bitreader br;
++      br_init(&br, nal_hdr + 2, nal_avail - 2);
++
++      uint32_t first_slice = br_read_bit(&br);
++
++      /* IRAP NAL types are 16..23. */
++      if (nut >= 16 && nut <= 23)
++         br_read_bit(&br); /* no_output_of_prior_pics_flag */
++
++      br_read_ue(&br); /* slice_pic_parameter_set_id */
++
++      uint32_t dependent = 0;
++      if (!first_slice) {
++         if (dep_slice_enabled)
++            dependent = br_read_bit(&br);
++         /* slice_segment_address: u(Ceil(Log2(PicSizeInCtbsY))) */
++         uint32_t addr = 0;
++         for (uint32_t i = 0; i < addr_bits; i++)
++            addr = (addr << 1) | br_read_bit(&br);
++         o->slice_segment_addr = addr;
++      } else {
++         o->slice_segment_addr = 0;
++      }
++
++      if (dependent)
++         o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_DEPENDENT_SLICE_SEGMENT;
++
++      /* The remaining header is only present for an independent slice segment.
++       * For a dependent slice segment, the inherited values are carried by the
++       * decode_params/previous independent slice; rkvdec needs the addr +
++       * data_byte_offset + bit_size, which we still compute below. */
++      uint32_t slice_type_raw = 2; /* default I if dependent (inherited) */
++      if (!dependent) {
++         for (uint32_t i = 0; i < num_extra_bits; i++)
++            br_read_bit(&br); /* slice_reserved_flag[i] */
++
++         slice_type_raw = br_read_ue(&br);
++         /* HEVC slice_type: 0=B, 1=P, 2=I — identical to V4L2_HEVC_SLICE_TYPE_*.
++          * Clamp to the valid range (a corrupt value would index nothing). */
++         o->slice_type = (slice_type_raw <= 2) ? (uint8_t)slice_type_raw
++                                               : V4L2_HEVC_SLICE_TYPE_I;
++
++         if (output_flag_present)
++            br_read_bit(&br); /* pic_output_flag */
++
++         if (sep_colour) {
++            uint32_t cpid = br_read_bit(&br);
++            cpid = (cpid << 1) | br_read_bit(&br);
++            o->colour_plane_id = (uint8_t)cpid;
++         }
++
++         /* POC + RPS only for non-IDR. IDR_W_RADL=19, IDR_N_LP=20. */
++         if (nut != 19 && nut != 20) {
++            /* slice_pic_order_cnt_lsb: u(poc_lsb_bits) */
++            uint32_t poc_lsb = 0;
++            for (uint32_t i = 0; i < poc_lsb_bits; i++)
++               poc_lsb = (poc_lsb << 1) | br_read_bit(&br);
++            o->slice_pic_order_cnt = (int32_t)poc_lsb;
++
++            uint32_t st_rps_sps_flag = br_read_bit(&br);
++            uint32_t st_bits_start = br.bit_offset;
++            if (!st_rps_sps_flag) {
++               /* inline short_term_ref_pic_set(num_short_term_ref_pic_sets) */
++               if (!parse_short_term_rps(&br, num_st_rps, num_st_rps)) {
++                  fprintf(stderr,
++                          "[V4L2VK][H265] slice[%u]: inline inter-RPS-predicted "
++                          "short_term_ref_pic_set (unsupported) — header parse "
++                          "stopped early\n",
++                          s);
++                  parsed++;
++                  continue;
++               }
++               o->short_term_ref_pic_set_size =
++                  (uint16_t)(br.bit_offset - st_bits_start);
++            } else {
++               /* short_term_ref_pic_set_idx: u(Ceil(Log2(num_st_rps))) */
++               uint32_t idx_bits =
++                  num_st_rps > 1 ? ceil_log2(num_st_rps) : 0;
++               for (uint32_t i = 0; i < idx_bits; i++)
++                  br_read_bit(&br);
++               o->short_term_ref_pic_set_size = 0;
++            }
++
++            /* long_term_ref_pics: gated by SPS long_term_ref_pics_present.
++             * In scope clips have no long-term refs; if present we would need
++             * num_long_term_ref_pics_sps + num_long_term_pics here. Left
++             * unhandled until a clip exercises it (flagged). */
++
++            if (temporal_mvp)
++               br_read_bit(&br); /* slice_temporal_mvp_enabled_flag */
++         }
++
++         /* sample_adaptive_offset */
++         if (sao_enabled) {
++            if (br_read_bit(&br))
++               o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_LUMA;
++            /* slice_sao_chroma only when ChromaArrayType != 0.
++             * ChromaArrayType == chroma_format_idc unless separate_colour_plane,
++             * in which case it is 0. */
++            uint32_t chroma_array_type =
++               sep_colour ? 0 : sps->chroma_format_idc;
++            if (chroma_array_type != 0) {
++               if (br_read_bit(&br))
++                  o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_CHROMA;
++            }
++         }
++
++         /* Inter-prediction header (P=1, B=0). I=2 skips all of this. */
++         if (slice_type_raw == 0 || slice_type_raw == 1) {
++            uint32_t num_ref_l0 = pps->num_ref_idx_l0_default_active_minus1;
++            uint32_t num_ref_l1 = pps->num_ref_idx_l1_default_active_minus1;
++
++            uint32_t ref_override = br_read_bit(&br);
++            if (ref_override) {
++               num_ref_l0 = br_read_ue(&br); /* num_ref_idx_l0_active_minus1 */
++               if (slice_type_raw == 0)      /* B */
++                  num_ref_l1 = br_read_ue(&br);
++            }
++            if (num_ref_l0 > 15)
++               num_ref_l0 = 15;
++            if (num_ref_l1 > 15)
++               num_ref_l1 = 15;
++            o->num_ref_idx_l0_active_minus1 = (uint8_t)num_ref_l0;
++            o->num_ref_idx_l1_active_minus1 = (uint8_t)num_ref_l1;
++
++            /* ref_pic_lists_modification(): present iff lists_modification_
++             * present_flag && NumPicTotalCurr > 1. We don't track
++             * NumPicTotalCurr (needs full RPS derivation); the in-scope clips
++             * are I-only so this branch is never taken. Consume conservatively
++             * only when the gate flag is set AND we can't prove count<=1 — but
++             * since we can't, and a wrong skip desyncs the reader, we DO NOT
++             * speculatively skip. Flagged UNCERTAIN for P/B support.
++             */
++            (void)lists_mod_present;
++
++            if (slice_type_raw == 0) /* B: mvd_l1_zero_flag */
++               if (br_read_bit(&br))
++                  o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_MVD_L1_ZERO;
++
++            if (cabac_init_present)
++               if (br_read_bit(&br))
++                  o->flags |= V4L2_HEVC_SLICE_PARAMS_FLAG_CABAC_INIT;
++
++            if (temporal_mvp) {
++               /* collocated_from_l0_flag: H.265 §7.3.6.1 — present ONLY
++                * when slice_type == B (raw==0). For P slices it is inferred
++                * as 1 (absent from the bitstream). Reading it unconditionally
++                * for P slices steals a bit from the next syntax element and
++                * desyncs num_entry_point_offsets and everything after. */
++               uint32_t collocated_from_l0 = 1; /* inferred default (P) */
++               if (slice_type_raw == 0)          /* B only — §7.3.6.1 */
++                  collocated_from_l0 = br_read_bit(&br);
++               if (collocated_from_l0)
++                  o->flags |=
++                     V4L2_HEVC_SLICE_PARAMS_FLAG_COLLOCATED_FROM_L0;
++               uint32_t ncols = collocated_from_l0 ? num_ref_l0 : num_ref_l1;
++               if (ncols > 0)
++                  o->collocated_ref_idx = (uint8_t)br_read_ue(&br);
++            }
++
++            /* pred_weight_table(): OUT OF SCOPE. In-scope clips have
++             * weighted_pred==0 / weighted_bipred==0, so the syntax element is
++             * ABSENT (H.265 §7.3.6.1). We never reach it. */
++            if ((weighted_pred && slice_type_raw == 1) ||
++                (weighted_bipred && slice_type_raw == 0)) {
++               /* Unsupported: bail without corrupting downstream — leave the
++                * remaining fields at their (memset) defaults. */
++               fprintf(stderr,
++                       "[V4L2VK][H265] slice[%u]: weighted prediction present "
++                       "(unsupported) — header parse stopped early\n",
++                       s);
++               parsed++;
++               continue;
++            }
++
++            uint32_t five_minus = br_read_ue(&br);
++            if (five_minus > 5)
++               five_minus = 5;
++            o->five_minus_max_num_merge_cand = (uint8_t)five_minus;
++         }
++
++         /* slice_qp_delta: se(v) — always present for non-dependent slices. */
++         o->slice_qp_delta = (int8_t)br_read_se(&br);
++
++         if (cu_chroma_qp_offsets) {
++            o->slice_cb_qp_offset = (int8_t)br_read_se(&br);
++            o->slice_cr_qp_offset = (int8_t)br_read_se(&br);
++         }
++
++         /* chroma_qp_offset_list / ACT offsets (SCC ext): not present in the
++          * in-scope Main-profile clips; gated by PPS range/scc-ext flags we do
++          * not translate. Left at defaults. */
++
++         /* deblocking_filter_override_flag + slice deblocking params. */
++         uint32_t deblocking_override = 0;
++         if (dbf_override_enabled)
++            deblocking_override = br_read_bit(&br);
++         if (deblocking_override) {
++            uint32_t slice_dbf_disabled = br_read_bit(&br);
++            if (slice_dbf_disabled)
++               o->flags |=
++                  V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED;
++            if (!slice_dbf_disabled) {
++               o->slice_beta_offset_div2 = (int8_t)br_read_se(&br);
++               o->slice_tc_offset_div2 = (int8_t)br_read_se(&br);
++            }
++         } else {
++            /* Inherit PPS deblocking offsets / disabled state. */
++            if (pps_dbf_disabled)
++               o->flags |=
++                  V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED;
++            o->slice_beta_offset_div2 = pps->pps_beta_offset_div2;
++            o->slice_tc_offset_div2 = pps->pps_tc_offset_div2;
++         }
++
++         /* slice_loop_filter_across_slices_enabled_flag:
++          * present iff pps_loop_filter_across_slices_enabled_flag &&
++          * (slice_sao_luma || slice_sao_chroma || !slice_deblocking_disabled). */
++         int slice_dbf_disabled =
++            !!(o->flags &
++               V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_DEBLOCKING_FILTER_DISABLED);
++         int sao_luma =
++            !!(o->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_LUMA);
++         int sao_chroma =
++            !!(o->flags & V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_SAO_CHROMA);
++         if (pps_loop_filter_across &&
++             (sao_luma || sao_chroma || !slice_dbf_disabled)) {
++            if (br_read_bit(&br))
++               o->flags |=
++                  V4L2_HEVC_SLICE_PARAMS_FLAG_SLICE_LOOP_FILTER_ACROSS_SLICES_ENABLED;
++         }
++      } /* !dependent */
++
++      /* num_entry_point_offsets: present iff tiles || entropy_coding_sync.
++       * (Outside the !dependent block — also present for dependent slices.) */
++      if (tiles_enabled || entropy_sync) {
++         uint32_t nepo = br_read_ue(&br);
++         /* num_entry_point_offsets is bounded by the number of tile columns *
++          * tile rows (or CTB rows for WPP) of the picture; a 4K frame has at
++          * most a few hundred. Clamp defensively so a corrupt ue(v) cannot
++          * drive the skip loop past the buffer and desync data_byte_offset.
++          * The clamp affects the REPORTED count and the loop iterations
++          * together, keeping bit accounting consistent with what we store. */
++         if (nepo > 256)
++            nepo = 256;
++         o->num_entry_point_offsets = nepo;
++         if (nepo > 0) {
++            uint32_t offset_len_m1 = br_read_ue(&br);
++            uint32_t off_bits = offset_len_m1 + 1;
++            if (off_bits > 32)
++               off_bits = 32; /* spec caps at 32; guard reader */
++            for (uint32_t i = 0; i < nepo; i++)
++               br_skip_bits(&br, off_bits); /* entry_point_offset_minus1[i] */
++         }
++      }
++
++      if (slice_hdr_ext_present) {
++         uint32_t ext_len = br_read_ue(&br);
++         if (ext_len > 4096)
++            ext_len = 4096; /* guard */
++         for (uint32_t i = 0; i < ext_len; i++)
++            br_read_bit(&br); /* slice_segment_header_extension_data_byte */
++      }
++
++      /* byte_alignment(): alignment_bit_equal_to_one(1) then zero bits to the
++       * next byte boundary. After this the coded slice DATA begins. */
++      br_read_bit(&br); /* alignment_bit_equal_to_one */
++      while ((br.bit_offset & 7) != 0)
++         br_read_bit(&br); /* alignment_bit_equal_to_zero */
++
++      /*
++       * data_byte_offset: byte offset, measured from the start of the slice
++       * bitstream buffer (the Annex-B NAL INCLUDING its start code, which is
++       * what the OUTPUT buffer holds), to the first byte of coded slice data
++       * (after byte_alignment()).
++       *
++       *   = start_code_len + 2 (NAL header) + header_payload_bytes
++       *
++       * header_payload_bytes = br.bit_offset/8 (the reader started after the
++       * 2-byte NAL header and bit_offset is now byte-aligned).
++       *
++       * UNCERTAIN: the exact base the golden uses —
++       * start-code-inclusive (this) vs NAL-header-relative (this minus sc).
++       * For the in-scope clip with no EPB in the header, EBSP and RBSP byte
++       * counts are equal so only the BASE is in question, not the count.
++       */
++      uint32_t header_payload_bytes = br.bit_offset >> 3;
++      o->data_byte_offset =
++         (uint32_t)(sc + 2 + header_payload_bytes);
++
++      /*
++       * bit_size: size (in bits) of the current slice data — the whole slice
++       * segment NAL payload (after the 2-byte NAL header) in bits. rkvdec
++       * consumes the full Annex-B unit. We size it from this slice's start
++       * code to the NEXT slice's start code if known (slice_offsets[s+1]),
++       * else to end-of-buffer.
++       *
++       * UNCERTAIN: whether the golden measures bit_size over the
++       * NAL payload (this) or the whole NAL incl. start code + header.
++       */
++      size_t nal_end =
++         (s + 1 < slice_count) ? slice_offsets[s + 1] : size;
++      if (nal_end > size)
++         nal_end = size;
++      size_t nal_payload_bytes =
++         (nal_end > off + sc + 2) ? (nal_end - (off + sc + 2)) : 0;
++      o->bit_size = (uint32_t)(nal_payload_bytes * 8);
++
++      fprintf(stderr,
++              "[V4L2VK][H265] slice[%u]: off=%u nal_type=%u(%s) tid+1=%u "
++              "addr=%u type=%u(%s) qp_delta=%d nepo=%u "
++              "data_byte_offset=%u bit_size=%u st_rps_size=%u\n",
++              s, off, nut,
++              (nut == 19 || nut == 20)   ? "IDR"
++              : (nut >= 16 && nut <= 23) ? "IRAP"
++                                         : "VCL",
++              tid1, o->slice_segment_addr, o->slice_type,
++              o->slice_type == V4L2_HEVC_SLICE_TYPE_I   ? "I"
++              : o->slice_type == V4L2_HEVC_SLICE_TYPE_P ? "P"
++              : o->slice_type == V4L2_HEVC_SLICE_TYPE_B ? "B"
++                                                        : "?",
++              o->slice_qp_delta, o->num_entry_point_offsets,
++              o->data_byte_offset, o->bit_size,
++              o->short_term_ref_pic_set_size);
++
++      parsed++;
++   }
++
++   return parsed;
++}
+diff --git a/src/vulkan-v4l2/v4l2vk_v4l2_hevc.h b/src/vulkan-v4l2/v4l2vk_v4l2_hevc.h
+new file mode 100644
+index 0000000..b4afdce
+--- /dev/null
++++ b/src/vulkan-v4l2/v4l2vk_v4l2_hevc.h
+@@ -0,0 +1,192 @@
++/* SPDX-License-Identifier: MIT */
++/*
++ * HEVC V4L2 stateless translate — frame-params struct + SPS/PPS/scaling
++ * translators from Vulkan Video std structs to V4L2 control structs.
++ *
++ * struct definitions and translate function declarations.
++ */
++#ifndef V4L2VK_V4L2_HEVC_H
++#define V4L2VK_V4L2_HEVC_H
++
++#include <stdbool.h>
++#include <stddef.h>
++#include <stdint.h>
++
++/* Bring in ext_compat first (vendored EXT_SPS RPS structs for older kernels) */
++#include "v4l2vk_hevc_ext_compat.h"
++/* v4l2vk_hevc_ext_compat.h already includes <linux/v4l2-controls.h> */
++
++#include <vk_video/vulkan_video_codec_h265std.h>
++#include <vk_video/vulkan_video_codec_h265std_decode.h>
++
++/*
++ * v4l2vk_hevc_frame_params — all V4L2 controls needed for one HEVC frame.
++ *
++ * Populated by a chain of translate_* functions:
++ *   sps/pps/scaling:     v4l2vk_h265_translate_sps/pps/scaling
++ *   decode_params:       v4l2vk_h265_translate_decode_params
++ *   slice_params:        v4l2vk_h265_translate_slice_params
++ *   st_rps/lt_rps:       v4l2vk_h265_translate_rps
++ */
++struct v4l2vk_hevc_frame_params {
++   struct v4l2_ctrl_hevc_sps               sps;
++   struct v4l2_ctrl_hevc_pps               pps;
++   struct v4l2_ctrl_hevc_scaling_matrix    scaling;
++   struct v4l2_ctrl_hevc_decode_params     decode_params;
++   struct v4l2_ctrl_hevc_slice_params      slice_params[16];
++
++   /* EXT_SPS RPS arrays */
++   struct v4l2_ctrl_hevc_ext_sps_st_rps   st_rps[64];
++   struct v4l2_ctrl_hevc_ext_sps_lt_rps   lt_rps[32];
++
++   uint32_t   slice_count;
++   uint32_t   st_rps_count;
++   uint32_t   lt_rps_count;
++   bool       has_scaling;
++};
++
++/* --- Translate function declarations --- */
++
++/**
++ * v4l2vk_h265_level_idc_to_raw - convert Vulkan H265LevelIdc enum to
++ * the raw level*30 byte used by V4L2 (e.g. LEVEL_IDC_4_1 -> 123).
++ * HEVC spec Annex A: general_level_idc = level_idc * 30.
++ */
++uint8_t v4l2vk_h265_level_idc_to_raw(StdVideoH265LevelIdc lvl);
++
++/**
++ * v4l2vk_h265_translate_sps - map StdVideoH265SequenceParameterSet ->
++ * struct v4l2_ctrl_hevc_sps.
++ */
++void v4l2vk_h265_translate_sps(const StdVideoH265SequenceParameterSet *vk,
++                                struct v4l2_ctrl_hevc_sps *out);
++
++/**
++ * v4l2vk_h265_translate_pps - map StdVideoH265PictureParameterSet ->
++ * struct v4l2_ctrl_hevc_pps.
++ */
++void v4l2vk_h265_translate_pps(const StdVideoH265PictureParameterSet *vk,
++                                struct v4l2_ctrl_hevc_pps *out);
++
++/**
++ * v4l2vk_h265_translate_scaling - map StdVideoH265ScalingLists ->
++ * struct v4l2_ctrl_hevc_scaling_matrix.
++ * May be called with vk=NULL (scaling list not present).
++ */
++void v4l2vk_h265_translate_scaling(const StdVideoH265ScalingLists *vk,
++                                   struct v4l2_ctrl_hevc_scaling_matrix *out);
++
++/*
++ * v4l2vk_dpb_entry is defined in v4l2vk_dpb.h.
++ * Forward-declare it here so callers don't need to pull in v4l2vk_dpb.h
++ * just to use the translate_decode_params signature.
++ * The full definition is required at call sites that pass a dpb pointer.
++ */
++struct v4l2vk_dpb_entry;
++
++/**
++ * v4l2vk_h265_translate_st_rps - map an array of StdVideoH265ShortTermRefPicSet
++ * structs (SPS RPS table) into V4L2 EXT_SPS_ST_RPS array.
++ *
++ * @vk:    pointer to the first element of the SPS short-term RPS table.
++ * @count: number of sets (= sps->num_short_term_ref_pic_sets, clamped to 64).
++ * @out:   output array of at least @count elements.
++ *
++ * Returns the number of entries written (= min(count, 64)).
++ *
++ * Field remap (NOT a memcpy — layouts differ):
++ *   std flags.inter_ref_pic_set_prediction_flag -> out->flags bit 0
++ *   std flags.delta_rps_sign                    -> out->delta_rps_sign (standalone)
++ *   std used_by_curr_pic_s0_flag (bitmask)      -> low  num_negative_pics bits of out->used_by_curr_pic
++ *   std used_by_curr_pic_s1_flag (bitmask)      -> next num_positive_pics bits of out->used_by_curr_pic
++ *   std delta_poc_s0/s1_minus1[i]               -> out->delta_poc_s0/s1_minus1[i] (clamped to 16)
++ */
++uint32_t v4l2vk_h265_translate_st_rps(const StdVideoH265ShortTermRefPicSet *vk,
++                                      uint32_t count,
++                                      struct v4l2_ctrl_hevc_ext_sps_st_rps *out);
++
++/**
++ * v4l2vk_h265_translate_lt_rps - map StdVideoH265LongTermRefPicsSps (SoA)
++ * into V4L2 EXT_SPS_LT_RPS array (AoS).
++ *
++ * @vk:  pointer to the LT-RPS SPS struct (struct-of-arrays layout).
++ * @out: output array of at least vk->num_long_term_ref_pics_sps elements.
++ *       The caller must pass an array sized >= num_long_term_ref_pics_sps.
++ *
++ * Returns the number of entries written (= min(count, 32)).
++ *
++ * Field remap:
++ *   std lt_ref_pic_poc_lsb_sps[i] (u32 array)       -> out[i].lt_ref_pic_poc_lsb_sps (u16, lower 16b)
++ *   std used_by_curr_pic_lt_sps_flag bit i (bitmask) -> out[i].flags bit 0 (USED_LT)
++ */
++uint32_t v4l2vk_h265_translate_lt_rps(const StdVideoH265LongTermRefPicsSps *vk,
++                                      uint32_t count,
++                                      struct v4l2_ctrl_hevc_ext_sps_lt_rps *out);
++
++/**
++ * v4l2vk_h265_translate_decode_params - fill struct v4l2_ctrl_hevc_decode_params
++ * from Vulkan decode picture info + DPB.
++ *
++ * @vk_pic:    current-picture decode info from CmdDecodeVideoKHR.
++ * @dpb:       array of DPB entries (opaque to this layer; uses reference_ts +
++ *             hevc_pic_order_cnt_val, populated from
++ *             StdVideoDecodeH265ReferenceInfo.PicOrderCntVal).
++ * @dpb_count: number of valid DPB entries (clamped to V4L2_HEVC_DPB_ENTRIES_NUM_MAX=16).
++ * @out:       output struct to fill.
++ *
++ * poc_st_curr_before/after[] and poc_lt_curr[] are DPB slot indices
++ * (matching the V4L2 kernel convention: timestamp = slot_index * 1000).
++ *
++ * Flags set:
++ *   V4L2_HEVC_DECODE_PARAM_FLAG_IRAP_PIC  <- vk_pic->flags.IrapPicFlag
++ *   V4L2_HEVC_DECODE_PARAM_FLAG_IDR_PIC   <- vk_pic->flags.IdrPicFlag
++ *   V4L2_HEVC_DECODE_PARAM_FLAG_NO_OUTPUT_OF_PRIOR <- not exposed in std; always 0
++ */
++void v4l2vk_h265_translate_decode_params(
++   const StdVideoDecodeH265PictureInfo *vk_pic,
++   const struct v4l2vk_dpb_entry *dpb,
++   uint32_t dpb_count,
++   struct v4l2_ctrl_hevc_decode_params *out);
++
++/**
++ * v4l2vk_h265_translate_slice_params - parse each HEVC slice-segment header
++ * from the raw Annex-B bitstream into struct v4l2_ctrl_hevc_slice_params.
++ *
++ * The Vulkan Video H.265 *decode* std structs do NOT carry the per-slice
++ * header syntax (slice_type, addr, QP deltas, SAO/deblock flags, entry-point
++ * count, data_byte_offset, ...), so the V4L2 stateless rkvdec driver requires
++ * us to parse them out of the slice NAL ourselves. This walks
++ * slice_segment_header() per H.265 §7.3.6.1, gated by the SPS and PPS fields
++ * that were already translated by translate_sps/pps.
++ *
++ * @bitstream:     full Annex-B frame buffer (one access unit; may hold VPS/SPS/
++ *                 PPS/SEI NALs ahead of the slices).
++ * @size:          length of @bitstream in bytes.
++ * @sps:           translated SPS (gates: separate_colour_plane, SAO,
++ *                 num_short_term_ref_pic_sets, log2_max_pic_order_cnt_lsb,
++ *                 temporal MVP).
++ * @pps:           translated PPS (gates: dependent_slice_segments, output_flag,
++ *                 num_extra_slice_header_bits, cabac_init, weighted_pred/bipred,
++ *                 tiles, entropy_coding_sync, deblocking control, lists_mod).
++ * @slice_offsets: array of @slice_count byte offsets, each pointing at the
++ *                 Annex-B start code (00 00 01 / 00 00 00 01) preceding a slice
++ *                 segment NAL.
++ * @slice_count:   number of slice segments (clamped to 16 — array bound of
++ *                 struct v4l2vk_hevc_frame_params::slice_params[]).
++ * @out:           output array of at least min(@slice_count, 16) elements.
++ *
++ * Returns the number of slice headers parsed and written (= min(slice_count,16)).
++ *
++ * WEIGHTED PREDICTION IS OUT OF SCOPE: pred_weight_table() is never parsed;
++ * the parser stops the inter-prediction path at the PPS weighted_pred /
++ * weighted_bipred gate (both 0 for the in-scope clips, so the syntax element
++ * is absent per H.265 §7.3.6.1).
++ */
++uint32_t v4l2vk_h265_translate_slice_params(
++   const uint8_t *bitstream, size_t size,
++   const struct v4l2_ctrl_hevc_sps *sps,
++   const struct v4l2_ctrl_hevc_pps *pps,
++   const uint32_t *slice_offsets, uint32_t slice_count,
++   struct v4l2_ctrl_hevc_slice_params *out);
++
++#endif /* V4L2VK_V4L2_HEVC_H */
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_device.c b/src/vulkan-v4l2/v4l2vk_vk_device.c
+index 7c0d5df..635644b 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_device.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_device.c
+@@ -30,6 +30,8 @@
+ #include "v4l2vk_device_exts.h"
+ #include "v4l2vk_v4l2.h"
+ #include "v4l2vk_v4l2_h264.h"
++#include "v4l2vk_v4l2_hevc.h"
++#include "v4l2vk_codec.h"       /* V4L2VK_CODEC_* */
+ 
+ #include "vk_cmd_enqueue_entrypoints.h"
+ #include "vk_command_buffer.h"
+@@ -775,7 +777,8 @@ v4l2vk_QueueSubmit2(VkQueue queue, uint32_t submitCount,
+                          struct v4l2vk_cmd_buffer, vk);
+ 
+          util_dynarray_foreach (&cb->jobs, struct v4l2vk_recorded_job, job) {
+-            if (!job->h264_valid)
++            /* skip only if no valid codec */
++            if (!job->h264_valid && !job->h265_valid)
+                continue;
+ 
+             /* Get V4L2 context from the job's video session (captured
+@@ -787,9 +790,7 @@ v4l2vk_QueueSubmit2(VkQueue queue, uint32_t submitCount,
+                continue;
+             }
+ 
+-            /* Lazy V4L2 init: if the SPS wasn't available at
+-             * CreateVideoSessionParametersKHR time, initialize
+-             * now from the job's SPS. */
++            /* codec-aware lazy V4L2 init */
+             if (!sess->v4l2_ctx && job->h264_valid) {
+                uint32_t sps_w =
+                   ((uint32_t)job->sps.pic_width_in_mbs_minus1 + 1) * 16;
+@@ -799,9 +800,20 @@ v4l2vk_QueueSubmit2(VkQueue queue, uint32_t submitCount,
+                if (!job->sps.flags.frame_mbs_only_flag)
+                   sps_h *= 2;
+                fprintf(stderr,
+-                       "[V4L2VK] Late V4L2 init from SPS: %ux%u\n",
++                       "[V4L2VK] Late H264 V4L2 init from SPS: %ux%u\n",
+                        sps_w, sps_h);
+-               v4l2vk_video_session_init_v4l2(sess, dev, sps_w, sps_h, &job->sps, &job->pps);
++               v4l2vk_video_session_init_v4l2(sess, dev, sps_w, sps_h,
++                                              &job->sps, &job->pps);
++            } else if (!sess->v4l2_ctx && job->h265_valid) {
++               uint32_t sps_w =
++                  (uint32_t)job->h265_sps.pic_width_in_luma_samples;
++               uint32_t sps_h =
++                  (uint32_t)job->h265_sps.pic_height_in_luma_samples;
++               fprintf(stderr,
++                       "[V4L2VK] Late HEVC V4L2 init from SPS: %ux%u\n",
++                       sps_w, sps_h);
++               v4l2vk_video_session_init_v4l2_hevc(sess, dev, sps_w, sps_h,
++                                                   &job->h265_sps);
+             }
+ 
+             if (!sess->v4l2_ctx) {
+@@ -852,44 +864,119 @@ v4l2vk_QueueSubmit2(VkQueue queue, uint32_t submitCount,
+                        cap_idx, (unsigned long long)frame_ts);
+             }
+ 
+-            /* Translate Vulkan H.264 params to V4L2 controls */
+-            struct v4l2vk_h264_frame_params v4l2_params;
+-
+-            if (v4l2vk_h264_translate_params(
+-                   &job->sps, &job->pps, &job->picture, job->dpb,
+-                   job->dpb_count, job->slice_offsets, job->slice_count,
+-                   frame_ts, bs_data, bs_size, &v4l2_params) != 0) {
+-               fprintf(stderr,
+-                       "[V4L2VK][ERR] H.264 param translation failed\n");
+-               continue;
+-            }
+-
+-            /* Use round-robin output buffer */
+-            uint32_t out_idx =
+-               dev->frame_counter % v4l2_ctx->output_buf_count;
+-
+-            /* Allocate media request */
++            /* Translate codec params to V4L2 controls */
+             int request_fd = -1;
+-            if (v4l2vk_v4l2_alloc_request(v4l2_ctx, &request_fd) < 0) {
+-               fprintf(stderr, "[V4L2VK][ERR] alloc_request failed\n");
+-               continue;
+-            }
+ 
+-            /* Set H.264 controls on the request */
+-            if (v4l2vk_v4l2_set_h264_controls(v4l2_ctx, request_fd,
+-                                              &v4l2_params) < 0) {
+-               fprintf(stderr, "[V4L2VK][ERR] set_h264_controls failed\n");
+-               close(request_fd);
++            if (job->h264_valid) {
++               /* H264 path */
++               struct v4l2vk_h264_frame_params v4l2_params;
++
++               if (v4l2vk_h264_translate_params(
++                      &job->sps, &job->pps, &job->picture, job->dpb,
++                      job->dpb_count, job->slice_offsets, job->slice_count,
++                      frame_ts, bs_data, bs_size, &v4l2_params) != 0) {
++                  fprintf(stderr,
++                          "[V4L2VK][ERR] H.264 param translation failed\n");
++                  continue;
++               }
++
++               /* Use round-robin output buffer */
++               uint32_t out_idx =
++                  dev->frame_counter % v4l2_ctx->output_buf_count;
++
++               if (v4l2vk_v4l2_alloc_request(v4l2_ctx, &request_fd) < 0) {
++                  fprintf(stderr, "[V4L2VK][ERR] alloc_request failed\n");
++                  continue;
++               }
++
++               if (v4l2vk_v4l2_set_h264_controls(v4l2_ctx, request_fd,
++                                                 &v4l2_params) < 0) {
++                  fprintf(stderr, "[V4L2VK][ERR] set_h264_controls failed\n");
++                  close(request_fd);
++                  continue;
++               }
++
++               if (v4l2vk_v4l2_queue_output(v4l2_ctx, out_idx, request_fd,
++                                            bs_data, bs_size, frame_ts) < 0) {
++                  fprintf(stderr, "[V4L2VK][ERR] queue_output failed\n");
++                  close(request_fd);
++                  continue;
++               }
++            } else if (job->h265_valid) {
++               /* HEVC path */
++               struct v4l2vk_hevc_frame_params hevc_params;
++               memset(&hevc_params, 0, sizeof(hevc_params));
++
++               v4l2vk_h265_translate_sps(&job->h265_sps, &hevc_params.sps);
++               v4l2vk_h265_translate_pps(&job->h265_pps, &hevc_params.pps);
++               v4l2vk_h265_translate_scaling(job->h265_sps.pScalingLists,
++                                             &hevc_params.scaling);
++               hevc_params.has_scaling =
++                  (job->h265_sps.pScalingLists != NULL);
++
++               /* ST-RPS: use the SPS short-term ref pic set table */
++               hevc_params.st_rps_count = 0;
++               if (job->h265_sps.pShortTermRefPicSet &&
++                   job->h265_sps.num_short_term_ref_pic_sets > 0) {
++                  hevc_params.st_rps_count = v4l2vk_h265_translate_st_rps(
++                     job->h265_sps.pShortTermRefPicSet,
++                     job->h265_sps.num_short_term_ref_pic_sets,
++                     hevc_params.st_rps);
++               }
++
++               /* LT-RPS: from SPS long-term ref pics if present */
++               hevc_params.lt_rps_count = 0;
++               if (job->h265_sps.pLongTermRefPicsSps &&
++                   job->h265_sps.num_long_term_ref_pics_sps > 0) {
++                  hevc_params.lt_rps_count = v4l2vk_h265_translate_lt_rps(
++                     job->h265_sps.pLongTermRefPicsSps,
++                     job->h265_sps.num_long_term_ref_pics_sps,
++                     hevc_params.lt_rps);
++               }
++
++               v4l2vk_h265_translate_decode_params(&job->h265_picture,
++                                                   job->dpb,
++                                                   job->dpb_count,
++                                                   &hevc_params.decode_params);
++
++               hevc_params.slice_count =
++                  v4l2vk_h265_translate_slice_params(
++                     bs_data, bs_size,
++                     &hevc_params.sps, &hevc_params.pps,
++                     job->slice_offsets, job->slice_count,
++                     hevc_params.slice_params);
++
++               uint32_t out_idx =
++                  dev->frame_counter % v4l2_ctx->output_buf_count;
++
++               if (v4l2vk_v4l2_alloc_request(v4l2_ctx, &request_fd) < 0) {
++                  fprintf(stderr,
++                          "[V4L2VK][ERR] HEVC: alloc_request failed\n");
++                  continue;
++               }
++
++               if (v4l2vk_v4l2_set_codec_controls(v4l2_ctx, request_fd,
++                                                   V4L2VK_CODEC_H265,
++                                                   &hevc_params) < 0) {
++                  fprintf(stderr,
++                          "[V4L2VK][ERR] HEVC: set_codec_controls failed\n");
++                  close(request_fd);
++                  continue;
++               }
++
++               if (v4l2vk_v4l2_queue_output(v4l2_ctx, out_idx, request_fd,
++                                            bs_data, bs_size, frame_ts) < 0) {
++                  fprintf(stderr,
++                          "[V4L2VK][ERR] HEVC: queue_output failed\n");
++                  close(request_fd);
++                  continue;
++               }
++            } else {
++               /* Should not happen — gated above */
+                continue;
+             }
+ 
+-            /* Queue OUTPUT (bitstream) buffer */
+-            if (v4l2vk_v4l2_queue_output(v4l2_ctx, out_idx, request_fd,
+-                                         bs_data, bs_size, frame_ts) < 0) {
+-               fprintf(stderr, "[V4L2VK][ERR] queue_output failed\n");
+-               close(request_fd);
+-               continue;
+-            }
++            /* --- Shared submit path (H264 + HEVC) --- */
+ 
+             /* Look up destination image and its memory */
+             struct v4l2vk_image *dst_img =
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_device.h b/src/vulkan-v4l2/v4l2vk_vk_device.h
+index 7d85262..e2d50e6 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_device.h
++++ b/src/vulkan-v4l2/v4l2vk_vk_device.h
+@@ -10,6 +10,8 @@
+ #include "vulkan/runtime/vk_device.h"
+ #include "vulkan/runtime/vk_object.h"
+ #include "v4l2vk_dpb.h"
++#include <vk_video/vulkan_video_codec_h265std.h>
++#include <vk_video/vulkan_video_codec_h265std_decode.h>
+ #include "vk_device.h"
+ #include "vk_queue.h"
+ 
+@@ -38,6 +40,16 @@ struct v4l2vk_recorded_job {
+    StdVideoDecodeH264PictureInfo picture;
+    bool h264_valid;
+ 
++   /* HEVC decode fields */
++   StdVideoH265SequenceParameterSet  h265_sps;
++   StdVideoH265PictureParameterSet   h265_pps;
++   StdVideoH265ScalingLists          h265_scaling;
++   StdVideoH265LongTermRefPicsSps    h265_lt_rps_sps;
++   StdVideoH265DecPicBufMgr          h265_dec_pic_buf_mgr;
++   StdVideoH265ShortTermRefPicSet    h265_st_ref_pic_set[64];
++   StdVideoDecodeH265PictureInfo     h265_picture;
++   bool h265_valid;
++
+    /* VUI + offset_for_ref_frame deep copies */
+    StdVideoH264SequenceParameterSetVui vui;
+    bool has_vui;
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_physical_device.c b/src/vulkan-v4l2/v4l2vk_vk_physical_device.c
+index 64119ca..5808010 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_physical_device.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_physical_device.c
+@@ -567,6 +567,7 @@ v4l2vk_enumerate_physical_devices(struct vk_instance *vk_instance)
+    exts.KHR_video_queue = true;
+    exts.KHR_video_decode_queue = true;
+    exts.KHR_video_decode_h264 = true;
++   exts.KHR_video_decode_h265 = true; /* H265 exts flag */
+    exts.KHR_external_semaphore_fd = true;
+    exts.KHR_sampler_ycbcr_conversion = true;
+    exts.KHR_external_memory = true;
+@@ -690,6 +691,9 @@ v4l2vk_GetPhysicalDeviceQueueFamilyProperties2(VkPhysicalDevice dev,
+                (VkQueueFamilyVideoPropertiesKHR *)b;
+             vp->videoCodecOperations =
+                VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR;
++            /* H265 codec operation */
++            vp->videoCodecOperations |=
++               VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR;
+             break;
+          }
+          case VK_STRUCTURE_TYPE_QUEUE_FAMILY_QUERY_RESULT_STATUS_PROPERTIES_KHR: {
+@@ -763,6 +767,9 @@ v4l2vk_EnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice,
+            VK_KHR_VIDEO_DECODE_QUEUE_SPEC_VERSION);
+    ADD_EXT(VK_KHR_VIDEO_DECODE_H264_EXTENSION_NAME,
+            VK_KHR_VIDEO_DECODE_H264_SPEC_VERSION);
++   /* H265 enumerate */
++   ADD_EXT(VK_KHR_VIDEO_DECODE_H265_EXTENSION_NAME,
++           VK_KHR_VIDEO_DECODE_H265_SPEC_VERSION);
+    ADD_EXT(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
+            VK_KHR_EXTERNAL_SEMAPHORE_FD_SPEC_VERSION);
+    ADD_EXT(VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_video.c b/src/vulkan-v4l2/v4l2vk_vk_video.c
+index 7380f0d..cdbd18b 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_video.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_video.c
+@@ -17,7 +17,10 @@
+ #include "v4l2vk_entrypoints.h"
+ 
+ #include <vk_video/vulkan_video_codec_h264std_decode.h>
++#include <vk_video/vulkan_video_codec_h265std_decode.h>
+ #include <vk_video/vulkan_video_codecs_common.h>
++#include "v4l2vk_codec.h"              /* V4L2VK_CODEC_* */
++#include "v4l2vk_v4l2_hevc.h"          /* translators + frame_params */
+ #include <vulkan/vulkan_core.h>
+ 
+ #include "v4l2vk_vk_image_view.h"
+@@ -73,8 +76,11 @@ v4l2vk_GetPhysicalDeviceVideoCapabilitiesKHR(
+    if (!pProfile || !pCaps)
+       return VK_ERROR_INITIALIZATION_FAILED;
+ 
+-   if (pProfile->videoCodecOperation !=
+-       VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR)
++   /* H265 capabilities branch */
++   const VkVideoCodecOperationFlagBitsKHR op = pProfile->videoCodecOperation;
++
++   if (op != VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR &&
++       op != VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR)
+       return VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR;
+ 
+    if (pProfile->lumaBitDepth != VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR ||
+@@ -92,10 +98,17 @@ v4l2vk_GetPhysicalDeviceVideoCapabilitiesKHR(
+    pCaps->maxActiveReferencePictures = 16;
+    pCaps->flags = VK_VIDEO_CAPABILITY_SEPARATE_REFERENCE_IMAGES_BIT_KHR;
+ 
+-   strcpy(pCaps->stdHeaderVersion.extensionName,
+-          VK_STD_VULKAN_VIDEO_CODEC_H264_DECODE_EXTENSION_NAME);
+-   pCaps->stdHeaderVersion.specVersion =
+-      VK_STD_VULKAN_VIDEO_CODEC_H264_DECODE_SPEC_VERSION;
++   if (op == VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR) {
++      strcpy(pCaps->stdHeaderVersion.extensionName,
++             VK_STD_VULKAN_VIDEO_CODEC_H264_DECODE_EXTENSION_NAME);
++      pCaps->stdHeaderVersion.specVersion =
++         VK_STD_VULKAN_VIDEO_CODEC_H264_DECODE_SPEC_VERSION;
++   } else {
++      strcpy(pCaps->stdHeaderVersion.extensionName,
++             VK_STD_VULKAN_VIDEO_CODEC_H265_DECODE_EXTENSION_NAME);
++      pCaps->stdHeaderVersion.specVersion =
++         VK_STD_VULKAN_VIDEO_CODEC_H265_DECODE_SPEC_VERSION;
++   }
+ 
+    for (VkBaseOutStructure *b = (VkBaseOutStructure *)pCaps->pNext; b;
+         b = b->pNext) {
+@@ -110,6 +123,11 @@ v4l2vk_GetPhysicalDeviceVideoCapabilitiesKHR(
+          h264->fieldOffsetGranularity.x = 0;
+          h264->fieldOffsetGranularity.y = 0;
+          h264->maxLevelIdc = STD_VIDEO_H264_LEVEL_IDC_5_1;
++      } else if (b->sType ==
++                 VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_CAPABILITIES_KHR) {
++         VkVideoDecodeH265CapabilitiesKHR *h265 =
++            (VkVideoDecodeH265CapabilitiesKHR *)b;
++         h265->maxLevelIdc = STD_VIDEO_H265_LEVEL_IDC_5_1;
+       }
+    }
+ 
+@@ -125,12 +143,14 @@ v4l2vk_GetPhysicalDeviceVideoCapabilitiesKHR(
+ 
+ /* ---- Format Properties ---- */
+ 
++/* accept H264 or H265 8bit/420 */
+ static bool
+-v4l2vk_match_h264_8bit_420(const VkVideoProfileInfoKHR *vp)
++v4l2vk_match_video_8bit_420(const VkVideoProfileInfoKHR *vp)
+ {
+    if (!vp)
+       return false;
+-   if (vp->videoCodecOperation != VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR)
++   if (vp->videoCodecOperation != VK_VIDEO_CODEC_OPERATION_DECODE_H264_BIT_KHR &&
++       vp->videoCodecOperation != VK_VIDEO_CODEC_OPERATION_DECODE_H265_BIT_KHR)
+       return false;
+    if (vp->lumaBitDepth != VK_VIDEO_COMPONENT_BIT_DEPTH_8_BIT_KHR)
+       return false;
+@@ -142,7 +162,7 @@ v4l2vk_match_h264_8bit_420(const VkVideoProfileInfoKHR *vp)
+ }
+ 
+ static const VkVideoProfileInfoKHR *
+-v4l2vk_pick_h264_profile_from_info(
++v4l2vk_pick_video_profile_from_info(
+    const VkPhysicalDeviceVideoFormatInfoKHR *info)
+ {
+    for (const VkBaseInStructure *b = (const VkBaseInStructure *)info->pNext; b;
+@@ -151,7 +171,7 @@ v4l2vk_pick_h264_profile_from_info(
+          const VkVideoProfileListInfoKHR *list =
+             (const VkVideoProfileListInfoKHR *)b;
+          for (uint32_t i = 0; i < list->profileCount; i++)
+-            if (v4l2vk_match_h264_8bit_420(&list->pProfiles[i]))
++            if (v4l2vk_match_video_8bit_420(&list->pProfiles[i]))
+                return &list->pProfiles[i];
+          return NULL;
+       }
+@@ -160,7 +180,7 @@ v4l2vk_pick_h264_profile_from_info(
+         b = b->pNext) {
+       if (b->sType == VK_STRUCTURE_TYPE_VIDEO_PROFILE_INFO_KHR) {
+          const VkVideoProfileInfoKHR *vp = (const VkVideoProfileInfoKHR *)b;
+-         if (v4l2vk_match_h264_8bit_420(vp))
++         if (v4l2vk_match_video_8bit_420(vp))
+             return vp;
+       }
+    }
+@@ -184,7 +204,8 @@ v4l2vk_GetPhysicalDeviceVideoFormatPropertiesKHR(
+       return VK_SUCCESS;
+    }
+ 
+-   const VkVideoProfileInfoKHR *vp = v4l2vk_pick_h264_profile_from_info(pInfo);
++   /* pick_video_profile call site */
++   const VkVideoProfileInfoKHR *vp = v4l2vk_pick_video_profile_from_info(pInfo);
+    if (!vp) {
+       *pCount = 0;
+       return VK_SUCCESS;
+@@ -272,6 +293,33 @@ v4l2vk_CreateVideoSessionParametersKHR(
+       }
+    }
+ 
++   /* HEVC branch — read SPS from H265 session params */
++   const VkVideoDecodeH265SessionParametersCreateInfoKHR *h265_ci =
++      (const VkVideoDecodeH265SessionParametersCreateInfoKHR *)
++         v4l2vk_find_in_pnext(
++            pCreateInfo->pNext,
++            VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_SESSION_PARAMETERS_CREATE_INFO_KHR);
++
++   if (h265_ci && h265_ci->pParametersAddInfo &&
++       h265_ci->pParametersAddInfo->stdSPSCount > 0 &&
++       h265_ci->pParametersAddInfo->pStdSPSs) {
++      const StdVideoH265SequenceParameterSet *h265sps =
++         &h265_ci->pParametersAddInfo->pStdSPSs[0];
++
++      uint32_t w = (uint32_t)h265sps->pic_width_in_luma_samples;
++      uint32_t h = (uint32_t)h265sps->pic_height_in_luma_samples;
++
++      fprintf(stderr,
++              "[V4L2VK] HEVC SPS resolution: %ux%u (session maxCodedExtent: %ux%u)\n",
++              w, h, sess->coded_extent.width, sess->coded_extent.height);
++
++      if (v4l2vk_video_session_init_v4l2_hevc(sess, dev, w, h, h265sps) < 0) {
++         fprintf(stderr,
++                 "[V4L2VK][ERR] HEVC V4L2 init failed for %ux%u\n", w, h);
++         /* Non-fatal — QueueSubmit2 will try lazy HEVC init from job SPS */
++      }
++   }
++
+    return VK_SUCCESS;
+ }
+ 
+@@ -326,6 +374,19 @@ v4l2vk_find_h264_picture_info(const VkVideoDecodeInfoKHR *info)
+    return NULL;
+ }
+ 
++/* H265 picture info finder */
++static const VkVideoDecodeH265PictureInfoKHR *
++v4l2vk_find_h265_picture_info(const VkVideoDecodeInfoKHR *info)
++{
++   const VkBaseInStructure *p = (const VkBaseInStructure *)info->pNext;
++   while (p) {
++      if (p->sType == VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_PICTURE_INFO_KHR)
++         return (const VkVideoDecodeH265PictureInfoKHR *)p;
++      p = p->pNext;
++   }
++   return NULL;
++}
++
+ VKAPI_ATTR void VKAPI_CALL
+ v4l2vk_CmdDecodeVideoKHR(VkCommandBuffer cmd, const VkVideoDecodeInfoKHR *info)
+ {
+@@ -435,6 +496,75 @@ v4l2vk_CmdDecodeVideoKHR(VkCommandBuffer cmd, const VkVideoDecodeInfoKHR *info)
+       job.h264_valid = false;
+    }
+ 
++   /* HEVC decode info extraction */
++   {
++      const VkVideoDecodeH265PictureInfoKHR *h265 =
++         v4l2vk_find_h265_picture_info(info);
++
++      const StdVideoH265SequenceParameterSet *h265sps = NULL;
++      const StdVideoH265PictureParameterSet  *h265pps = NULL;
++
++      if (h265 && h265->pStdPictureInfo) {
++         vk_video_get_h265_parameters(&sess->vk, sess->bound_params, info, h265,
++                                      &h265sps, &h265pps);
++      }
++
++      if (h265 && h265->pStdPictureInfo && h265sps && h265pps) {
++         job.h265_sps     = *h265sps;
++         job.h265_pps     = *h265pps;
++         job.h265_picture = *h265->pStdPictureInfo;
++         job.h265_valid   = true;
++
++         /* Deep-copy scaling lists */
++         if (h265sps->pScalingLists) {
++            job.h265_scaling = *h265sps->pScalingLists;
++            job.h265_sps.pScalingLists = &job.h265_scaling;
++         } else {
++            job.h265_sps.pScalingLists = NULL;
++         }
++
++         /* Deep-copy LT-RPS SPS if present */
++         if (h265sps->pLongTermRefPicsSps) {
++            job.h265_lt_rps_sps = *h265sps->pLongTermRefPicsSps;
++            job.h265_sps.pLongTermRefPicsSps = &job.h265_lt_rps_sps;
++         } else {
++            job.h265_sps.pLongTermRefPicsSps = NULL;
++         }
++
++         /* Deep-copy DecPicBufMgr if present */
++         if (h265sps->pDecPicBufMgr) {
++            job.h265_dec_pic_buf_mgr = *h265sps->pDecPicBufMgr;
++            job.h265_sps.pDecPicBufMgr = &job.h265_dec_pic_buf_mgr;
++         } else {
++            job.h265_sps.pDecPicBufMgr = NULL;
++         }
++
++         /* Deep-copy short-term RPS table */
++         if (h265sps->pShortTermRefPicSet &&
++             h265sps->num_short_term_ref_pic_sets > 0) {
++            uint32_t nst = h265sps->num_short_term_ref_pic_sets;
++            if (nst > 64) nst = 64;
++            memcpy(job.h265_st_ref_pic_set, h265sps->pShortTermRefPicSet,
++                   nst * sizeof(job.h265_st_ref_pic_set[0]));
++            job.h265_sps.pShortTermRefPicSet = job.h265_st_ref_pic_set;
++         } else {
++            job.h265_sps.pShortTermRefPicSet = NULL;
++         }
++
++         /* Slice-segment offsets (reuse job.slice_count/slice_offsets) */
++         job.slice_count = 0;
++         if (h265->sliceSegmentCount > 0 && h265->pSliceSegmentOffsets) {
++            job.slice_count = h265->sliceSegmentCount;
++            if (job.slice_count > 16)
++               job.slice_count = 16;
++            memcpy(job.slice_offsets, h265->pSliceSegmentOffsets,
++                   job.slice_count * sizeof(uint32_t));
++         }
++      } else {
++         job.h265_valid = false;
++      }
++   }
++
+    /* Setup reference slot — tells us which DPB slot this decoded frame
+     * occupies.  We use this as the capture buffer index AND V4L2 timestamp
+     * so that future frames referencing this slot (via reference_ts =
+@@ -468,6 +598,21 @@ v4l2vk_CmdDecodeVideoKHR(VkCommandBuffer cmd, const VkVideoDecodeInfoKHR *info)
+             dst->valid = 0;
+          }
+ 
++         /* HEVC DPB POC from H265 slot info */
++         const VkVideoDecodeH265DpbSlotInfoKHR *h265_slot =
++            (const VkVideoDecodeH265DpbSlotInfoKHR *)v4l2vk_find_in_pnext(
++               slot->pNext,
++               VK_STRUCTURE_TYPE_VIDEO_DECODE_H265_DPB_SLOT_INFO_KHR);
++         if (h265_slot && h265_slot->pStdReferenceInfo) {
++            dst->hevc_pic_order_cnt_val =
++               h265_slot->pStdReferenceInfo->PicOrderCntVal;
++            if (!dst->valid) {
++               /* HEVC-only DPB entry: set valid + timestamp */
++               dst->valid = 1;
++               dst->reference_ts = (uint64_t)slot->slotIndex * 1000;
++            }
++         }
++
+          job.dpb_count++;
+       }
+    }
+@@ -565,6 +710,95 @@ v4l2vk_video_session_init_v4l2(v4l2vk_video_session *sess,
+    return 0;
+ }
+ 
++/* HEVC session V4L2 init.
++ * Mirrors video_session_init_v4l2 but uses HEVC pixel format via
++ * set_output_format_codec(H265) and initialises the non-request
++ * SPS control via set_init_paramset — the SPS must be submitted
++ * non-request before CAPTURE setup so rkvdec configures the decoder.
++ */
++int
++v4l2vk_video_session_init_v4l2_hevc(
++   v4l2vk_video_session *sess,
++   struct v4l2vk_vk_device *dev,
++   uint32_t w, uint32_t h,
++   const StdVideoH265SequenceParameterSet *sps)
++{
++   if (sess->v4l2_ctx)
++      return 0; /* Already initialized */
++
++   sess->v4l2_ctx =
++      v4l2vk_v4l2_context_create(dev->video_fd, dev->media_fd, w, h);
++   if (!sess->v4l2_ctx) {
++      fprintf(stderr, "[V4L2VK][ERR] HEVC: Failed to create V4L2 context\n");
++      return -1;
++   }
++
++   /* Set OUTPUT pixelformat to V4L2_PIX_FMT_HEVC_SLICE */
++   if (v4l2vk_v4l2_set_output_format_codec(sess->v4l2_ctx, w, h,
++                                            V4L2VK_CODEC_H265) < 0) {
++      fprintf(stderr, "[V4L2VK][ERR] HEVC: OUTPUT format setup failed\n");
++      v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++      sess->v4l2_ctx = NULL;
++      return -1;
++   }
++
++   /* Non-request SPS init — must precede CAPTURE setup so rkvdec configures the decoder */
++   if (sps) {
++      struct v4l2vk_hevc_frame_params init_params;
++      memset(&init_params, 0, sizeof(init_params));
++      v4l2vk_h265_translate_sps(sps, &init_params.sps);
++      if (v4l2vk_v4l2_set_init_paramset(sess->v4l2_ctx,
++                                         V4L2VK_CODEC_H265,
++                                         &init_params) < 0) {
++         fprintf(stderr,
++                 "[V4L2VK][ERR] HEVC: V4L2 non-request SPS set failed\n");
++         v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++         sess->v4l2_ctx = NULL;
++         return -1;
++      }
++   }
++
++   if (v4l2vk_v4l2_set_capture_format(sess->v4l2_ctx, w, h, NULL, NULL) < 0) {
++      fprintf(stderr, "[V4L2VK][ERR] HEVC: V4L2 CAPTURE format setup failed\n");
++      v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++      sess->v4l2_ctx = NULL;
++      return -1;
++   }
++
++   if (v4l2vk_v4l2_create_output_buffers(sess->v4l2_ctx, 4) < 0) {
++      fprintf(stderr, "[V4L2VK][ERR] HEVC: V4L2 OUTPUT buffer setup failed\n");
++      v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++      sess->v4l2_ctx = NULL;
++      return -1;
++   }
++
++   if (v4l2vk_v4l2_create_capture_buffers(sess->v4l2_ctx, 17) < 0) {
++      fprintf(stderr,
++              "[V4L2VK][ERR] HEVC: V4L2 CAPTURE buffer setup failed\n");
++      v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++      sess->v4l2_ctx = NULL;
++      return -1;
++   }
++
++   if (v4l2vk_v4l2_streamon(sess->v4l2_ctx) < 0) {
++      fprintf(stderr, "[V4L2VK][ERR] HEVC: V4L2 STREAMON failed\n");
++      v4l2vk_v4l2_context_destroy(sess->v4l2_ctx);
++      sess->v4l2_ctx = NULL;
++      return -1;
++   }
++
++   sess->coded_extent.width  = w;
++   sess->coded_extent.height = h;
++
++   fprintf(stderr,
++           "[V4L2VK] HEVC V4L2 session initialized: %ux%u, "
++           "%u output bufs, CAPTURE MMAP %u bufs\n",
++           w, h, sess->v4l2_ctx->output_buf_count,
++           sess->v4l2_ctx->capture_buf_count);
++
++   return 0;
++}
++
+ /* ---- Session Create/Destroy ---- */
+ 
+ VKAPI_ATTR VkResult VKAPI_CALL
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_video.h b/src/vulkan-v4l2/v4l2vk_vk_video.h
+index e60b1b2..933924f 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_video.h
++++ b/src/vulkan-v4l2/v4l2vk_vk_video.h
+@@ -33,6 +33,13 @@ int v4l2vk_video_session_init_v4l2(v4l2vk_video_session *sess,
+                                    const StdVideoH264SequenceParameterSet *sps,
+                                    const StdVideoH264PictureParameterSet *pps);
+ 
++/* HEVC session V4L2 init (HEVC codec path) */
++#include <vk_video/vulkan_video_codec_h265std.h>
++int v4l2vk_video_session_init_v4l2_hevc(v4l2vk_video_session *sess,
++                                         struct v4l2vk_vk_device *dev,
++                                         uint32_t w, uint32_t h,
++                                         const StdVideoH265SequenceParameterSet *sps);
++
+ PFN_vkVoidFunction v4l2vk_GetVideoDeviceProcAddr(VkDevice dev,
+                                                  const char *name);
+ 
+-- 
+2.54.0
+
