@@ -53,6 +53,27 @@ but not the raw rkvdec dmabuf directly — until the meta gap is closed.
   - **WebKit patch**: make WebKit's GL-sink ALLOCATION query advertise `GstVideoMeta` (upstream WebKit fix; larger, but the "right" place).
 - This unblocks BOTH A and C: the C (Vulkan ICD) bridge, when it outputs dmabuf, will hit the *same* WebKit meta gap — so solving the meta side is shared groundwork.
 
+## RESOLUTION — meta-bridge → Increment A DONE (2026-06-27)
+
+Fix: `scripts/vvtest/gstv4l2metabridge.c` — a GstBin wrapping `v4l2slh264dec`, registered
+`v4l2h264metabridge` at rank **258** (beats plain 257), with a `QUERY_DOWNSTREAM` probe on the
+decoder's internal src pad that injects `GST_VIDEO_META_API_TYPE` into the ALLOCATION query
+(the same meta-aware technique proven in Step-2's `zc_*.c`). Independent-reviewed (GO-WITH-FIXES;
+all folded: `factory_find` shadow guard, `GST_PAD_PROBE_OK`, non-writable-query warning, NULL pad
+guards). Probe placement confirmed correct by review (gstpad.c: the base class peer-queries the
+decoder's internal src pad; the probe fires on that outgoing query before `decide_allocation`).
+
+**Verified on board (WebKitGTK 2.52.4, Epiphany, c1080.mp4 @1080p):**
+- `/dev/video1` (rkvdec) busy **25–26/40** fast samples → genuine HW decode.
+- Negotiated output caps = `video/x-raw(memory:DMABuf), format=DMA_DRM, drm-format=NV12` → **zero-copy dmabuf**, not system NV12.
+- `VideoMeta`/`not-negotiated` failures = **0**; `avdec_h264` (SW) created = **0**.
+- Visual: demo.h264 fractal plays fullscreen in Epiphany (screenshot).
+- System mesa pin `1:26.0.6-1` untouched.
+
+**Result:** WebKitGTK does **hardware zero-copy H264** on RK3588 (rkvdec → DMABuf NV12 → WebKit GL
+compositor, no CPU copy, no SW fallback) via an isolated GStreamer plugin — no WebKit rebuild, no
+system install. Roadmap next: C (Vulkan ICD zero-copy), then a WebKit-side patch to drop the bridge.
+
 ## Harnesses (board `~/vvtest/`, host `scripts/vvtest/`)
 `s3a-webkit-default-rank.sh` (progressive, default rank), `s3a2-diag.sh` (busy-seconds + overlay),
 `s3c-negotiation-diag.sh` (rich caps/v4l2/bus debug → `/tmp/s3c_gst.log`). Sandbox off
