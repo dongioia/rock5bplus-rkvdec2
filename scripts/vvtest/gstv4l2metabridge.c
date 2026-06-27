@@ -64,13 +64,17 @@ static const BridgeDesc CODECS[] = {
   { "v4l2vp8metabridge",   "GstV4l2Vp8MetaBridge",   "v4l2slvp8dec",
     "V4L2 VP8 Meta Bridge Decoder",   "video/x-vp8" },
   { "v4l2vp9metabridge",   "GstV4l2Vp9MetaBridge",   "v4l2slvp9dec",
-    "V4L2 VP9 Meta Bridge Decoder",   "video/x-vp9" },
+    "V4L2 VP9 Meta Bridge Decoder",   "video/x-vp9, alignment = (string) frame" },
   { "v4l2mpeg2metabridge", "GstV4l2Mpeg2MetaBridge", "v4l2slmpeg2dec",
     "V4L2 MPEG2 Meta Bridge Decoder",
     "video/mpeg, mpegversion = (int) 2, systemstream = (boolean) false, "
     "parsed = (boolean) true" },
+  /* v4l2sl{vp9,av1}dec require alignment=frame on their sink; pin it so the
+   * parser negotiates frame alignment and the decoder accepts the caps (bare
+   * caps let the parser default to tu/obu/super-frame -> "does not accept
+   * caps" -> SW fallback). */
   { "v4l2av1metabridge",   "GstV4l2Av1MetaBridge",   "v4l2slav1dec",
-    "V4L2 AV1 Meta Bridge Decoder",   "video/x-av1" },
+    "V4L2 AV1 Meta Bridge Decoder",   "video/x-av1, alignment = (string) frame" },
 };
 #define N_CODECS (G_N_ELEMENTS (CODECS))
 
