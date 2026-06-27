@@ -74,6 +74,23 @@ decoder's internal src pad; the probe fires on that outgoing query before `decid
 compositor, no CPU copy, no SW fallback) via an isolated GStreamer plugin — no WebKit rebuild, no
 system install. Roadmap next: C (Vulkan ICD zero-copy), then a WebKit-side patch to drop the bridge.
 
+## Generalized to ALL v4l2-stateless codecs (2026-06-27)
+
+`gstv4l2metabridge.c` v1.2 registers a bridge for every v4l2codecs stateless decoder via a codec
+table + manual GType registration (one shared `GstMetaBridge` class, per-codec `class_data`):
+`v4l2{h264,h265,vp8,vp9,mpeg2,av1}metabridge`. The GstVideoMeta gap is codec-agnostic, so one
+`meta_probe` serves all. Registration gate = disk-stat of `libgstv4l2codecs.so` (NOT
+`gst_element_factory_find` — verified twice that factory_find returns NULL mid registry-scan, even
+after force-loading v4l2codecs, registering nothing). On RK3588 all six v4l2sl*dec decoders exist,
+so no plain decoder is shadowed. Cross-hardware caveat documented in source (a board missing a
+codec's v4l2sl decoder would have that bridge shadow the SW path).
+
+**Verified on board:**
+- All 6 bridges register (`gst-inspect | grep metabridge`).
+- **H264** (c1080.mp4): video1 busy 26/40, DMABuf 9, 0 failures, no avdec.
+- **HEVC** (h_1080p_b.mp4, B-frames): **video0 busy 26/40**, DMABuf 6, 0 failures; Big Buck Bunny plays fullscreen in Epiphany @1080p, clean (screenshot). HEVC decodes on `/dev/video0` (h264 on `/dev/video1`).
+- mesa pin intact.
+
 ## Harnesses (board `~/vvtest/`, host `scripts/vvtest/`)
 `s3a-webkit-default-rank.sh` (progressive, default rank), `s3a2-diag.sh` (busy-seconds + overlay),
 `s3c-negotiation-diag.sh` (rich caps/v4l2/bus debug → `/tmp/s3c_gst.log`). Sandbox off
