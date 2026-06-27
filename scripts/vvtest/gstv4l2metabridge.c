@@ -43,11 +43,13 @@
 
 /* Per-codec description, carried as GObject class_data (static -> stable ptr). */
 typedef struct {
-  const gchar *elem_name;   /* registered element name        */
-  const gchar *type_name;   /* GType name                     */
-  const gchar *factory;     /* wrapped v4l2codecs decoder     */
-  const gchar *long_name;   /* gst-inspect Long-name          */
-  const gchar *sink_caps;   /* sink pad template caps string  */
+  const gchar *elem_name;   /* registered element name                       */
+  const gchar *type_name;   /* GType name                                    */
+  const gchar *factory;     /* wrapped v4l2codecs decoder                    */
+  const gchar *long_name;   /* gst-inspect Long-name                         */
+  const gchar *sink_caps;   /* sink pad template caps string                 */
+  const gchar *force_caps;  /* NULL, or a capsfilter inserted after the      */
+                            /* decoder to constrain its output format        */
 } BridgeDesc;
 
 /* Every v4l2codecs stateless decoder. Only those present on the running
@@ -56,25 +58,31 @@ static const BridgeDesc CODECS[] = {
   { "v4l2h264metabridge",  "GstV4l2H264MetaBridge",  "v4l2slh264dec",
     "V4L2 H.264 Meta Bridge Decoder",
     "video/x-h264, stream-format = (string) { byte-stream, avc, avc3 }, "
-    "alignment = (string) { au, nal }" },
+    "alignment = (string) { au, nal }", NULL },
   { "v4l2h265metabridge",  "GstV4l2H265MetaBridge",  "v4l2slh265dec",
     "V4L2 H.265 Meta Bridge Decoder",
     "video/x-h265, stream-format = (string) { byte-stream, hvc1, hev1 }, "
-    "alignment = (string) { au, nal }" },
+    "alignment = (string) { au, nal }", NULL },
   { "v4l2vp8metabridge",   "GstV4l2Vp8MetaBridge",   "v4l2slvp8dec",
-    "V4L2 VP8 Meta Bridge Decoder",   "video/x-vp8" },
-  { "v4l2vp9metabridge",   "GstV4l2Vp9MetaBridge",   "v4l2slvp9dec",
-    "V4L2 VP9 Meta Bridge Decoder",   "video/x-vp9, alignment = (string) frame" },
-  { "v4l2mpeg2metabridge", "GstV4l2Mpeg2MetaBridge", "v4l2slmpeg2dec",
-    "V4L2 MPEG2 Meta Bridge Decoder",
-    "video/mpeg, mpegversion = (int) 2, systemstream = (boolean) false, "
-    "parsed = (boolean) true" },
+    "V4L2 VP8 Meta Bridge Decoder",   "video/x-vp8", NULL },
   /* v4l2sl{vp9,av1}dec require alignment=frame on their sink; pin it so the
    * parser negotiates frame alignment and the decoder accepts the caps (bare
    * caps let the parser default to tu/obu/super-frame -> "does not accept
-   * caps" -> SW fallback). */
+   * caps" -> SW fallback).
+   * VP9 force_caps: the rkvdec VP9 decoder picks NV15 (10-bit) output for 8-bit
+   * content when the consumer (WebKit) advertises a 10-bit format first, which
+   * WebKit's EGL cannot import (-> green corruption). Constrain the output to
+   * 8-bit NV12 so select_src_format picks 8-bit. */
+  { "v4l2vp9metabridge",   "GstV4l2Vp9MetaBridge",   "v4l2slvp9dec",
+    "V4L2 VP9 Meta Bridge Decoder",   "video/x-vp9, alignment = (string) frame",
+    "video/x-raw(memory:DMABuf), format = (string) DMA_DRM, drm-format = (string) NV12; "
+    "video/x-raw, format = (string) NV12" },
+  { "v4l2mpeg2metabridge", "GstV4l2Mpeg2MetaBridge", "v4l2slmpeg2dec",
+    "V4L2 MPEG2 Meta Bridge Decoder",
+    "video/mpeg, mpegversion = (int) 2, systemstream = (boolean) false, "
+    "parsed = (boolean) true", NULL },
   { "v4l2av1metabridge",   "GstV4l2Av1MetaBridge",   "v4l2slav1dec",
-    "V4L2 AV1 Meta Bridge Decoder",   "video/x-av1, alignment = (string) frame" },
+    "V4L2 AV1 Meta Bridge Decoder",   "video/x-av1, alignment = (string) frame", NULL },
 };
 #define N_CODECS (G_N_ELEMENTS (CODECS))
 
@@ -142,14 +150,40 @@ meta_bridge_instance_init (GTypeInstance *instance, gpointer g_class)
   gst_element_add_pad (GST_ELEMENT (self), self->sinkpad);
   gst_object_unref (pad);
 
-  /* Ghost src pad + meta-injecting probe on the decoder's INTERNAL real src pad:
-   * the GstVideoDecoder base class issues the ALLOCATION query via
+  /* Meta-injecting probe on the decoder's INTERNAL real src pad: the
+   * GstVideoDecoder base class issues the ALLOCATION query via
    * gst_pad_peer_query(decoder->srcpad, ...) on this pad (not the ghost), and a
    * QUERY_DOWNSTREAM probe here fires on that outgoing query before
-   * decide_allocation reads it back (confirmed via gstpad.c peer_query path). */
+   * decide_allocation reads it back (confirmed via gstpad.c peer_query path).
+   * The probe stays on the decoder src pad even when a capsfilter follows (the
+   * capsfilter forwards the allocation query transparently). */
   pad = gst_element_get_static_pad (self->decoder, "src");
   if (!pad) { GST_ERROR_OBJECT (self, "no decoder src pad"); return; }
   gst_pad_add_probe (pad, GST_PAD_PROBE_TYPE_QUERY_DOWNSTREAM, meta_probe, NULL, NULL);
+  gst_object_unref (pad);
+
+  /* Optional output-format constraint (e.g. VP9: force 8-bit NV12). Insert a
+   * capsfilter after the decoder; the bin's src ghost-pad then sits on the
+   * capsfilter (else on the decoder). */
+  GstElement *tail = self->decoder;
+  if (d->force_caps) {
+    GstElement *cf = gst_element_factory_make ("capsfilter", "force");
+    if (cf) {
+      GstCaps *fc = gst_caps_from_string (d->force_caps);
+      g_object_set (cf, "caps", fc, NULL);
+      gst_caps_unref (fc);
+      gst_bin_add (GST_BIN (self), cf);
+      if (gst_element_link (self->decoder, cf))
+        tail = cf;
+      else
+        GST_ERROR_OBJECT (self, "failed to link decoder -> capsfilter");
+    } else {
+      GST_ERROR_OBJECT (self, "cannot create capsfilter");
+    }
+  }
+
+  pad = gst_element_get_static_pad (tail, "src");
+  if (!pad) { GST_ERROR_OBJECT (self, "no tail src pad"); return; }
   self->srcpad = gst_ghost_pad_new ("src", pad);
   gst_pad_set_active (self->srcpad, TRUE);
   gst_element_add_pad (GST_ELEMENT (self), self->srcpad);
