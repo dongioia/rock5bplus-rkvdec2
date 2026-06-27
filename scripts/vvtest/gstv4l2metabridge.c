@@ -81,8 +81,13 @@ static const BridgeDesc CODECS[] = {
     "V4L2 MPEG2 Meta Bridge Decoder",
     "video/mpeg, mpegversion = (int) 2, systemstream = (boolean) false, "
     "parsed = (boolean) true", NULL },
+  /* AV1 force_caps: the Hantro AV1 decoder defaults to a tiled NV12_4L4 output
+   * whose edge tiles show as a shifting-colour band; force linear NV12 so the
+   * output is plain NV12 with coded padding the crop_probe then trims. */
   { "v4l2av1metabridge",   "GstV4l2Av1MetaBridge",   "v4l2slav1dec",
-    "V4L2 AV1 Meta Bridge Decoder",   "video/x-av1, alignment = (string) frame", NULL },
+    "V4L2 AV1 Meta Bridge Decoder",   "video/x-av1, alignment = (string) frame",
+    "video/x-raw(memory:DMABuf), format = (string) DMA_DRM, drm-format = (string) NV12; "
+    "video/x-raw, format = (string) NV12" },
 };
 #define N_CODECS (G_N_ELEMENTS (CODECS))
 
@@ -123,6 +128,49 @@ meta_probe (GstPad *pad, GstPadProbeInfo *info, gpointer user_data)
     }
   }
   /* Non-blocking data probe: OK = continue normally (PASS is for blocking probes). */
+  return GST_PAD_PROBE_OK;
+}
+
+/* Correct the output GstVideoMeta height to the visible (caps) height. The
+ * v4l2codecs decoders put the CODED height in the meta (e.g. VP9 768 for a
+ * visible 720, H264 1088 for 1080); WebKit renders that, so the coded padding
+ * rows below the picture are scanned out as a band (green on NV12). Per the
+ * GstVideoMeta convention the height is the display height and the padding
+ * belongs in the plane offsets, which the decoder already sets correctly (the
+ * chroma offset includes the luma padding). So lowering meta->height to the
+ * visible height keeps the layout consistent and crops the band, zero-copy. */
+static GstPadProbeReturn
+crop_probe (GstPad *pad, GstPadProbeInfo *info, gpointer user_data)
+{
+  (void) user_data;
+  GstBuffer *buf = GST_PAD_PROBE_INFO_BUFFER (info);
+  if (!buf)
+    return GST_PAD_PROBE_OK;
+
+  /* Decide whether we need to act (peek; no mutation yet). */
+  GstVideoMeta *vm = gst_buffer_get_video_meta (buf);
+  if (!vm)
+    return GST_PAD_PROBE_OK;
+  GstCaps *caps = gst_pad_get_current_caps (pad);
+  if (!caps)
+    return GST_PAD_PROBE_OK;   /* caps not settled yet; let it pass uncropped */
+  GstVideoInfo vi;
+  guint vis_h = 0;
+  if (gst_video_info_from_caps (&vi, caps))
+    vis_h = GST_VIDEO_INFO_HEIGHT (&vi);
+  gst_caps_unref (caps);
+  if (!vis_h || vm->height <= vis_h)
+    return GST_PAD_PROBE_OK;
+
+  /* Modifying buffer metadata requires a writable buffer. make_writable is a
+   * no-op at refcount==1 (zero-copy), or a shallow copy if shared (the meta is
+   * copied, the dmabuf memory stays shared by ref -> still zero-copy on the
+   * pixels). Store the (possibly new) buffer back and re-fetch the meta on it. */
+  buf = gst_buffer_make_writable (buf);
+  GST_PAD_PROBE_INFO_DATA (info) = buf;
+  vm = gst_buffer_get_video_meta (buf);
+  if (vm)
+    vm->height = vis_h;
   return GST_PAD_PROBE_OK;
 }
 
@@ -186,6 +234,9 @@ meta_bridge_instance_init (GTypeInstance *instance, gpointer g_class)
 
   pad = gst_element_get_static_pad (tail, "src");
   if (!pad) { GST_ERROR_OBJECT (self, "no tail src pad"); return; }
+  /* Crop the coded-height padding band: correct each output buffer's
+   * GstVideoMeta height to the visible height. */
+  gst_pad_add_probe (pad, GST_PAD_PROBE_TYPE_BUFFER, crop_probe, NULL, NULL);
   self->srcpad = gst_ghost_pad_new ("src", pad);
   gst_pad_set_active (self->srcpad, TRUE);
   gst_element_add_pad (GST_ELEMENT (self), self->srcpad);
