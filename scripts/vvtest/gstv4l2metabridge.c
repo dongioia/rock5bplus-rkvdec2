@@ -173,10 +173,12 @@ meta_bridge_instance_init (GTypeInstance *instance, gpointer g_class)
       g_object_set (cf, "caps", fc, NULL);
       gst_caps_unref (fc);
       gst_bin_add (GST_BIN (self), cf);
-      if (gst_element_link (self->decoder, cf))
+      if (gst_element_link (self->decoder, cf)) {
         tail = cf;
-      else
+      } else {
         GST_ERROR_OBJECT (self, "failed to link decoder -> capsfilter");
+        gst_bin_remove (GST_BIN (self), cf);  /* don't strand it in the bin */
+      }
     } else {
       GST_ERROR_OBJECT (self, "cannot create capsfilter");
     }
