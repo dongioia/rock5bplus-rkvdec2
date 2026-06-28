@@ -2,68 +2,59 @@
 
 Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hardware video decode, HDMI 2.0 4K@60Hz, HDMI audio, GPU overclock, and an RK3588-aware Chromium build.
 
-> **Status (2026-05-24)**: Linux **7.1-rc2** running on Rock 5B+ (`7.1.0-rc1+`, panthor 1.8.0, MCU stable). The production stack lives in [beryllium-org/linux-beryllium `7.1-rc2`](https://github.com/beryllium-org/linux-beryllium/tree/7.1-rc2) — Collabora rockchip-devel squashed onto 7.1-rc2, plus the chewitt VP9 / AV1 / HDMI patch set and `media: rkvdec: fix PM runtime teardown ordering in remove` (Jonas Karlman, [accepted to stable on 2026-05-18](https://lore.kernel.org/all/?q=20260518145414.64514-1-pavone.lawyer@gmail.com)). The pre-built package is at [sbc-pkgbuilds/linux-beryllium-rockchip](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/linux-beryllium-rockchip). **Chromium 147.0.7727.116-3** with the VP9 Mali Valhall artifact bypass is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases); for any VP9 content the recommended path is `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests) — the native FFmpeg V4L2 request hwaccel, no libva involvement. Chromium 150 (stable target 2026-06-17) ships the equivalent fix natively via gerrit [CL 7794420 (`d20dfa664`)](https://chromium-review.googlesource.com/c/chromium/src/+/7794420), so the in-tree `kForceLibYUV` workaround will become unnecessary once distros bump. The `dongioia/libva-v4l2-request` fork is **frozen as a historical reference** following Nicolas Dufresne's LKML guidance (2026-05-20) that `libva-v4l2-request` is a dead-end path; new work goes through native V4L2 stateless in FFmpeg / GStreamer / Chromium directly. **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
+> **Status (2026-06-28)**: Linux **7.1 final** running on Rock 5B+ (`7.1.0-beryllium+`). The current kernel is built on [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/linux/-/tree/rockchip-v7.1) (a pinned 7.1.0 branch carrying the full RK3588 enablement: refactored RKVDEC2 VDPU381/383, Hantro AV1, VOP2, dw-hdmi-qp + FRL, RGA2, IOMMU) plus a small downstream set: the Beryllium defconfig, a board `sync_state` DTS fix, two ASoC log-noise fixes, and the `dw-hdmi-qp` N-coefficient / `dw_dp` `sync_state` work-in-progress. Two things make this build different from earlier ones: **`CONFIG_VSI_IOMMU=y`** binds the AV1 VPU's IOMMU so AV1 decode allocates through it instead of CMA (no more CMA exhaustion under sustained decode — validated, `CmaFree` flat), and the **Rocket NPU** is enabled and probes (`/dev/accel/accel0`). Maximal hardware: HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR controller, SAI audio, camera interface, ftrace + V4L2 tracepoints. The kernel deploys into its own isolated slot (`/usr/lib/modules/7.1.0-beryllium+`, dedicated `vmlinuz-linux-beryllium` + initramfs) so it never overwrites an existing kernel; a previous kernel stays as a GRUB fallback. **Chromium 147.0.7727.116-3** with the VP9 Mali Valhall artifact bypass is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases); for any VP9 content the recommended path is `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests). A companion VAAPI driver fork lives at [dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) (branch `rk3588-vp9`), pixel-perfect on VP9 Profile 0 1080p via the `vaapi-copy` path. **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
 
 ## What works
 
 | Feature | Status | Notes |
 |---|---|---|
-| H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). VP9 community, Profile 0 |
+| H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). AV1 on Hantro VPU with the Verisilicon IOMMU bound (`CONFIG_VSI_IOMMU=y`) — no CMA exhaustion |
 | HDMI 2.0 4K@60Hz | ✅ | SCDC scrambling v4 (Ciocaltea, Collabora) |
 | HDMI audio + analog (ES8316) | ✅ | PipeWire + UCM tweak |
 | GPU Panthor / Mali-G610 | ✅ | Vulkan 1.4 PanVK; 850 MHz default. [1188 MHz GPLL overclock](#gpu-overclock-1188-mhz-disabled) currently disabled (kernel panic on current stack) |
 | Dual HDMI, Ethernet 2.5GbE, WiFi 6 (RTL8852BE), Bluetooth, HDMI-RX | ✅ | All mainline |
-| NPU (3 cores) | ⚠️ kernel ready | Open-source Rocket+Teflon: basic CNN. Full ops need proprietary RKNN+BSP |
-| RGA3 | ❌ | No upstream driver (RGA2 works) |
+| NPU (3 cores) | ✅ kernel | Rocket driver enabled and probing (`/dev/accel/accel0`). Open-source Rocket+Teflon: basic CNN. Full ops need proprietary RKNN+BSP |
+| RGA2 | ✅ | mem2mem 2D blit/scale/CSC. RGA3 multi-core still pending upstream (Pengutronix) |
 
-## Active patches (Linux 7.1-rc2)
+## Kernel composition (Linux 7.1 — `beryllium-complete`)
 
-Production deployment uses [beryllium-org/linux-beryllium `7.1-rc2`](https://github.com/beryllium-org/linux-beryllium/tree/7.1-rc2): mainline 7.1-rc2 + a single squashed merge of Collabora's `rockchip-devel` tip, then the chewitt patchset and a VP9 reset cleanup on top.
+The current kernel is [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/linux/-/tree/rockchip-v7.1) (a pinned 7.1.0 branch, not the rebasing `rockchip-devel`) plus a small downstream set. The full RK3588 video and display enablement — refactored RKVDEC2 (VDPU381/383 H.264/HEVC + VP9), Hantro AV1, VOP2, `dw-hdmi-qp` + FRL, RGA2, IOMMU including the `vsi-iommu` driver — comes from the base, not from cherry-picks.
 
-| Series | Author | Purpose |
+| Item | Source | Purpose |
 |---|---|---|
-| Collabora `rockchip-devel` (squashed) | [Collabora](https://gitlab.collabora.com/hardware-enablement/rockchip-3588) | HDMI 2.1 FRL bridge, `dw-hdmi-qp` + `samsung-hdptx`, USBDP, PCIe, V4L2 stateless tracing, RGA3, Rocket NPU |
-| VP9 VDPU381 + VDPU346 + Profile 2 (6 patches) | [chewitt](https://github.com/chewitt) / Daniel Almeida | RKVDEC2 VP9 stack with Profile 0 + Profile 2 (10-bit / HDR) — replaces the earlier dvab-sarma adaptation |
-| AV1 (hantro-vpu) + Verisilicon IOMMU bundle (5 patches) | [chewitt](https://github.com/chewitt) | AV1 hardware decode, IOMMU context restore, tile-info buffer fix, sync_state warn fix |
-| HDMI flood fixes (3 patches) | beryllium-org | `dw_hdmi_qp` N-table + ALSA ELD rate-limit |
-| `media: rkvdec: fix PM runtime teardown ordering in remove` | [Jonas Karlman](https://lore.kernel.org/all/20260309111126.137-1-jonas@kwiboo.se/) | Removes the VP9 green-chroma motion-block artifact on RKVDEC2 VDPU381 under heavy submission. [Accepted to stable on 2026-05-18](https://lore.kernel.org/all/?q=20260518145414.64514-1-pavone.lawyer@gmail.com) |
-| Beryllium defconfig | this repo | Kernel config + build flags |
+| Collabora `rockchip-v7.1` (base) | [Collabora](https://gitlab.collabora.com/hardware-enablement/rockchip-3588) | RKVDEC2 H.264/HEVC/VP9, Hantro AV1, VOP2, dw-hdmi-qp + HDMI 2.1 FRL, `samsung-hdptx`, USBDP, PCIe, RGA2, IOMMU |
+| `CONFIG_VSI_IOMMU=y` (config) | this repo | Binds the AV1 VPU IOMMU (`fdca0000`) so AV1 decode uses IOVA scatter-gather, not CMA. Validated `CmaFree`-flat under sustained AV1 decode. (Collabora ships `vsi-iommu` as `=m`; the upstream enable lands in mainline 7.2-rc1.) |
+| Beryllium defconfig + max-HW fragment | this repo | `beryllium_rk3588_defconfig` + ftrace/V4L2 tracepoints, HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR, SAI, camera interface, Rocket NPU, `MODULE_ALLOW_BTF_MISMATCH=y` |
+| Board `sync_state` DTS fix | this repo | Disable nodes that block `sync_state()` on Rock 5B+ |
+| `dw-hdmi-qp` N-coefficients / `dw_dp` `sync_state` (WIP) | this repo | HDMI audio N-table for 497.75 MHz pclk; `dw_dp` no-op `sync_state` callback |
+| ASoC log-noise fixes (2) | this repo | `hdmi-codec` / `soc-utils` stop logging benign `-ENOTCONN` on disconnect |
 
-The historical rc3-era patches (`patches/display/v4-ciocaltea/`, `patches/vpu/vp9-vdpu381-adapted.patch`, `patches/vpu/rkvdec-vdpu381-vp9.{c,h}`) are kept here as reference for anyone rebuilding off mainline 7.0-rc3 directly. The 7.0.y stack documented in earlier revisions of this README is preserved in the [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) branch.
+Earlier kernels carried a separate chewitt VP9/AV1 patch stack and a `media: rkvdec: fix PM runtime teardown ordering in remove` cleanup on top of the old monolithic `rkvdec.c`. The `rockchip-v7.1` base refactored RKVDEC2 into per-variant files, so that downstream VP9/PM-reset stack no longer applies and is dropped — the base provides the equivalent. The historical rc3-era patches (`patches/display/v4-ciocaltea/`, `patches/vpu/`) are kept as reference for rebuilding off mainline 7.0-rc3; the 7.0.y stack is preserved in the [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) branch.
 
 ## Build
 
-Apple Silicon Mac (Docker, native arm64) or any aarch64 Linux box. Production build uses the Beryllium 7.1-rc2 branch directly:
+Apple Silicon Mac (Docker, native arm64) or any aarch64 Linux box. The kernel tree lives in a Docker volume — never on a macOS host filesystem, because HFS+/APFS is case-insensitive and corrupts files like `xt_RATEEST.h` vs `xt_rateest.h`. The branch is `7.1-beryllium-complete` (Collabora `rockchip-v7.1` + the downstream set above):
 
 ```bash
-git clone -b 7.1-rc2 https://github.com/beryllium-org/linux-beryllium.git src/linux
-cd src/linux
-make ARCH=arm64 defconfig                    # uses arch/arm64/configs from the 7.1-rc2 branch
-make ARCH=arm64 olddefconfig
-../../scripts/build.sh Image 12               # or: make -j$(nproc) Image modules dtbs
+# Build inside the rock5b-dev container; emits deploy/kernel-latest.tar.gz
+KIMG_TAG=beryllium ./docker/run.sh build-kernel beryllium-mainline.config beryllium
 ```
 
-`scripts/build.sh setup` builds the Docker image once. On macOS the script uses a `git archive` tarball inside the container to dodge HFS+/APFS case-insensitivity collisions (e.g. `ipt_ECN.h` vs `ipt_ecn.h`).
+`build-kernel` copies `configs/beryllium-mainline.config` to `.config`, runs `olddefconfig`, and builds `Image modules dtbs` with `KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'`. It preserves BTF (`INSTALL_MOD_STRIP="--strip-debug --keep-section=.BTF"`) — without that, `nfnetlink`/`r8169` fail BTF validation and networking drops. After changing any built-in (`=y`) config, run `make clean` first: an incremental build relinks `vmlinux` (new BTF) but not unchanged modules, desyncing their `.BTF` — `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` in the config is the safety net.
 
-To reproduce the rc3-era stack from this repo instead (smaller patch set, no RGA3/vicap/etc.), check out `v7.0-rc3` and apply the patches under `patches/display/v4-ciocaltea/` + `patches/vpu/`.
+The config is `configs/beryllium-mainline.config`, regenerated from the in-tree `beryllium_rk3588_defconfig` plus `configs/fragment-maxhw-trace.config`.
 
 ## Deploy to Rock 5B+
 
+Use `scripts/deploy-kernel-tagged.sh`. It installs the kernel into its **own version-isolated slot** — a dedicated `/boot/vmlinuz-linux-<tag>`, its own `initramfs-linux-<tag>.img`, and a per-version `/usr/lib/modules/<kver>/` — so a new install never overwrites or mixes modules with a previous kernel. The previous default stays bootable as a GRUB fallback.
+
 ```bash
-BOARD=<ip> USER=<user> KVER=7.1.0-rc1+
-
-scp src/linux/arch/arm64/boot/Image $USER@$BOARD:/tmp/
-scp src/linux/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-plus.dtb $USER@$BOARD:/tmp/
-ssh $USER@$BOARD "sudo install -m644 /tmp/Image /boot/vmlinuz-linux-custom \
-  && sudo install -m644 /tmp/rk3588-rock-5b-plus.dtb /boot/dtbs/rockchip/"
-
-# NEVER extract modules at / on Arch — destroys /lib symlink
-rsync -av staging/lib/modules/$KVER/ $USER@$BOARD:/tmp/modules/
-ssh $USER@$BOARD "sudo rsync -a /tmp/modules/ /usr/lib/modules/$KVER/ \
-  && sudo depmod $KVER \
-  && sudo mkinitcpio -k $KVER -g /boot/initramfs-linux-custom.img \
-  && sudo grub-mkconfig -o /boot/grub/grub.cfg"
+ROCK5B_HOST=<ip-or-host> ./scripts/deploy-kernel-tagged.sh beryllium deploy/kernel-latest.tar.gz
 ```
+
+It detects the kernel version from the tarball, copies the DTB from the build volume, runs `depmod` + `mkinitcpio` scoped to that version, regenerates `grub.cfg`, and sets a one-shot GRUB boot into the new kernel (so a failed boot falls back to the previous default on the next power-cycle). After validating, make it the permanent default by pointing `GRUB_DEFAULT` at the new entry and re-running `grub-mkconfig`.
+
+> Never extract modules at `/` on Arch — `/lib` is a symlink to `usr/lib`, and overwriting it with a real directory breaks the dynamic linker. The deploy script extracts only the per-version module directory.
 
 ## GPU overclock (1188 MHz, disabled)
 
@@ -161,15 +152,9 @@ This pattern works the same for the custom RK3588 Chromium build above and for a
 Arch ARM's stock `ffmpeg` ships TLS support but no `v4l2-request` hwaccel. Install Kwiboo's branch instead (packaged by NoDiskNoFun in beryllium-org):
 
 ```bash
-sudo pacman -S mpv yt-dlp ffmpeg-v4l2-requests
-```
-
-If pacman refuses with `unable to satisfy dependency 'libplacebo.so=...' / 'libvpx.so=...'`, the Beryllium prebuilt binary was pinned against older SO names than your system now has. Rebuild locally against current libraries:
-
-```bash
-git clone --depth=1 https://github.com/beryllium-org/sbc-pkgbuilds.git
-cd sbc-pkgbuilds/ffmpeg-v4l2-requests
-makepkg -si    # ~30–60 min on Rock 5B+ A76 cores
+sudo pacman -S mpv yt-dlp
+# ffmpeg-v4l2-requests: build from https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests
+makepkg -si    # inside the ffmpeg-v4l2-requests directory
 ```
 
 After install, both checks below must return one line each:
@@ -177,12 +162,6 @@ After install, both checks below must return one line each:
 ```
 ffmpeg -hwaccels  2>&1 | grep v4l2request
 ffmpeg -protocols 2>&1 | grep https
-```
-
-A one-shot installer that does steps 1–5 below is at [`scripts/yt-mpv-setup.sh`](scripts/yt-mpv-setup.sh):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/dongioia/rock5bplus-rkvdec2/main/scripts/yt-mpv-setup.sh | bash
 ```
 
 ### mpv config
@@ -231,71 +210,45 @@ Bookmarklet (drop in the browser bookmarks bar — clicking it on any YouTube pa
 javascript:location.href='mpv://play/'+encodeURIComponent(location.href)
 ```
 
-### Auto-redirect every VP9 stream (userscript)
+### Auto-redirect at 1080p and above (userscript)
 
-The reason to hand off to mpv is **codec**, not resolution: the Skia GrYUVtoRGB miscompile on Mali Valhall hits any VP9 frame that goes through the GPU YUVA shader path, regardless of size. (The `kForceLibYUV` bypass in our chromium build avoids it; on stock chromium / Firefox / Flatpak it is unavoidable.) AV1 and H.264 streams render cleanly through the browser, so we want to redirect VP9 only.
-
-Install [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, then open this URL — the browser detects the `.user.js` extension and Tampermonkey prompts to install:
-
-```
-https://raw.githubusercontent.com/dongioia/rock5bplus-rkvdec2/main/scripts/yt-mpv-vp9.user.js
-```
-
-The installable file ([`scripts/yt-mpv-vp9.user.js`](scripts/yt-mpv-vp9.user.js)) sets `@updateURL` to the same path so Tampermonkey auto-updates on subsequent releases. Source (inline for reference):
+With [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, this snippet hands every 1080p-or-higher YouTube watch page off to mpv automatically; sub-1080p (where YouTube serves AV1 and the browser is fine) stays in the browser:
 
 ```javascript
 // ==UserScript==
-// @name         YouTube → mpv for VP9 streams
+// @name         YouTube → mpv at 1080p and above
 // @match        https://www.youtube.com/watch*
 // @run-at       document-idle
-// @grant        none
 // ==/UserScript==
 (function () {
   const v = new URL(location.href).searchParams.get('v');
   if (!v) return;
-  if (sessionStorage.getItem('ytmpv-skip-' + v) === '1') return;  // back-button safety
-  let tries = 0;
   const probe = setInterval(() => {
     const player = document.querySelector('#movie_player');
-    if (!player || typeof player.getStatsForNerds !== 'function') {
-      if (++tries > 40) clearInterval(probe);  // give up after ~20 s
-      return;
-    }
-    const stats = player.getStatsForNerds() || {};
-    const codecs = stats.codecs || '';  // e.g. "vp09.00.40.08 (244) / mp4a.40.2 (140)"
-    if (!codecs) return;
+    if (!player || typeof player.getPlaybackQuality !== 'function') return;
+    const q = player.getPlaybackQuality();   // "hd1080", "hd1440", "hd2160", ...
+    if (!q) return;
     clearInterval(probe);
-    const isVP9 = /\bvp09\b/i.test(codecs);
-    if (isVP9) {
-      sessionStorage.setItem('ytmpv-skip-' + v, '1');  // don't loop if user comes back
-      location.href = 'mpv://' + location.href;
-    }
+    if (/^hd(1080|1440|2160|2880|4320)$/.test(q)) location.href = 'mpv://' + location.href;
   }, 500);
 })();
 ```
 
-Why codec-not-resolution: YouTube negotiates codec based on resolution, network and account preferences — 480p clips can be VP9, 4K clips can be AV1. Resolution alone is the wrong gate. If you specifically want to keep small clips in the browser even when VP9, add `&& player.getPlaybackQuality && /^hd(1080|1440|2160|2880|4320)$/.test(player.getPlaybackQuality())` to the `isVP9` condition.
-
-If you prefer a **bookmarklet** (one-shot, no auto-redirect):
-
-```
-javascript:location.href='mpv://'+encodeURIComponent(location.href)
-```
-
 The full Flatpak walkthrough — including a `ff2mpv` native-messaging alternative — lives in [`docs/bredos-wiki-browser-article.md`](docs/bredos-wiki-browser-article.md).
 
-## VAAPI driver (libva-v4l2-request fork) — frozen / deprecated path
+## VAAPI driver (libva-v4l2-request fork)
 
-> ⚠ **Deprecated as of 2026-05-24.** Following Nicolas Dufresne's reply to the LKML announce thread on 2026-05-20, `libva-v4l2-request` is treated upstream as a dead-end: the libva abstraction adds a security surface and feature gaps that the V4L2 stateless API does not, and the V4L2 maintainers' direction is to drive RKVDEC2 directly through the native V4L2 stateless hwaccel in FFmpeg / GStreamer / Chromium. The `dongioia/libva-v4l2-request` fork is kept here as a historical reference (the FFmpeg-ported range coder and the VP9 spec § 6.3.10 `interp_filter` gate were useful learnings) but receives no further development. Use `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests) instead — same RKVDEC2 driver path, no libva shim.
+[github.com/dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) — branch `rk3588-vp9`, commit `ed4bc90`.
 
-Historical record:
+Bootlin's [libva-v4l2-request](https://github.com/bootlin/libva-v4l2-request) tree has been dormant since 2024 and never handled VP9 on RKVDEC2 correctly. This fork rebuilds the VP9 stack (range-coded `compressed_header` parser ported from FFmpeg, `interp_filter` prob-read gate per VP9 spec § 6.3.10) and adds eager V4L2 init at `vaCreateSurfaces` so probe-pattern clients see a populated CAPTURE buffer before the first decode.
 
-* Fork: [github.com/dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) — branch `rk3588-vp9`, commit `ed4bc90`.
-* Achievement: VP9 Profile 0 1080p decoded pixel-identical to libvpx across 3000 frames (framemd5 verified). `mpv --hwdec=vaapi-copy` ran at ~56 % CPU vs 113 % software on the same clip.
-* Block: `mpv --hwdec=vaapi` zero-copy painted a solid blue frame via Mali Valhall EGL dmabuf import (Mesa panthor does not refresh the imported texture between frames for linear NV12 V4L2 CAPTURE buffers). CPU readback paths stayed pixel-correct. The display-path block was never resolved and is now moot because the recommended path no longer touches EGL dmabuf import.
-* PKGBUILD never published to beryllium-org. It will not be.
+| Path | Status | Notes |
+|---|---|---|
+| `mpv --hwdec=vaapi-copy` 1080p VP9 | ✅ pixel-perfect | 56 % CPU vs 113 % software (3000 frames vs libvpx, framemd5 identical) |
+| `mpv --hwdec=vaapi` zero-copy | clean SW fallback | Same Mali Valhall EGL dmabuf cache issue that affects `v4l2request` zero-copy |
+| VLC / Chromium native VAAPI | ⚠️ partial | VLC needs `vaPutSurface` (not yet implemented); Chromium aarch64 ships with `use_vaapi=false` |
 
-For the equivalent decode pipeline through the supported path, see [Hand VP9 off to mpv](#hand-vp9-off-to-mpv-recommended-for-any-browser) above. Chromium 150 (stable target 2026-06-17) adds the missing piece on the browser side natively via [CL 7794420 (`d20dfa664`)](https://chromium-review.googlesource.com/c/chromium/src/+/7794420), so by mid-June a stock chromium 150 from archlinuxarm or any other aarch64 packager will decode VP9 through V4L2 stateless without any of the local backports here. Per chromiumdash, the commit `first_landed` in `150.0.7829.0` (M150 canary).
+For most users the V4L2 stateless path above (`mpv --hwdec=v4l2request-copy`) is simpler and avoids libva entirely. The VAAPI fork is interesting for tools that already speak libva, or for future work on Mesa panthor that might unblock the zero-copy display path. The companion PKGBUILD lives in `src/sbc-pkgbuilds/libva-v4l2-request/` (local branch — not yet pushed to beryllium-org).
 
 ## Audio quirks
 
@@ -319,9 +272,9 @@ Open-source [Mesa Teflon](https://docs.mesa3d.org/drivers/teflon.html) covers ba
 
 ## Changelog
 
-### 2026-05-24 — VAAPI fork frozen, chromium 150 fix confirmed in main
+### 2026-06-28 — Linux 7.1 `beryllium-complete` kernel
 
-Following Nicolas Dufresne's 2026-05-20 LKML reply, `dongioia/libva-v4l2-request` is deprecated and will not see further work. The supported path is `mpv --hwdec=v4l2request-copy` against `ffmpeg-v4l2-requests` (no libva), and `gst-launch-1.0 ... ! v4l2slvp9dec ! waylandsink` for the browser-free flow. Chromium 150 is confirmed to ship the V4L2 stateless VP9 compressed-header path natively: gerrit [CL 7794420](https://chromium-review.googlesource.com/c/chromium/src/+/7794420) (`d20dfa664`, Jianfeng Liu) merged to `chromium/src` main on 2026-05-06; the follow-up [CL 7821681](https://chromium-review.googlesource.com/c/chromium/src/+/7821681) (`base::span` cleanup) merged on 2026-05-08. chromiumdash `fetch_commit` reports `first_landed: 150.0.7829.0`, deployment `canary: 150.0.7829.0`, `dev: 150.0.7838.2`, `beta: null` (M149 branch cut on 2026-05-04, two days before the merge, so M149-beta does not carry the fix), `stable: null` (M150 stable target 2026-06-17). The userscript [Hand VP9 off to mpv](#auto-redirect-every-vp9-stream-userscript) was rewritten to gate on the active codec via `getStatsForNerds().codecs` (match `vp09.*`) instead of resolution, since the underlying Skia GrYUVtoRGB miscompile on Mali Valhall hits any VP9 stream, not just ≥1080p.
+Clean rebuild on Collabora's pinned `rockchip-v7.1` (7.1.0 final) for maximal RK3588 hardware support. New since the 7.1-rc2 stack: `CONFIG_VSI_IOMMU=y` binds the AV1 VPU IOMMU (`fdc70000` → IOMMU group 3) so AV1 decode allocates via IOVA scatter-gather instead of CMA — validated `CmaFree` flat (0 cma warnings) under sustained `v4l2slav1dec`, fixing the CMA exhaustion that froze the board under zero-copy AV1. Rocket NPU enabled (`/dev/accel/accel0`). Max-HW config adds HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR, SAI, camera interface, ftrace + V4L2 tracepoints. The downstream chewitt VP9 / PM-reset stack was dropped — the base refactored RKVDEC2 into per-variant files and supersedes it. Deployed version-isolated as `7.1.0-beryllium+` (`scripts/deploy-kernel-tagged.sh`); boots with eth/HDMI up, 0 BTF failures, modules isolated with no cross-version mixing. The AV1 IOMMU enable is queued for mainline 7.2-rc1 (Benjamin Gaignard); this validates it on 7.1.
 
 ### 2026-05-20 — PHASE 2j-D Mali Valhall EGL dmabuf diagnosis
 
