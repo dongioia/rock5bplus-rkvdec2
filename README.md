@@ -32,30 +32,73 @@ The current kernel is [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com
 
 Earlier kernels carried a separate chewitt VP9/AV1 patch stack and a `media: rkvdec: fix PM runtime teardown ordering in remove` cleanup on top of the old monolithic `rkvdec.c`. The `rockchip-v7.1` base refactored RKVDEC2 into per-variant files. Its `vdpu381_coded_fmts[]` lists **only H.264 + HEVC** — VP9 on VDPU381 was never upstreamed, so it is **not** in the base. The squash onto `rockchip-v7.1` therefore dropped VP9 hardware decode on RK3588 (`/dev/video0` stopped advertising `VP9F`). We restore it downstream — our own VP9 VDPU381 backend (`media: rkvdec: add VP9 VDPU381 decoder support`, based on dvab-sarma) plus the altref/segmap fix for 2K+ decode — re-applied on top of the base (table row below). The historical rc3-era patches (`patches/display/v4-ciocaltea/`, `patches/vpu/`) are kept as reference for rebuilding off mainline 7.0-rc3; the 7.0.y stack is preserved in the [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) branch.
 
-## Build
+## Build the kernel
 
-Apple Silicon Mac (Docker, native arm64) or any aarch64 Linux box. The kernel tree lives in a Docker volume — never on a macOS host filesystem, because HFS+/APFS is case-insensitive and corrupts files like `xt_RATEEST.h` vs `xt_rateest.h`. The branch is `7.1-beryllium-complete` (Collabora `rockchip-v7.1` + the downstream set above):
+Two ways to build, depending on where you are. **Path A (cross-build in Docker)** is what this repo automates — fast, reproducible, runs on a Mac or any aarch64 Linux box. **Path B (native on the board)** is for users who just want to rebuild on the Rock 5B+ itself from the packaged PKGBUILD.
+
+Either way the kernel is the same: Collabora `rockchip-v7.1` as the base + the small downstream set from the table above (defconfig, `CONFIG_VSI_IOMMU=y`, the VP9 VDPU381 restore, DTS/ASoC fixes).
+
+### Path A — cross-build in Docker (recommended)
+
+**1. Set up the build container.** The tree must live in a Docker *volume*, never on a macOS host path: HFS+/APFS is case-insensitive and corrupts files like `xt_RATEEST.h` vs `xt_rateest.h`. The helper handles this — it builds an Arch Linux ARM image (`rock5b-dev`) and keeps the kernel checkout in the named volume `linux-beryllium-tree`, mounted at `/k`.
 
 ```bash
-# Build inside the rock5b-dev container; emits deploy/kernel-latest.tar.gz
+git clone https://github.com/dongioia/rock5bplus-rkvdec2.git && cd rock5bplus-rkvdec2
+./docker/run.sh shell            # first run builds the image + clones the kernel into the volume
+```
+
+**2. Build.** Pass the config explicitly — the bare `build-kernel` has a stale default:
+
+```bash
 KIMG_TAG=beryllium ./docker/run.sh build-kernel beryllium-mainline.config beryllium
 ```
 
-`build-kernel` copies `configs/beryllium-mainline.config` to `.config`, runs `olddefconfig`, and builds `Image modules dtbs` with `KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'`. It preserves BTF (`INSTALL_MOD_STRIP="--strip-debug --keep-section=.BTF"`) — without that, `nfnetlink`/`r8169` fail BTF validation and networking drops. After changing any built-in (`=y`) config, run `make clean` first: an incremental build relinks `vmlinux` (new BTF) but not unchanged modules, desyncing their `.BTF` — `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` in the config is the safety net.
+This copies `configs/beryllium-mainline.config` → `.config`, runs `olddefconfig`, and builds `Image modules dtbs` with `KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'`. Output: `deploy/kernel-latest.tar.gz`. The config is regenerated from the in-tree `beryllium_rk3588_defconfig` + `configs/fragment-maxhw-trace.config`.
 
-The config is `configs/beryllium-mainline.config`, regenerated from the in-tree `beryllium_rk3588_defconfig` plus `configs/fragment-maxhw-trace.config`.
+> **Two build gotchas that will bite you.** BTF must be preserved on module strip (`INSTALL_MOD_STRIP="--strip-debug --keep-section=.BTF"`, already set) — without it `nfnetlink`/`r8169` fail BTF validation and networking drops at boot. And after changing any built-in (`=y`) config, run `make clean` first: an incremental build relinks `vmlinux` with new BTF but leaves unchanged modules pointing at the old offsets, so they fail to load. `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` is in the config as a safety net, but a clean rebuild is the real fix.
 
-## Deploy to Rock 5B+
+> **Iterating on one driver?** A module-only change (e.g. the rkvdec VP9 backend) needs neither a full build nor a deploy of the whole kernel — `make drivers/media/platform/rockchip/rkvdec/` rebuilds just `rockchip-vdec.ko`, which you can copy to the board's `/usr/lib/modules/<kver>/.../` and `depmod -a`. vmlinux is untouched, so there's no BTF risk.
 
-Use `scripts/deploy-kernel-tagged.sh`. It installs the kernel into its **own version-isolated slot** — a dedicated `/boot/vmlinuz-linux-<tag>`, its own `initramfs-linux-<tag>.img`, and a per-version `/usr/lib/modules/<kver>/` — so a new install never overwrites or mixes modules with a previous kernel. The previous default stays bootable as a GRUB fallback.
+### Path B — native build on the Rock 5B+ (PKGBUILD)
+
+If you'd rather build on the board and install through pacman, use the packaged kernel from sbc-pkgbuilds:
+
+```bash
+sudo pacman -S --needed base-devel
+git clone https://github.com/beryllium-org/sbc-pkgbuilds.git
+cd sbc-pkgbuilds/linux-beryllium-rockchip
+makepkg -si                      # builds + installs linux-beryllium-rockchip + headers
+```
+
+This is slower (a full kernel build on the A76 cores) but needs no cross-compile setup, and `pacman` handles install + GRUB for you. Skip straight to **Reboot** below.
+
+## Deploy + GRUB fallback (Path A)
+
+`scripts/deploy-kernel-tagged.sh` ships the tarball to the board **without touching the kernel that's currently working** — the single most important property when you're iterating remotely.
 
 ```bash
 ROCK5B_HOST=<ip-or-host> ./scripts/deploy-kernel-tagged.sh beryllium deploy/kernel-latest.tar.gz
 ```
 
-It detects the kernel version from the tarball, copies the DTB from the build volume, runs `depmod` + `mkinitcpio` scoped to that version, regenerates `grub.cfg`, and sets a one-shot GRUB boot into the new kernel (so a failed boot falls back to the previous default on the next power-cycle). After validating, make it the permanent default by pointing `GRUB_DEFAULT` at the new entry and re-running `grub-mkconfig`.
+What it does, and why each step matters:
 
-> Never extract modules at `/` on Arch — `/lib` is a symlink to `usr/lib`, and overwriting it with a real directory breaks the dynamic linker. The deploy script extracts only the per-version module directory.
+1. **Version-isolated slot.** It installs into a dedicated `/boot/vmlinuz-linux-beryllium`, its own `initramfs-linux-beryllium.img`, and a per-version `/usr/lib/modules/<kver>/`. A new kernel never overwrites or mixes modules with the existing one — so the kernel you booted from yesterday stays intact and bootable.
+2. **DTB + initramfs.** Copies the matching DTB from the build volume and runs `depmod` + `mkinitcpio` scoped to that version only.
+3. **One-shot boot with automatic fallback.** It regenerates `grub.cfg` and sets a *one-shot* GRUB entry into the new kernel. If the new kernel boots fine, great. If it hangs or panics, the next power-cycle falls back to the previous default automatically — no serial console rescue needed.
+
+After you've validated the new kernel, make it the permanent default: point `GRUB_DEFAULT` at its entry and re-run `grub-mkconfig -o /boot/grub/grub.cfg`. Keep the previous entry in the list as a manual fallback.
+
+> Never extract kernel modules at `/` on Arch: `/lib` is a symlink to `usr/lib`, and overwriting it with a real directory breaks the dynamic linker. The deploy script only ever writes the per-version module directory.
+
+## Reboot
+
+```bash
+ssh <board> sudo reboot
+# after it's back, confirm the kernel + hardware decode:
+ssh <board> 'uname -r; v4l2-ctl -d /dev/video0 --list-formats-out'   # must list S264, S265, VP9F
+```
+
+`VP9F` on `/dev/video0` is the proof the VP9 VDPU381 restore took. If it's missing, you're on a kernel without the restore (or the base before it) and VP9 will fall back to software everywhere.
 
 ## GPU overclock (1188 MHz, disabled)
 
@@ -106,6 +149,21 @@ sudo systemctl enable --now gpu-overclock.service
 ```
 
 The monitor loop is required because devfreq/SCMI may reset the mux during transitions. The 1188 MHz GPLL setting was stable at 1050 mV pre-2026-04-20 (1000 mV crashed within frames). Modifying BL31/EDK2 directly would mean rebuilding [edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) UEFI — the userspace mux bypass achieves the same result without reflashing.
+
+## Browser video: which path, and why
+
+The kernel decodes VP9/H.264/HEVC/AV1 in hardware cleanly. The hard part is getting that decoded frame onto the screen *through a browser* on Mali Valhall, and there are two independent obstacles:
+
+- **The Skia/ANGLE VP9 bug.** Chromium's two-plane (R8/RG8) YUV shader miscompiles on Mali Valhall + Mesa Panfrost, so VP9 shows tile-garbage at any resolution. This is a GPU-compositing bug, not a decode bug.
+- **The panthor zero-copy present issue.** Handing the raw V4L2 decode dmabuf straight to the compositor for zero-copy display hits a panthor dmabuf-sync problem (the buffer isn't refreshed between frames). Still open — it's why both the Chromium LibYUV path and mpv use a CPU copy instead of true zero-copy present.
+
+That leaves three practical options, in order of how clean they are:
+
+1. **Any browser + hand VP9 off to mpv** *(recommended)*. The browser does navigation; mpv decodes through `v4l2request-copy` and presents with libplacebo — sidestepping both problems above. Works on stock Chromium, Firefox, or the Flatpak. This is the path that just works.
+2. **The custom Chromium below**, which carries a LibYUV CPU-conversion bypass so VP9 plays in-browser without the Skia bug. Useful if you want everything in one window.
+3. **The VAAPI fork**, for tools that already speak libva. Niche.
+
+The rest of this section covers each. If you only read one, read the mpv handoff.
 
 ## Chromium with hardware video decode
 
