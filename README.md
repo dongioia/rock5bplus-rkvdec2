@@ -90,6 +90,18 @@ After you've validated the new kernel, make it the permanent default: point `GRU
 
 > Never extract kernel modules at `/` on Arch: `/lib` is a symlink to `usr/lib`, and overwriting it with a real directory breaks the dynamic linker. The deploy script only ever writes the per-version module directory.
 
+### Kernel command line
+
+The board boots with these parameters (`GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`); after editing, regenerate with `sudo grub-mkconfig -o /boot/grub/grub.cfg`:
+
+```
+console=ttyS2,1500000n8 console=tty1 console=both rootwait rw init=/sbin/init video=HDMI-A-1:2560x1440@120 cma=512M
+```
+
+- **`video=HDMI-A-1:2560x1440@120`** — pin the output to the display's native mode. Without it, mode negotiation on the dw-hdmi-qp + FRL stack can settle on the wrong timing (e.g. 1440p@120 dropping to 60, or "Failed to read FRL config"). Set it to your own panel's real resolution/refresh.
+- **`cma=512M`** — the Contiguous Memory Allocator pool. It started as the fix for AV1 CMA exhaustion: the Hantro AV1 VPU allocated decode buffers from CMA and drained the default 64 MB pool under sustained decode, freezing the board. With `CONFIG_VSI_IOMMU=y` the AV1 VPU now allocates through its IOMMU (IOVA scatter-gather, not CMA), so `CmaFree` stays flat and this is no longer strictly required for AV1 — it's kept as headroom for the other CMA users (rkvdec H.264/HEVC capture buffers, the display framebuffer). 256M is plenty if you want to reclaim RAM.
+- **`console=ttyS2,1500000n8 console=tty1 console=both`** — serial debug console on the 1.5 Mbaud UART plus the HDMI tty. Pair this with the one-shot GRUB fallback above: if a kernel doesn't come up, the serial log tells you why and the next power-cycle boots the previous one.
+
 ## Reboot
 
 ```bash
