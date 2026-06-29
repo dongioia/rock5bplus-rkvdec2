@@ -8,7 +8,7 @@ Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hard
 
 | Feature | Status | Notes |
 |---|---|---|
-| H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). AV1 on Hantro VPU with the Verisilicon IOMMU bound (`CONFIG_VSI_IOMMU=y`) — no CMA exhaustion |
+| H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). AV1 on Hantro VPU with the Verisilicon IOMMU bound (`CONFIG_VSI_IOMMU=y`) — no CMA exhaustion. **VP9 on VDPU381 is a downstream restore** (not in the Collabora base — see kernel composition). Clean HW path = `mpv --hwdec=v4l2request-copy`; in-browser zero-copy present has a separate panthor dmabuf-sync issue (WIP) |
 | HDMI 2.0 4K@60Hz | ✅ | SCDC scrambling v4 (Ciocaltea, Collabora) |
 | HDMI audio + analog (ES8316) | ✅ | PipeWire + UCM tweak |
 | GPU Panthor / Mali-G610 | ✅ | Vulkan 1.4 PanVK; 850 MHz default. [1188 MHz GPLL overclock](#gpu-overclock-1188-mhz-disabled) currently disabled (kernel panic on current stack) |
@@ -18,18 +18,19 @@ Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hard
 
 ## Kernel composition (Linux 7.1 — `beryllium-complete`)
 
-The current kernel is [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/linux/-/tree/rockchip-v7.1) (a pinned 7.1.0 branch, not the rebasing `rockchip-devel`) plus a small downstream set. The full RK3588 video and display enablement — refactored RKVDEC2 (VDPU381/383 H.264/HEVC + VP9), Hantro AV1, VOP2, `dw-hdmi-qp` + FRL, RGA2, IOMMU including the `vsi-iommu` driver — comes from the base, not from cherry-picks.
+The current kernel is [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/linux/-/tree/rockchip-v7.1) (a pinned 7.1.0 branch, not the rebasing `rockchip-devel`) plus a small downstream set. Most of the RK3588 video and display enablement — refactored RKVDEC2 (VDPU381/383 H.264/HEVC), Hantro AV1, VOP2, `dw-hdmi-qp` + FRL, RGA2, IOMMU including the `vsi-iommu` driver — comes from the base. The base does **not** carry VP9 for VDPU381 (it was never upstreamed); that backend is restored downstream (see below).
 
 | Item | Source | Purpose |
 |---|---|---|
-| Collabora `rockchip-v7.1` (base) | [Collabora](https://gitlab.collabora.com/hardware-enablement/rockchip-3588) | RKVDEC2 H.264/HEVC/VP9, Hantro AV1, VOP2, dw-hdmi-qp + HDMI 2.1 FRL, `samsung-hdptx`, USBDP, PCIe, RGA2, IOMMU |
+| Collabora `rockchip-v7.1` (base) | [Collabora](https://gitlab.collabora.com/hardware-enablement/rockchip-3588) | RKVDEC2 H.264/HEVC (VDPU381/383), Hantro AV1, VOP2, dw-hdmi-qp + HDMI 2.1 FRL, `samsung-hdptx`, USBDP, PCIe, RGA2, IOMMU. **No VP9 on VDPU381** (never upstreamed) |
+| VP9 VDPU381 backend (restore) | this repo | `media: rkvdec: add VP9 VDPU381 decoder support` (based on dvab-sarma) + altref/segmap 2K+ fix. Re-adds the VP9 entry to `vdpu381_coded_fmts[]` + the `rkvdec-vdpu381-vp9.c` backend the base lacks. Restores `/dev/video0` VP9 (`VP9F`) + `v4l2slvp9dec`. Validated: HW decode clean in mpv (`--hwdec=v4l2request-copy`) and GStreamer |
 | `CONFIG_VSI_IOMMU=y` (config) | this repo | Binds the AV1 VPU IOMMU (`fdca0000`) so AV1 decode uses IOVA scatter-gather, not CMA. Validated `CmaFree`-flat under sustained AV1 decode. (Collabora ships `vsi-iommu` as `=m`; the upstream enable lands in mainline 7.2-rc1.) |
 | Beryllium defconfig + max-HW fragment | this repo | `beryllium_rk3588_defconfig` + ftrace/V4L2 tracepoints, HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR, SAI, camera interface, Rocket NPU, `MODULE_ALLOW_BTF_MISMATCH=y` |
 | Board `sync_state` DTS fix | this repo | Disable nodes that block `sync_state()` on Rock 5B+ |
 | `dw-hdmi-qp` N-coefficients / `dw_dp` `sync_state` (WIP) | this repo | HDMI audio N-table for 497.75 MHz pclk; `dw_dp` no-op `sync_state` callback |
 | ASoC log-noise fixes (2) | this repo | `hdmi-codec` / `soc-utils` stop logging benign `-ENOTCONN` on disconnect |
 
-Earlier kernels carried a separate chewitt VP9/AV1 patch stack and a `media: rkvdec: fix PM runtime teardown ordering in remove` cleanup on top of the old monolithic `rkvdec.c`. The `rockchip-v7.1` base refactored RKVDEC2 into per-variant files, so that downstream VP9/PM-reset stack no longer applies and is dropped — the base provides the equivalent. The historical rc3-era patches (`patches/display/v4-ciocaltea/`, `patches/vpu/`) are kept as reference for rebuilding off mainline 7.0-rc3; the 7.0.y stack is preserved in the [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) branch.
+Earlier kernels carried a separate chewitt VP9/AV1 patch stack and a `media: rkvdec: fix PM runtime teardown ordering in remove` cleanup on top of the old monolithic `rkvdec.c`. The `rockchip-v7.1` base refactored RKVDEC2 into per-variant files. Its `vdpu381_coded_fmts[]` lists **only H.264 + HEVC** — VP9 on VDPU381 was never upstreamed, so it is **not** in the base. The squash onto `rockchip-v7.1` therefore dropped VP9 hardware decode on RK3588 (`/dev/video0` stopped advertising `VP9F`). We restore it downstream — our own VP9 VDPU381 backend (`media: rkvdec: add VP9 VDPU381 decoder support`, based on dvab-sarma) plus the altref/segmap fix for 2K+ decode — re-applied on top of the base (table row below). The historical rc3-era patches (`patches/display/v4-ciocaltea/`, `patches/vpu/`) are kept as reference for rebuilding off mainline 7.0-rc3; the 7.0.y stack is preserved in the [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y) branch.
 
 ## Build
 
@@ -145,7 +146,7 @@ The LibYUV bypass above keeps Chromium usable on VP9, but the bug it works aroun
 
 This pattern works the same for the custom RK3588 Chromium build above and for any stock Chromium / Firefox / Flatpak browser.
 
-> **Kernel prerequisite.** mpv hardware decode goes through the same RKVDEC2 driver path as Chromium. Without the VP9 kernel stack (chewitt VP9 Profile 0 + Profile 2 plus the `media: rkvdec: fix PM runtime teardown ordering in remove` cleanup — both included in [`linux-beryllium-rockchip` 7.1.0rc2-2](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/linux-beryllium-rockchip)) `mpv --hwdec=v4l2request-copy` will fall back to software just as Chromium does, and a stock Arch ARM / generic mainline kernel will not work either. The kernel comes first.
+> **Kernel prerequisite.** mpv hardware decode goes through the same RKVDEC2 driver path as Chromium, so it needs the VP9 VDPU381 backend in the kernel. On the current `7.1.0-beryllium+` build that backend is the downstream restore described under [Kernel composition](#kernel-composition-linux-71--beryllium-complete) — the Collabora base alone does **not** expose VP9 on VDPU381. Without it (a stock Arch ARM / generic mainline kernel, or the base before the restore) `mpv --hwdec=v4l2request-copy` falls back to software just as Chromium does. Check with `v4l2-ctl -d /dev/video0 --list-formats-out` — it must list `VP9F`. The kernel comes first.
 
 ### Install mpv + a V4L2-aware FFmpeg
 
