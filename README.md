@@ -24,7 +24,7 @@ The current kernel is [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com
 |---|---|---|
 | Collabora `rockchip-v7.1` (base) | [Collabora](https://gitlab.collabora.com/hardware-enablement/rockchip-3588) | RKVDEC2 H.264/HEVC (VDPU381/383), Hantro AV1, VOP2, dw-hdmi-qp + HDMI 2.1 FRL, `samsung-hdptx`, USBDP, PCIe, RGA2, IOMMU. **No VP9 on VDPU381** (never upstreamed) |
 | VP9 VDPU381 backend (restore) | this repo | `media: rkvdec: add VP9 VDPU381 decoder support` (based on dvab-sarma) + altref/segmap 2K+ fix. Re-adds the VP9 entry to `vdpu381_coded_fmts[]` + the `rkvdec-vdpu381-vp9.c` backend the base lacks. Restores `/dev/video0` VP9 (`VP9F`) + `v4l2slvp9dec`. Validated: HW decode clean in mpv (`--hwdec=v4l2request-copy`) and GStreamer |
-| `CONFIG_VSI_IOMMU=y` (config) | this repo | Binds the AV1 VPU IOMMU (`fdca0000`) so AV1 decode uses IOVA scatter-gather, not CMA. Validated `CmaFree`-flat under sustained AV1 decode. (Collabora ships `vsi-iommu` as `=m`; the upstream enable lands in mainline 7.2-rc1.) |
+| `CONFIG_VSI_IOMMU=y` (config) | this repo | Binds the AV1 VPU's IOMMU (`fdca0000.iommu`) so the VPU (`fdc70000.video-codec`) allocates via IOVA scatter-gather, not CMA. Validated `CmaFree`-flat under sustained AV1 decode. (Collabora ships `vsi-iommu` as `=m`; the upstream enable lands in mainline 7.2-rc1.) |
 | Beryllium defconfig + max-HW fragment | this repo | `beryllium_rk3588_defconfig` + ftrace/V4L2 tracepoints, HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR, SAI, camera interface, Rocket NPU, `MODULE_ALLOW_BTF_MISMATCH=y` |
 | Board `sync_state` DTS fix | this repo | Disable nodes that block `sync_state()` on Rock 5B+ |
 | `dw-hdmi-qp` N-coefficients / `dw_dp` `sync_state` (WIP) | this repo | HDMI audio N-table for 497.75 MHz pclk; `dw_dp` no-op `sync_state` callback |
@@ -40,7 +40,7 @@ Either way the kernel is the same: Collabora `rockchip-v7.1` as the base + the s
 
 ### Path A — cross-build in Docker (recommended)
 
-**1. Set up the build container.** The tree must live in a Docker *volume*, never on a macOS host path: HFS+/APFS is case-insensitive and corrupts files like `xt_RATEEST.h` vs `xt_rateest.h`. The helper handles this — it builds an Arch Linux ARM image (`rock5b-dev`) and keeps the kernel checkout in the named volume `linux-beryllium-tree`, mounted at `/k`.
+**1. Set up the build container.** The tree must live in a Docker *volume*, never on a macOS host path: HFS+/APFS is case-insensitive and corrupts files like `xt_RATEEST.h` vs `xt_rateest.h`. The helper handles this — it builds an Arch Linux ARM image (`rock5b-dev`) and keeps the kernel checkout in the named volume `linux-beryllium-tree`, mounted at `/work/linux`.
 
 ```bash
 git clone https://github.com/dongioia/rock5bplus-rkvdec2.git && cd rock5bplus-rkvdec2
@@ -53,7 +53,7 @@ git clone https://github.com/dongioia/rock5bplus-rkvdec2.git && cd rock5bplus-rk
 KIMG_TAG=beryllium ./docker/run.sh build-kernel beryllium-mainline.config beryllium
 ```
 
-This copies `configs/beryllium-mainline.config` → `.config`, runs `olddefconfig`, and builds `Image modules dtbs` with `KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'`. Output: `deploy/kernel-latest.tar.gz`. The config is regenerated from the in-tree `beryllium_rk3588_defconfig` + `configs/fragment-maxhw-trace.config`.
+This copies `configs/beryllium-mainline.config` → `.config`, runs `olddefconfig`, and builds `Image modules dtbs` with `KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod+rcpc -mtune=cortex-a76'`. Output: `deploy/kernel-latest.tar.gz`. The config is regenerated from the in-tree `beryllium_rk3588_defconfig` + `configs/fragment-maxhw-trace.config`.
 
 > **Two build gotchas that will bite you.** BTF must be preserved on module strip (`INSTALL_MOD_STRIP="--strip-debug --keep-section=.BTF"`, already set) — without it `nfnetlink`/`r8169` fail BTF validation and networking drops at boot. And after changing any built-in (`=y`) config, run `make clean` first: an incremental build relinks `vmlinux` with new BTF but leaves unchanged modules pointing at the old offsets, so they fail to load. `CONFIG_MODULE_ALLOW_BTF_MISMATCH=y` is in the config as a safety net, but a clean rebuild is the real fix.
 
@@ -389,7 +389,7 @@ Root cause of the VP9 kernel crash was a **stale `.o`** — the source file was 
 
 ### 2026-04-05 — Kernel 7.0-rc3 perf optimization
 
-`KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod -mtune=cortex-a76'`, `schedutil` default, THP madvise, ZRAM LZ4, ZSWAP, sched-ext + BTF, ARM64 errata trimmed 31→9. Measured: +18.8% SHA256, +17.3% AES, +6.1% memcpy. Branch [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y).
+`KCFLAGS='-march=armv8.2-a+crypto+fp16+dotprod+rcpc -mtune=cortex-a76'`, `schedutil` default, THP madvise, ZRAM LZ4, ZSWAP, sched-ext + BTF, ARM64 errata trimmed 31→9. Measured: +18.8% SHA256, +17.3% AES, +6.1% memcpy. Branch [`7.0.y`](https://github.com/beryllium-org/linux-beryllium/tree/7.0.y).
 
 <details>
 <summary>Older history (7.0-rc1, 6.19.1, 6.19-rc8)</summary>
