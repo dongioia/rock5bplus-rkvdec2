@@ -302,7 +302,7 @@ With [Tampermonkey](https://www.tampermonkey.net/) or Violentmonkey, this snippe
 })();
 ```
 
-The full Flatpak walkthrough — including a `ff2mpv` native-messaging alternative — lives in [`docs/bredos-wiki-browser-article.md`](docs/bredos-wiki-browser-article.md).
+The full Flatpak walkthrough — including a `ff2mpv` native-messaging alternative — lives in [`docs/beryllium-wiki-browser-article.md`](docs/beryllium-wiki-browser-article.md).
 
 ## VAAPI driver (libva-v4l2-request fork)
 
