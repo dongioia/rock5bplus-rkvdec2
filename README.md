@@ -2,13 +2,13 @@
 
 Patches, configs and tools for the **Radxa Rock 5B+** on mainline Linux: 4K hardware video decode, HDMI 2.0 4K@60Hz, HDMI audio, GPU overclock, and an RK3588-aware Chromium build.
 
-> **Status (2026-06-28)**: Linux **7.1 final** running on Rock 5B+ (`7.1.0-beryllium+`). The current kernel is built on [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/linux/-/tree/rockchip-v7.1) (a pinned 7.1.0 branch carrying the full RK3588 enablement: refactored RKVDEC2 VDPU381/383, Hantro AV1, VOP2, dw-hdmi-qp + FRL, RGA2, IOMMU) plus a small downstream set: the Beryllium defconfig, a board `sync_state` DTS fix, two ASoC log-noise fixes, and the `dw-hdmi-qp` N-coefficient / `dw_dp` `sync_state` work-in-progress. Two things make this build different from earlier ones: **`CONFIG_VSI_IOMMU=y`** binds the AV1 VPU's IOMMU so AV1 decode allocates through it instead of CMA (no more CMA exhaustion under sustained decode — validated, `CmaFree` flat), and the **Rocket NPU** is enabled and probes (`/dev/accel/accel0`). Maximal hardware: HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR controller, SAI audio, camera interface, ftrace + V4L2 tracepoints. The kernel deploys into its own isolated slot (`/usr/lib/modules/7.1.0-beryllium+`, dedicated `vmlinuz-linux-beryllium` + initramfs) so it never overwrites an existing kernel; a previous kernel stays as a GRUB fallback. **Chromium 147.0.7727.116-3** with the VP9 Mali Valhall artifact bypass is published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases); for any VP9 content the recommended path is `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests). A companion VAAPI driver fork lives at [dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) (branch `rk3588-vp9`), pixel-perfect on VP9 Profile 0 1080p via the `vaapi-copy` path. **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
+> **Status (2026-07-12)**: Linux **7.1 final** running on Rock 5B+ (`7.1.0-beryllium+`). The current kernel is built on [Collabora's `rockchip-v7.1`](https://gitlab.collabora.com/hardware-enablement/rockchip-3588/linux/-/tree/rockchip-v7.1) (a pinned 7.1.0 branch carrying the full RK3588 enablement: refactored RKVDEC2 VDPU381/383, Hantro AV1, VOP2, dw-hdmi-qp + FRL, RGA2, IOMMU) plus a small downstream set: the Beryllium defconfig, a board `sync_state` DTS fix, two ASoC log-noise fixes, and the `dw-hdmi-qp` N-coefficient / `dw_dp` `sync_state` work-in-progress. Two things make this build different from earlier ones: **`CONFIG_VSI_IOMMU=y`** binds the AV1 VPU's IOMMU so AV1 decode allocates through it instead of CMA (no more CMA exhaustion under sustained decode — validated, `CmaFree` flat), and the **Rocket NPU** is enabled and probes (`/dev/accel/accel0`). Maximal hardware: HDMI CEC, USB-C DP PHY, UFS, SARADC, SPI-NOR controller, SAI audio, camera interface, ftrace + V4L2 tracepoints. The kernel deploys into its own isolated slot (`/usr/lib/modules/7.1.0-beryllium+`, dedicated `vmlinuz-linux-beryllium` + initramfs) so it never overwrites an existing kernel; a previous kernel stays as a GRUB fallback. **Stock ArchLinuxARM Chromium 150** now plays VP9 / H.264 / HEVC / AV1 in hardware with a clean picture — the VP9 Mali green artifact was fixed upstream in the Chromium 150 ANGLE roll, so no custom build is needed (see [Browser video](#browser-video--stock-chromium-150)). The older custom 147 build with the LibYUV bypass stays published as a [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases) for pre-150 setups, and `mpv --hwdec=v4l2request-copy` against [`ffmpeg-v4l2-requests`](https://github.com/beryllium-org/sbc-pkgbuilds/tree/main/ffmpeg-v4l2-requests) remains a clean alternative. A companion VAAPI driver fork lives at [dongioia/libva-v4l2-request](https://github.com/dongioia/libva-v4l2-request) (branch `rk3588-vp9`), pixel-perfect on VP9 Profile 0 1080p via the `vaapi-copy` path. **GPU overclock currently disabled** — the 1188 MHz GPLL service triggers panthor MCU fatal / kernel panic on the post-2026-04-20 Mesa/firmware combo.
 
 ## What works
 
 | Feature | Status | Notes |
 |---|---|---|
-| H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). AV1 on Hantro VPU with the Verisilicon IOMMU bound (`CONFIG_VSI_IOMMU=y`) — no CMA exhaustion. **VP9 on VDPU381 is a downstream restore** (not in the Collabora base — see kernel composition). Clean HW path = `mpv --hwdec=v4l2request-copy`; in-browser zero-copy present has a separate panthor dmabuf-sync issue (WIP) |
+| H.264 / HEVC / VP9 / AV1 4K decode | ✅ | RKVDEC2 zero-copy (MMAP+EXPBUF). AV1 on Hantro VPU with the Verisilicon IOMMU bound (`CONFIG_VSI_IOMMU=y`) — no CMA exhaustion. **VP9 on VDPU381 is a downstream restore** (not in the Collabora base — see kernel composition). In-browser HW decode works on stock Chromium 150 (VP9 green fixed upstream); `mpv --hwdec=v4l2request-copy` is the alternative |
 | HDMI 2.0 4K@60Hz | ✅ | SCDC scrambling v4 (Ciocaltea, Collabora) |
 | HDMI audio + analog (ES8316) | ✅ | PipeWire + UCM tweak |
 | GPU Panthor / Mali-G610 | ✅ | Vulkan 1.4 PanVK; 850 MHz default. [1188 MHz GPLL overclock](#gpu-overclock-1188-mhz-disabled) currently disabled (kernel panic on current stack) |
@@ -162,59 +162,56 @@ sudo systemctl enable --now gpu-overclock.service
 
 The monitor loop is required because devfreq/SCMI may reset the mux during transitions. The 1188 MHz GPLL setting was stable at 1050 mV pre-2026-04-20 (1000 mV crashed within frames). Modifying BL31/EDK2 directly would mean rebuilding [edk2-rk3588](https://github.com/edk2-porting/edk2-rk3588) UEFI — the userspace mux bypass achieves the same result without reflashing.
 
-## Browser video: which path, and why
+## Browser video — stock Chromium 150
 
-The kernel decodes VP9/H.264/HEVC/AV1 in hardware cleanly. The hard part is getting that decoded frame onto the screen *through a browser* on Mali Valhall, and there are two independent obstacles:
+Chromium 150 is now the simple path. The VP9 green artifact on Mali Valhall that plagued earlier versions was **fixed upstream in the ANGLE roll that shipped with Chromium 150** — a chroma UV-plane offset fix, so it was resolution-independent and VP9-specific, not the ">2048px Skia shader" it was long thought to be. The upshot: **stock ArchLinuxARM Chromium 150 plays VP9 / H.264 / HEVC / AV1 in hardware with a clean picture — no custom build, no LibYUV bypass.** This section is the definitive setup.
 
-- **The Skia/ANGLE VP9 bug.** Chromium's two-plane (R8/RG8) YUV shader miscompiles on Mali Valhall + Mesa Panfrost, so VP9 shows tile-garbage at any resolution. This is a GPU-compositing bug, not a decode bug.
-- **The panthor zero-copy present issue.** Handing the raw V4L2 decode dmabuf straight to the compositor for zero-copy display hits a panthor dmabuf-sync problem (the buffer isn't refreshed between frames). Still open — it's why both the Chromium LibYUV path and mpv use a CPU copy instead of true zero-copy present.
+> **Kernel prerequisite — the caveat that matters.** In-browser HW decode goes through V4L2, so the kernel must expose the codecs:
+> - **VP9** on `/dev/video0` (RKVDEC2 VDPU381) — a downstream restore, *not* in the Collabora base. Check: `v4l2-ctl -d /dev/video0 --list-formats-out` must list `VP9F`.
+> - **AV1** on `/dev/video4` (Hantro), ideally with `CONFIG_VSI_IOMMU=y` so sustained decode doesn't exhaust CMA. Check for `AV1F`.
+> - H.264 / HEVC come with the Collabora base.
+>
+> On a kernel without `VP9F` / `AV1F` (stock generic mainline), decode silently falls back to software. The kernel comes first — see [Kernel composition](#kernel-composition-linux-71--beryllium-complete).
 
-That leaves three practical options, in order of how clean they are:
-
-1. **Any browser + hand VP9 off to mpv** *(recommended)*. The browser does navigation; mpv decodes through `v4l2request-copy` and presents with libplacebo — sidestepping both problems above. Works on stock Chromium, Firefox, or the Flatpak. This is the path that just works.
-2. **The custom Chromium below**, which carries a LibYUV CPU-conversion bypass so VP9 plays in-browser without the Skia bug. Useful if you want everything in one window.
-3. **The VAAPI fork**, for tools that already speak libva. Niche.
-
-The rest of this section covers each. If you only read one, read the mpv handoff.
-
-## Chromium with hardware video decode
-
-Custom ungoogled-chromium 147.0.7727.116 with V4L2 stateless decode (rkvdec2 zero-copy MMAP+EXPBUF for H.264/HEVC/VP9) and a built-in Mali Valhall artifact bypass for VP9.
-
-**Install the pacman package**:
+### 1. Install Chromium 150
 
 ```bash
-wget https://github.com/dongioia/rock5bplus-rkvdec2/releases/download/v147.0.7727.116-3/ungoogled-chromium-147.0.7727.116-3-aarch64.pkg.tar.xz
-sudo pacman -U ungoogled-chromium-147.0.7727.116-3-aarch64.pkg.tar.xz
+sudo pacman -S chromium     # ArchLinuxARM ships stock 150.0.7871.46, HW decode compiled in
 ```
 
-**Wayland flags** in `~/.config/chromium-flags.conf` (chromium-launcher reads this; all desktop entries inherit):
+The ArchLinuxARM binary also runs as-is on other distros — extract the package into `$HOME` and launch it. It's the community's daily driver on RK3588; Debian's own Chromium builds work too, but some crash on YouTube resolution switches under load.
+
+### 2. The launcher — this is the whole setup
+
+`chromium-launcher` reads `~/.config/chromium-flags.conf` on every start and every `.desktop` entry inherits it, so this one file *is* the definitive setup (no per-launch flags):
 
 ```
---ozone-platform=wayland
---enable-features=AcceleratedVideoDecodeLinuxV4L2,AcceleratedVideoDecodeLinuxZeroCopyGL,WaylandWindowDecorations
---disable-features=UseChromeOSDirectVideoDecoder
---use-gl=angle
---use-angle=gles
+--ozone-platform-hint=auto
+--enable-features=AcceleratedVideoDecoder,AcceleratedVideoDecodeLinuxGL,AcceleratedVideoDecodeLinuxZeroCopyGL
+--ignore-gpu-blocklist
+--enable-gpu-rasterization
+--enable-zero-copy
 ```
 
-Verify in `chrome://media-internals` while playing a video: `kVideoDecoderName: V4L2VideoDecoder` and `kIsPlatformVideoDecoder: true`.
+The flag that actually gates HW decode is **`AcceleratedVideoDecoder`**. The older name `AcceleratedVideoDecodeLinuxV4L2` no longer exists in Chromium 150 and is silently ignored — copy it from an old guide and HW decode stays off. HW decode also needs a **Wayland** session; `--ozone-platform-hint=auto` picks Wayland when the session provides it (on X11, Chromium 150 gives no VPU acceleration).
 
-### VP9 Mali Valhall artifact bypass (default-ON)
+### 3. Verify
 
-`SkYUVAInfo::PlaneConfig::kY_UV` produces a Skia Ganesh GL fragment shader that miscompiles on Mali Valhall + Mesa Panfrost for the two-sampler R8/RG8 plane layout, giving tile-level garbage on every VP9 stream — at any resolution, not only ≥1440p. The earlier hypothesis that the artifact was confined to VP9 ≥1440p is now invalidated; below 1080p the bug is invisible only because YouTube serves AV1 there and the VP9 path is not exercised. Kernel V4L2 decode itself is clean (`ffmpeg -hwaccel v4l2request` 500+ fps on 720p VP9), so the bug lives entirely in the Skia / ANGLE pipeline on Mali Valhall.
+Play any VP9 / AV1 video, then:
+- `chrome://gpu` → **Video Decode: Hardware accelerated**.
+- `chrome://media-internals` → `kVideoDecoderName: V4L2VideoDecoder`, `kIsPlatformVideoDecoder: true`.
 
-The build flips `kForceLibYUV` default-ON in `media/gpu/chromeos/video_decoder_pipeline.cc::PickDecoderOutputFormat`: `viable_candidate` is cleared, the LibYUV ImageProcessor converts NV12 → AR24 on the CPU (~3-8 ms/frame at 1440p on Cortex-A76), and Skia composes a single-plane RGBA `GL_TEXTURE_2D` — no YUVA shader, no artifacts. HW V4L2 decode is preserved.
+### Caveats
 
-Opt-out (debug only): `CHROMIUM_RK3588_FORCE_LIBYUV=0`. Upstream tracker: [issues.chromium.org/issues/503755157](https://issues.chromium.org/issues/503755157).
+- **10-bit VP9 (Profile 2)** falls back to software: VDPU381 exposes VP9 at 8-bit NV12 only. Use AV1 or HEVC for 10-bit hardware decode.
+- Some setups add `--ozone-platform=wayland --use-gl=angle --use-angle=gles` (that is what this project runs), but on some kernel / Mesa combinations forcing `--ozone-platform` or `--use-gl` — rather than letting `--ozone-platform-hint=auto` choose — breaks V4L2 decoder selection. If `chrome://gpu` reports software decode, remove those and retry.
+- YouTube serves AV1 (not VP9) whenever the client advertises AV1 hardware decode, so a "VP9" test on YouTube may actually exercise the AV1 VPU. Isolate the rkvdec VP9 path with a local Profile-0 `.webm`.
 
-> If you only want a stock browser with GPU compositing (no HW video decode), the [Ungoogled Chromium Flatpak](https://flathub.org/apps/io.github.ungoogled_software.ungoogled_chromium) works with `--ozone-platform=wayland --use-gl=egl --enable-zero-copy --ignore-gpu-blocklist`. Pair it with `mpv --hwdec=v4l2request-copy` and a `mpv://` protocol handler for the VP9 path — see [`docs/bredos-wiki-browser-article.md`](docs/bredos-wiki-browser-article.md) for the full Flatpak + userscript walkthrough.
+## Hand video off to mpv (alternative)
 
-## Hand VP9 off to mpv (recommended for any browser)
+With Chromium 150 the in-browser path above just works, so the mpv handoff is no longer required for VP9. It stays useful in two cases: browsers that don't do V4L2 HW decode (Firefox, the Ungoogled Flatpak), and when you want mpv's libplacebo present quality. The browser handles navigation and hands the actual stream off to `mpv`, which talks directly to RKVDEC2 / Hantro through libavcodec's `v4l2request` hwaccel.
 
-The LibYUV bypass above keeps Chromium usable on VP9, but the bug it works around is in Skia / ANGLE on Mali Valhall and not in the kernel decode itself. The cleaner path — and the only path on stock browsers that did not get the bypass patch — is to let the browser handle navigation and hand the actual VP9 stream off to `mpv`. `mpv` talks directly to RKVDEC2 through libavcodec's `v4l2request` hwaccel, avoiding the Skia shader entirely.
-
-This pattern works the same for the custom RK3588 Chromium build above and for any stock Chromium / Firefox / Flatpak browser.
+This pattern works for any stock Chromium / Firefox / Flatpak browser.
 
 > **Kernel prerequisite.** mpv hardware decode goes through the same RKVDEC2 driver path as Chromium, so it needs the VP9 VDPU381 backend in the kernel. On the current `7.1.0-beryllium+` build that backend is the downstream restore described under [Kernel composition](#kernel-composition-linux-71--beryllium-complete) — the Collabora base alone does **not** expose VP9 on VDPU381. Without it (a stock Arch ARM / generic mainline kernel, or the base before the restore) `mpv --hwdec=v4l2request-copy` falls back to software just as Chromium does. Check with `v4l2-ctl -d /dev/video0 --list-formats-out` — it must list `VP9F`. The kernel comes first.
 
