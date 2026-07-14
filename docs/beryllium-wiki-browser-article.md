@@ -115,7 +115,7 @@ Stock Chromium 150 decodes 8-bit VP9 in hardware but falls back to software for 
 It is stock Chromium 150.0.7871.114 plus sky-rk3588 (Igor Paunovic)'s NV15 end-to-end patch and a small ANGLE `dma_buf_utils` hunk — the hunk is needed on the Rock 5B+ GL/ANGLE render path so ANGLE imports NV15 instead of showing green. On the Rock 5B+ it decodes 10-bit VP9 Profile 2 on the rkvdec with a clean picture and no software fallback, at the same CPU cost as 8-bit.
 
 Requirements:
-- The **VP9 Profile 2 kernel** — the rkvdec driver has to advertise `NV15`. That is the profile-2 patch carried in the Beryllium 7.1 kernel and in [rock5bplus-rkvdec2](https://github.com/dongioia/rock5bplus-rkvdec2). Without it, 10-bit VP9 falls back to software even with this build.
+- The **VP9 Profile 2 kernel** — the rkvdec driver has to advertise `NV15`. That is sky-rk3588 (Igor)'s profile-2 driver patch, **which isn't in a Beryllium release yet — the kernel PRs are still pending**. For now, build the kernel yourself from [rock5bplus-rkvdec2](https://github.com/dongioia/rock5bplus-rkvdec2#build-the-kernel); the patch is also attached to the [release](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/chromium-150.0.7871.114-nv15-10bit) as `vp9-profile2-kernel-rkvdec.patch`. Without it, 10-bit VP9 falls back to software even with this build.
 - The same Wayland launcher as above.
 
 Install:
