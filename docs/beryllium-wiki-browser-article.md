@@ -102,11 +102,34 @@ Play any VP9 or AV1 video, then check:
 - `chrome://gpu` → **Video Decode: Hardware accelerated**.
 - `chrome://media-internals` → `kVideoDecoderName: V4L2VideoDecoder` and `kIsPlatformVideoDecoder: true`.
 
-> **10-bit VP9 (Profile 2)** falls back to software: RKVDEC2 VDPU381 exposes VP9 at 8-bit NV12 only. Use AV1 or HEVC for 10-bit hardware decode.
+> **10-bit VP9 (Profile 2)** now decodes in hardware with the experimental NV15 build — see [4.4](#44-10-bit-vp9-profile-2--experimental-nv15-build). Stock Chromium 150 still falls back to software for 10-bit VP9 (it doesn't know the `NV15` fourcc); AV1 and HEVC 10-bit already work in hardware on stock 150.
 {.is-info}
 
 > **YouTube codec note.** YouTube serves AV1 (not VP9) whenever the client advertises AV1 hardware decode, so a "VP9" test on YouTube may actually exercise the AV1 VPU (`/dev/video4`). To isolate the rkvdec VP9 path, test a local Profile-0 `.webm`.
 {.is-info}
+
+## 4.4 10-bit VP9 Profile 2 — experimental NV15 build
+
+Stock Chromium 150 decodes 8-bit VP9 in hardware but falls back to software for **10-bit VP9 (Profile 2)**, because it doesn't know the packed 10-bit `NV15` format the RK3588 decoder outputs. An experimental build closes that gap: [Chromium 150 + NV15](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/chromium-150.0.7871.114-nv15-10bit).
+
+It is stock Chromium 150.0.7871.114 plus sky-rk3588 (Igor Paunovic)'s NV15 end-to-end patch and a small ANGLE `dma_buf_utils` hunk — the hunk is needed on the Rock 5B+ GL/ANGLE render path so ANGLE imports NV15 instead of showing green. On the Rock 5B+ it decodes 10-bit VP9 Profile 2 on the rkvdec with a clean picture and no software fallback, at the same CPU cost as 8-bit.
+
+Requirements:
+- The **VP9 Profile 2 kernel** — the rkvdec driver has to advertise `NV15`. That is the profile-2 patch carried in the Beryllium 7.1 kernel and in [rock5bplus-rkvdec2](https://github.com/dongioia/rock5bplus-rkvdec2). Without it, 10-bit VP9 falls back to software even with this build.
+- The same Wayland launcher as above.
+
+Install:
+```bash
+sudo pacman -U chromium-150.0.7871.114-nv15-v2angle.pkg.tar.xz
+```
+
+To confirm it is really hardware and not a silent software fallback, play a 10-bit VP9 clip and check that chromium holds the decoder:
+```bash
+fuser /dev/video0   # should list chromium's pid during playback
+```
+`chrome://gpu` can read "accelerated" even after the GPU process fell back, so the device hold is the reliable check.
+
+Experimental — built from patches not yet in upstream Chromium. 8-bit VP9 and every other codec are unchanged. Discussion and patches: [minimyth2#73](https://github.com/warpme/minimyth2/issues/73).
 
 # 5. Hand video off to mpv (alternative)
 

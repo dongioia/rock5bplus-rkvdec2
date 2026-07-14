@@ -204,7 +204,7 @@ Play any VP9 / AV1 video, then:
 
 ### Caveats
 
-- **10-bit VP9 (Profile 2)** falls back to software: VDPU381 exposes VP9 at 8-bit NV12 only. Use AV1 or HEVC for 10-bit hardware decode.
+- **10-bit VP9 (Profile 2)** now decodes in hardware in the browser with the experimental [NV15 build](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/chromium-150.0.7871.114-nv15-10bit) (it needs the VP9 Profile 2 kernel to expose `NV15`). **Stock** Chromium 150 still falls back to software for 10-bit VP9 — it doesn't know the `NV15` fourcc. AV1 and HEVC 10-bit already work in hardware on stock 150.
 - Some setups add `--ozone-platform=wayland --use-gl=angle --use-angle=gles` (that is what this project runs), but on some kernel / Mesa combinations forcing `--ozone-platform` or `--use-gl` — rather than letting `--ozone-platform-hint=auto` choose — breaks V4L2 decoder selection. If `chrome://gpu` reports software decode, remove those and retry.
 - YouTube serves AV1 (not VP9) whenever the client advertises AV1 hardware decode, so a "VP9" test on YouTube may actually exercise the AV1 VPU. Isolate the rkvdec VP9 path with a local Profile-0 `.webm`.
 
@@ -340,6 +340,10 @@ CONFIG_DRM_ACCEL_ROCKET=m
 Open-source [Mesa Teflon](https://docs.mesa3d.org/drivers/teflon.html) covers basic TFLite quantized CNN inference (single core, limited ops). YOLO/LLM/speech need proprietary [RKNN-Toolkit2](https://github.com/airockchip/rknn-toolkit2) + vendor BSP kernel — not on Beryllium OS. Full comparison: [docs/bredos-wiki-npu-article.md](docs/bredos-wiki-npu-article.md).
 
 ## Changelog
+
+### 2026-07-14 — 10-bit VP9 hardware decode in the browser (NV15) — experimental build
+
+10-bit VP9 (Profile 2) now decodes in hardware *in the browser* on RK3588, published as an experimental [Chromium 150 + NV15 build](https://github.com/dongioia/rock5bplus-rkvdec2/releases/tag/chromium-150.0.7871.114-nv15-10bit). This closes the last gap from the entry below — stock Chromium had no `NV15` fourcc, so 10-bit VP9 fell back to software in the browser. The build is stock ArchLinuxARM Chromium 150.0.7871.114 + [@sky-rk3588](https://github.com/sky-rk3588) (Igor Paunovic)'s NV15 end-to-end patch (27 files across media / viz / mojo / ui) + a small ANGLE `dma_buf_utils` hunk needed on GL-Ganesh / ANGLE boards like the Rock 5B+, so ANGLE imports NV15 instead of hitting "Unknown dma_buf format" and going green. Validated on Rock 5B+ (kernel `7.1.0-beryllium-vp9p2+`): 10-bit VP9 Profile 2 decodes on the rkvdec (chrome holds `/dev/video0` through playback), clean picture, zero GPU crashes, no software fallback, same CPU cost as the 8-bit path. It needs the VP9 Profile 2 kernel to expose NV15. Built on [@amazingfate](https://github.com/amazingfate) (Jianfeng Liu)'s upstream Chromium V4L2 stateless-init fixes. Discussion and patches: [minimyth2#73](https://github.com/warpme/minimyth2/issues/73).
 
 ### 2026-07-12 — VP9 Profile 2 (10-bit) hardware decode on VDPU381
 
