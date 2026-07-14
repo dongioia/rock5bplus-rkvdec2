@@ -63,16 +63,9 @@ This copies `configs/beryllium-mainline.config` → `.config`, runs `olddefconfi
 
 ### Path B — native build on the Rock 5B+ (PKGBUILD)
 
-If you'd rather build on the board and install through pacman, use the packaged kernel from sbc-pkgbuilds:
+**Not on Beryllium yet — heads-up.** The `beryllium-org/sbc-pkgbuilds` tree does not currently package this 7.1 mainline kernel. Its published `linux-beryllium-rockchip` is the older 6.1 BSP kernel (pkgver 6.1.x), and the 7.1 mainline package that carries the RK3588 rkvdec2 stack is still an open PR ([sbc-pkgbuilds#3](https://github.com/beryllium-org/sbc-pkgbuilds/pull/3)) waiting on a maintainer merge — and even that PR predates the VP9 Profile 2 + portrait stride patches. So a `makepkg` from Beryllium's tree won't give you the 10-bit VP9 kernel until it lands and is refreshed.
 
-```bash
-sudo pacman -S --needed base-devel
-git clone https://github.com/beryllium-org/sbc-pkgbuilds.git
-cd sbc-pkgbuilds/linux-beryllium-rockchip
-makepkg -si                      # builds + installs linux-beryllium-rockchip + headers
-```
-
-This is slower (a full kernel build on the A76 cores) but needs no cross-compile setup, and `pacman` handles install + GRUB for you. Skip straight to **Reboot** below.
+Until then, build the current kernel with **Path A** above (the Docker cross-build in this repo) — that's the source of truth for the Profile 2 + stride stack. When the Beryllium PR is merged and bumped to the `7.1` branch, I'll wire a native `makepkg` one-liner here.
 
 ## Deploy + GRUB fallback (Path A)
 
