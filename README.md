@@ -63,7 +63,7 @@ This copies `configs/beryllium-mainline.config` → `.config`, runs `olddefconfi
 
 ### Path B — native build on the Rock 5B+ (PKGBUILD)
 
-**Not on Beryllium yet — heads-up.** The `beryllium-org/sbc-pkgbuilds` tree does not currently package this 7.1 mainline kernel. Its published `linux-beryllium-rockchip` is the older 6.1 BSP kernel (pkgver 6.1.x), and the 7.1 mainline package that carries the RK3588 rkvdec2 stack is still an open PR ([sbc-pkgbuilds#3](https://github.com/beryllium-org/sbc-pkgbuilds/pull/3)) waiting on a maintainer merge — and even that PR predates the VP9 Profile 2 + portrait stride patches. So a `makepkg` from Beryllium's tree won't give you the 10-bit VP9 kernel until it lands and is refreshed.
+**Not on Beryllium yet — heads-up.** The `beryllium-org/sbc-pkgbuilds` tree does not currently package this 7.1 mainline kernel. Its published `linux-beryllium-rockchip` is the older 6.1 BSP kernel (pkgver 6.1.x). The 7.1 mainline package that carries the RK3588 rkvdec2 stack is an open PR ([sbc-pkgbuilds#3](https://github.com/beryllium-org/sbc-pkgbuilds/pull/3)) waiting on a maintainer merge; it sources the `7.1` branch, so VP9 Profile 2 (10-bit) is included, with the portrait stride fix ([linux-beryllium#8](https://github.com/beryllium-org/linux-beryllium/pull/8)) folding in once that lands on `7.1`. Until the package PR is merged, a `makepkg` from Beryllium's tree won't give you this kernel.
 
 Until then, build the current kernel with **Path A** above (the Docker cross-build in this repo) — that's the source of truth for the Profile 2 + stride stack. When the Beryllium PR is merged and bumped to the `7.1` branch, I'll wire a native `makepkg` one-liner here.
 
