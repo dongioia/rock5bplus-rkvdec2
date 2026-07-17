@@ -70,6 +70,7 @@ If you don't want to cross-compile, there are two routes. Pick by appetite for r
 ```bash
 git clone https://github.com/beryllium-org/sbc-pkgbuilds.git
 cd sbc-pkgbuilds/linux-beryllium-mainline && makepkg -si
+sudo grub-mkconfig -o /boot/grub/grub.cfg && sudo reboot
 ```
 
 If you just want a machine that works, wait for that. Nothing below is needed.
