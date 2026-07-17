@@ -61,11 +61,33 @@ This copies `configs/beryllium-mainline.config` → `.config`, runs `olddefconfi
 
 > **Iterating on one driver?** A module-only change (e.g. the rkvdec VP9 backend) needs neither a full build nor a deploy of the whole kernel — `make drivers/media/platform/rockchip/rkvdec/` rebuilds just `rockchip-vdec.ko`, which you can copy to the board's `/usr/lib/modules/<kver>/.../` and `depmod -a`. vmlinux is untouched, so there's no BTF risk.
 
-### Path B — native build on the Rock 5B+ (PKGBUILD)
+### Path B — install a package on the Rock 5B+ (PKGBUILD)
 
-**Not on Beryllium yet — heads-up.** The `beryllium-org/sbc-pkgbuilds` tree does not currently package this 7.1 mainline kernel. Its published `linux-beryllium-rockchip` is the older 6.1 BSP kernel (pkgver 6.1.x). The 7.1 mainline package that carries the RK3588 rkvdec2 stack is an open PR ([sbc-pkgbuilds#3](https://github.com/beryllium-org/sbc-pkgbuilds/pull/3)) waiting on a maintainer merge; it sources the `7.1` branch, so VP9 Profile 2 (10-bit) is included, with the portrait stride fix ([linux-beryllium#8](https://github.com/beryllium-org/linux-beryllium/pull/8)) folding in once that lands on `7.1`. Until the package PR is merged, a `makepkg` from Beryllium's tree won't give you this kernel.
+If you don't want to cross-compile, there are two routes. Pick by appetite for risk.
 
-Until then, build the current kernel with **Path A** above (the Docker cross-build in this repo) — that's the source of truth for the Profile 2 + stride stack. When the Beryllium PR is merged and bumped to the `7.1` branch, I'll wire a native `makepkg` one-liner here.
+**Playing it safe: wait for Beryllium.** The `linux-beryllium-rockchip` package currently published in `beryllium-org/sbc-pkgbuilds` is the older 6.1 BSP kernel, not this stack. The 7.1 mainline package that carries the RK3588 rkvdec2 work is an open PR ([sbc-pkgbuilds#3](https://github.com/beryllium-org/sbc-pkgbuilds/pull/3)) waiting on a maintainer merge. Once it lands, this becomes the boring one-liner:
+
+```bash
+git clone https://github.com/beryllium-org/sbc-pkgbuilds.git
+cd sbc-pkgbuilds/linux-beryllium-mainline && makepkg -si
+```
+
+If you just want a machine that works, wait for that. Nothing below is needed.
+
+**Want to test now: build from my sbc-pkgbuilds.** It's the same PKGBUILD that's sitting in PR #3, so you're building what Beryllium will ship, only earlier:
+
+```bash
+sudo pacman -S --needed base-devel
+git clone -b linux-beryllium-mainline-7.1-rc2 https://github.com/dongioia/sbc-pkgbuilds.git
+cd sbc-pkgbuilds/linux-beryllium-mainline
+makepkg -si                      # builds + installs linux-beryllium-mainline + headers
+```
+
+The branch name is legacy: it now sources the kernel's `7.1` branch, so VP9 Profile 2 (10-bit) is included. The portrait stride fix arrives when [linux-beryllium#8](https://github.com/beryllium-org/linux-beryllium/pull/8) merges into `7.1` — rebuild then to pick it up.
+
+It installs as its own package (own modules directory and mkinitcpio preset), so the kernel you're running now stays in place as a GRUB entry. Slower than Path A — it's a full kernel build on the A76 cores — but it needs no cross-compile setup and `pacman` handles install and GRUB for you.
+
+This is test firmware, not a release. If it misbehaves, boot the previous kernel from GRUB and tell me what broke.
 
 ## Deploy + GRUB fallback (Path A)
 
