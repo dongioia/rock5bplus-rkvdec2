@@ -81,11 +81,16 @@ sudo pacman -S --needed base-devel
 git clone -b linux-beryllium-mainline-7.1-rc2 https://github.com/dongioia/sbc-pkgbuilds.git
 cd sbc-pkgbuilds/linux-beryllium-mainline
 makepkg -si                      # builds + installs linux-beryllium-mainline + headers
+
+sudo grub-mkconfig -o /boot/grub/grub.cfg    # REQUIRED — see below
+sudo reboot
 ```
+
+**Don't skip the `grub-mkconfig`.** Installing the package is only half of it. Pacman's `90-mkinitcpio-install` hook picks up the `pkgbase` marker and does put the kernel and initramfs in place (`/boot/vmlinuz-linux-beryllium-mainline` + `initramfs-linux-beryllium-mainline.img`) — that part is automatic. But nothing on Beryllium regenerates `grub.cfg` on kernel install: there is no GRUB pacman hook, only the mkinitcpio ones. Without `grub-mkconfig` the new kernel is installed and simply never appears in the boot menu, and you reboot straight back into the old one wondering why nothing changed.
 
 The branch name is legacy: it now sources the kernel's `7.1` branch, so VP9 Profile 2 (10-bit) is included. The portrait stride fix arrives when [linux-beryllium#8](https://github.com/beryllium-org/linux-beryllium/pull/8) merges into `7.1` — rebuild then to pick it up.
 
-It installs as its own package (own modules directory and mkinitcpio preset), so the kernel you're running now stays in place as a GRUB entry. Slower than Path A — it's a full kernel build on the A76 cores — but it needs no cross-compile setup and `pacman` handles install and GRUB for you.
+It installs as its own package (own modules directory and mkinitcpio preset), so the kernel you're running now stays in place and keeps its own GRUB entry — that's your way back. Slower than Path A, since it's a full kernel build on the A76 cores, but it needs no cross-compile setup.
 
 This is test firmware, not a release. If it misbehaves, boot the previous kernel from GRUB and tell me what broke.
 
