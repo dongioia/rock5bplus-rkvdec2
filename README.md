@@ -95,6 +95,10 @@ The branch name is legacy: it now sources the kernel's `7.1` branch, so VP9 Prof
 
 So this route gives you 10-bit VP9 *and* broken portrait VP9 until that PR lands. If portrait matters to you, either wait for the merge, or build with `eb20dfb` cherry-picked on top of `7.1` — then rebuild once it's merged.
 
+**Also broken, and not fixed anywhere yet: 12-bit VP9.** Profile 2 covers both 10-bit and 12-bit. The hardware only does 10-bit (NV15), but nothing rejects a 12-bit stream: the format helper returns "any" for a bit depth it doesn't recognise, so no constraint is applied, and the motion-vector and reference strides are then derived from the bitstream's own bit depth. That points the hardware past the end of the allocated plane. Decoding the fluster `vp92-2-20-12bit-yuv420` vector on a Rock 5B+ produced 652 IOMMU write faults and left the decoder core stalled.
+
+Unlike the portrait bug, this one predates Profile 2 — it arrived with the original VP9 import, so every Beryllium kernel carrying the VDPU381 VP9 backend is affected, not only `7.1`. A fix is [posted](https://github.com/dvab-sarma/android_kernel_rk_opi/issues/3#issuecomment-5035652643) but not merged anywhere. Until it lands, don't feed 12-bit VP9 to the hardware decoder. Profile 0 and Profile 2 at 10-bit — what web VP9 actually ships — are unaffected.
+
 It installs as its own package (own modules directory and mkinitcpio preset), so the kernel you're running now stays in place and keeps its own GRUB entry — that's your way back. Slower than Path A, since it's a full kernel build on the A76 cores, but it needs no cross-compile setup.
 
 This is test firmware, not a release. If it misbehaves, boot the previous kernel from GRUB and tell me what broke.
