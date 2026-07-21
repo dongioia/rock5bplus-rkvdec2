@@ -89,7 +89,11 @@ sudo reboot
 
 **Don't skip the `grub-mkconfig`.** Installing the package is only half of it. Pacman's `90-mkinitcpio-install` hook picks up the `pkgbase` marker and does put the kernel and initramfs in place (`/boot/vmlinuz-linux-beryllium-mainline` + `initramfs-linux-beryllium-mainline.img`) — that part is automatic. But nothing on Beryllium regenerates `grub.cfg` on kernel install: there is no GRUB pacman hook, only the mkinitcpio ones. Without `grub-mkconfig` the new kernel is installed and simply never appears in the boot menu, and you reboot straight back into the old one wondering why nothing changed.
 
-The branch name is legacy: it now sources the kernel's `7.1` branch, so VP9 Profile 2 (10-bit) is included. The portrait stride fix arrives when [linux-beryllium#8](https://github.com/beryllium-org/linux-beryllium/pull/8) merges into `7.1` — rebuild then to pick it up.
+The branch name is legacy: it now sources the kernel's `7.1` branch, so VP9 Profile 2 (10-bit) is included.
+
+**Known broken until [linux-beryllium#8](https://github.com/beryllium-org/linux-beryllium/pull/8) merges: portrait VP9.** That PR is still open, so `7.1` currently carries Profile 2 *without* the MV/ref stride fix — which is the exact combination measured corrupting on portrait content (clean keyframe, then inter frames decay; 5.4 dB against libvpx on a Rock 5B+). Any VP9 whose width isn't a multiple of 64 is affected: 1080 and 2160 wide, i.e. vertical video and YouTube Shorts. Landscape is unaffected.
+
+So this route gives you 10-bit VP9 *and* broken portrait VP9 until that PR lands. If portrait matters to you, either wait for the merge, or build with `eb20dfb` cherry-picked on top of `7.1` — then rebuild once it's merged.
 
 It installs as its own package (own modules directory and mkinitcpio preset), so the kernel you're running now stays in place and keeps its own GRUB entry — that's your way back. Slower than Path A, since it's a full kernel build on the A76 cores, but it needs no cross-compile setup.
 
