@@ -1,0 +1,6 @@
+=== Gate 1c: nv12_tool compare ===
+len_a: 1382400
+len_b: 1382400
+byte_exact: True
+RESULT: PASS (byte-exact)
+EXIT=0

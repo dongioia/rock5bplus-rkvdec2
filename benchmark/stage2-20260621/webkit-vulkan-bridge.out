@@ -1,0 +1,26 @@
+FEED=vulkan  FUSER_VIDEO0=none
+0:00:01.053428625          2         11 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "decodebin"
+0:00:01.053579417          2         11 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "typefind"
+0:00:01.053759959          2         11 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "queue2"
+0:00:01.158812584          2         27 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "qtdemux"
+0:00:01.160645128          2         27 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "multiqueue"
+0:00:01.170756144          2         27 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "h264parse"
+0:00:01.171423478          2         27 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "capsfilter"
+0:00:01.195040932          2         29 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "v4l2slvideo0h264dec"
+0:00:01.209624997          2         29 ERROR     v4l2codecs-h264dec gstv4l2codech264dec.c:477:gst_v4l2_codec_h264_dec_decide_allocation:<v4l2slvideo0h264dec0> DMABuf caps negotiated without the mandatory support of VideoMeta
+0:00:01.209653872          2         29 ERROR     v4l2codecs-h264dec gstv4l2codech264dec.c:988:gst_v4l2_codec_h264_dec_new_sequence:<v4l2slvideo0h264dec0> Failed to negotiate with downstream
+0:00:01.210815874          2         29 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "input-selector"
+0:00:01.211796459          2         27 WARN                  queue2 gstqueue2.c:3259:gst_queue2_loop:<queue2-0> error: streaming stopped, reason not-negotiated (-4)
+0:00:01.213581462          2          2 ERROR           webkitcommon GStreamerCommon.cpp:1103:operator():<regular-v-0> Got message: error message: 0xffff40036110, time 99:99:99.999999999, seq-num 385, element 'queue2-0', GstMessageError, gerror=(GError)NULL, debug=(string)"../gstreamer/subprojects/gstreamer/plugins/elements/gstqueue2.c\(3259\):\ gst_queue2_loop\ \(\):\ /GstPlayBin:regular-v-0/GstURIDecodeBin:uridecodebin0/GstQueue2:queue2-0:\012streaming\ stopped\,\ reason\ not-negotiated\ \(-4\)", details=(structure)"details\,\ flow-return\=\(int\)-4\;";
+0:00:01.213611795          2          2 ERROR      webkitmediaplayer MediaPlayerPrivateGStreamer.cpp:2150:handleMessage:<regular-v-0> Internal data stream error. (url=http://localhost:8889/case1.mp4) (code=1)
+0:00:01.217671510          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "fakesink"
+0:00:01.218429844          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "autoaudiosink"
+0:00:01.218478553          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "fakesink"
+0:00:01.218530761          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "bin"
+0:00:01.218554970          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "tee"
+0:00:01.218594053          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "queue"
+0:00:01.218630220          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "audioconvert"
+0:00:01.218671345          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "audioconvert"
+0:00:01.218692928          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "audioresample"
+0:00:01.218715970          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "audioresample"
+0:00:01.218740470          2          2 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "volume"

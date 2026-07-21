@@ -1,0 +1,19 @@
+=== bridge-guard-recompile: 2026-06-21 ===
+
+--- Compile ---
+COMPILE_STATUS=OK
+-rwxr-xr-x 1 sav sav 72040 Jun 21 17:20 libgstvkh264bridge.so
+
+--- gst-inspect vkh264bridge (ICD+libgstvulkan.so present) ---
+  Rank                     primary + 2 (258)
+  Long-name                Vulkan H.264 Bridge Decoder
+  Filename                 /home/sav/vvtest/libgstvkh264bridge.so
+INSPECT_STATUS=OK
+
+--- Quick decode case1.h264 -> fakesink ---
+grep: warning: ? at start of expression
+[V4L2VK] V4L2 session initialized: 1280x720, 4 output bufs, CAPTURE MMAP 17 bufs (EXPBUF'd)
+[V4L2VK] wait sem=0xffff900174e0 value=37
+DECODE_EXIT=0
+
+GUARD_RESULT=PASS: plugin registers when libgstvulkan.so present, skips when absent

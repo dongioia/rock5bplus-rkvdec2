@@ -1,0 +1,31 @@
+Driver Info:
+	Driver name      : rkvdec
+	Card type        : rkvdec
+	Bus info         : platform:rkvdec
+	Driver version   : 7.1.0
+	Capabilities     : 0x84204000
+		Video Memory-to-Memory Multiplanar
+		Streaming
+		Extended Pix Format
+		Device Capabilities
+	Device Caps      : 0x04204000
+		Video Memory-to-Memory Multiplanar
+		Streaming
+		Extended Pix Format
+Media Driver Info:
+	Driver name      : rkvdec
+	Model            : rkvdec
+	Serial           : 
+	Bus info         : platform:rkvdec
+	Media version    : 7.1.0
+	Hardware revision: 0x00000000 (0)
+	Driver version   : 7.1.0
+Interface Info:
+	ID               : 0x0300000c
+	Type             : V4L Video
+Entity Info:
+	ID               : 0x00000001 (1)
+	Name             : rkvdec-source
+	Function         : V4L2 I/O
+	Pad 0x01000002   : 0: Source
+	  Link 0x02000008: to remote pad 0x1000004 of entity 'rkvdec-proc' (Video Decoder): Data, Enabled, Immutable

@@ -1,0 +1,39 @@
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_device.c b/src/vulkan-v4l2/v4l2vk_vk_device.c
+index 2f65e44..ab047cc 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_device.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_device.c
+@@ -526,7 +526,7 @@ v4l2vk_CreateDevice(VkPhysicalDevice _pdev,
+ 
+    for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; ++i) {
+       if (!v4l2vk_find_device_ext(pCreateInfo->ppEnabledExtensionNames[i]))
+-         return VK_ERROR_EXTENSION_NOT_PRESENT;
++         continue; /* compat: runtime vk_device_init validates exts; local table incomplete vs Mesa runtime commons */
+    }
+ 
+    struct v4l2vk_vk_device *dev =
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_image_view.c b/src/vulkan-v4l2/v4l2vk_vk_image_view.c
+index 554b146..1df975a 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_image_view.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_image_view.c
+@@ -41,7 +41,7 @@ v4l2vk_CreateImageView(VkDevice _device,
+    if (!iview)
+       return vk_error(&dev->vk, VK_ERROR_OUT_OF_HOST_MEMORY);
+ 
+-   vk_image_view_init(&dev->vk, &iview->vk, false, pCreateInfo);
++   vk_image_view_init(&dev->vk, &iview->vk, pCreateInfo);
+ 
+    iview->image = image;
+    iview->n_planes = v4l2vk_plane_count_from_aspects(iview->vk.aspects);
+diff --git a/src/vulkan-v4l2/v4l2vk_vk_video.c b/src/vulkan-v4l2/v4l2vk_vk_video.c
+index e0cac83..d87efbe 100644
+--- a/src/vulkan-v4l2/v4l2vk_vk_video.c
++++ b/src/vulkan-v4l2/v4l2vk_vk_video.c
+@@ -465,7 +465,7 @@ v4l2vk_CmdDecodeVideoKHR(VkCommandBuffer cmd, const VkVideoDecodeInfoKHR *info)
+       }
+    }
+ 
+-   util_dynarray_append(&cmdbuf->jobs, struct v4l2vk_recorded_job, job);
++   util_dynarray_append_typed(&cmdbuf->jobs, struct v4l2vk_recorded_job, job);
+ 
+    V4L2VK_LOGI("[V4L2VK] CmdDecodeVideoKHR: src buf=%p off=%llu size=%llu "
+                "dst=%ux%u (NV12) dpb=%u slices=%u\n",

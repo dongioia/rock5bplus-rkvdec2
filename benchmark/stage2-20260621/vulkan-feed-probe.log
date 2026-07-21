@@ -1,0 +1,24 @@
+S2.2_VERDICT=PASS
+Reasoning: Variant B (vulkanh264dec->vulkandownload->videoconvert->glimagesink) reached PLAYING+EOS with NO VideoMeta/not-negotiated error. Variant C (fakesink) also PASS. Variant A (vulkansink direct) FAIL=cross-device link error (vulkanh264decoder0->vulkansink0 link fail, expected: both on same Vulkan device needed). PASS verdict on B/C is sufficient: Vulkan feed dodges the VideoMeta negotiation wall. → Go Task 4A (Branch A).
+Date: 2026-06-21T11:24Z
+SBC: rock5b (RK3588 Rock 5B+)
+ICD: ~/vvtest/v4l2vk_icd.aarch64.json (B0 fix, libvulkan_v4l2_video.so)
+Corpus: ~/vvtest/case1.h264 (baseline H264 IDR+P 1280x720)
+Note: GST cache cleared before run (libgstvulkan.so was blacklisted without ICD; with ICD vulkanh264dec registers as 'Vulkan H.264 decoder on V4L2 Vulkan Video Decoder')
+
+---
+
+=== A vulkansink ===
+0:00:00.985891351      57226      57226 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "vulkanh264dec"
+0:00:00.986538285      57226      57226 ERROR           GST_PIPELINE subprojects/gstreamer/gst/parse/grammar.y:1206:gst_parse_perform_link: could not link vulkanh264decoder0 to vulkansink0
+WARNING: erroneous pipeline: could not link vulkanh264decoder0 to vulkansink0
+=== B vulkandownload ===
+0:00:00.173693005      57236      57236 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "vulkanh264dec"
+Got context from element 'vulkanh264decoder0': gst.vulkan.instance=context, gst.vulkan.instance=(GstVulkanInstance)"\(GstVulkanInstance\)\ vulkaninstance1";
+Setting pipeline to PLAYING ...
+Got EOS from element "pipeline0".
+=== C fakesink ===
+0:00:00.176306492      57261      57261 INFO     GST_ELEMENT_FACTORY gstelementfactory.c:490:gst_element_factory_create_with_properties: creating element "vulkanh264dec"
+Got context from element 'vulkanh264decoder0': gst.vulkan.instance=context, gst.vulkan.instance=(GstVulkanInstance)"\(GstVulkanInstance\)\ vulkaninstance1";
+Setting pipeline to PLAYING ...
+Got EOS from element "pipeline0".
